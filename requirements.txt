@@ -1,0 +1,13 @@
+PyQt6>=6.7.0
+numpy~=2.2.0
+pandas>=2.2.0
+open-ephys-python-tools>=1.0.1
+pydantic>=2.11.9
+platformdirs~=4.3.8
+scipy>=1.14.0
+pymatreader>=1.2.0
+tomli>=2.0.0 ; python_version < "3.11"
+pyqt6-tools>=6.7.0.0.3
+pyabf>=2.3.8
+pyedflib>=0.1.42
+pynwb>=4.0.0
