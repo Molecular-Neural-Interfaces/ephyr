@@ -1,0 +1,41 @@
+site_name: Weegit
+site_description: Documentation for Weegit — electrophysiology viewing and labeling
+site_url: https://weegit.readthedocs.io/
+repo_url: https://github.com/weegit/weegit
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+
+nav:
+  - Getting Started: index.md
+  - Installation: installation.md
+  - Files Format: files_format.md
+  - Graphic User Interface:
+      - Main Window: gui/index.md
+      - Menu: gui/menu.md
+      - Signal Panel: gui/signal_panel.md
+      - Settings Panel: gui/settings_panel.md
+  - Add-ons:
+      - Workflow: add_ons/index.md
+      - Usage: add_ons/usage.md
+      - Add-on Development: add_ons/development.md
+  - Analysis: analysis.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - tables
+  - toc:
+      permalink: true
