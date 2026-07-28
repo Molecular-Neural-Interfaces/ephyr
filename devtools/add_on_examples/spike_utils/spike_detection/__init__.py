@@ -28,9 +28,7 @@ from PyQt6.QtWidgets import (
 
 from weegit.core.add_ons.base import BaseAddOn
 from weegit.core.add_ons import (
-    IgnoreEventsRule,
     PipelineSelector,
-    build_valid_mask,
     read_pipeline_store,
 )
 from weegit.logger import weegit_logger
@@ -127,15 +125,20 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
         merge_window.setValue(float(params.get("merge_window_ms", 1.0)))
         form.addRow("Merge window (ms):", merge_window)
 
-        events_list, before_spin, after_spin = self.build_ignore_events_controls(
+        ep_sel = self.load_event_period_selection(common)
+        events_list, before_spin, after_spin, events_mode_combo = self.build_ignore_events_controls(
             form,
             session_manager,
-            selected_names=common.get("ignore_event_names", []),
-            before_ms=float(common.get("ignore_before_ms", 0.0)),
-            after_ms=float(common.get("ignore_after_ms", 0.0)),
+            selected_names=ep_sel["event_names"],
+            before_ms=ep_sel["event_before_ms"],
+            after_ms=ep_sel["event_after_ms"],
+            selection_mode=ep_sel["events_mode"],
         )
-        periods_list = self.build_ignore_periods_controls(
-            form, session_manager, selected_names=common.get("ignore_period_names", [])
+        periods_list, periods_mode_combo = self.build_ignore_periods_controls(
+            form,
+            session_manager,
+            selected_names=ep_sel["period_names"],
+            selection_mode=ep_sel["periods_mode"],
         )
 
         scroll_area.setWidget(scroll_widget)
@@ -160,10 +163,14 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
             QMessageBox.warning(dialog, "Spike detection", "Select at least one polarity.")
             return None
 
-        ignore_event_names = self.selected_names_from_list(events_list)
-        ignore_before_ms = float(before_spin.value())
-        ignore_after_ms = float(after_spin.value())
-        ignore_period_names = self.selected_names_from_list(periods_list)
+        selection = {
+            "event_names": self.selected_names_from_list(events_list),
+            "event_before_ms": float(before_spin.value()),
+            "event_after_ms": float(after_spin.value()),
+            "events_mode": self.selection_mode_from_combo(events_mode_combo),
+            "period_names": self.selected_names_from_list(periods_list),
+            "periods_mode": self.selection_mode_from_combo(periods_mode_combo),
+        }
         sigma_params = {
             "window_ms": float(sigma_window.value()),
             "step_ms": float(sigma_step.value()),
@@ -176,10 +183,7 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
             {
                 "group_idx": int(group_combo.currentData()),
                 "channel_indexes": channels,
-                "ignore_event_names": ignore_event_names,
-                "ignore_before_ms": ignore_before_ms,
-                "ignore_after_ms": ignore_after_ms,
-                "ignore_period_names": ignore_period_names,
+                **self.event_period_selection_to_common(selection),
             },
         )
         self.save_params(
@@ -206,10 +210,7 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
             "detect_positive": detect_positive.isChecked(),
             "merge_window_ms": float(merge_window.value()),
             "sigma_params": sigma_params,
-            "ignore_event_names": ignore_event_names,
-            "ignore_before_ms": ignore_before_ms,
-            "ignore_after_ms": ignore_after_ms,
-            "ignore_period_names": ignore_period_names,
+            "selection": selection,
         }
 
     def run(self, session_manager, add_on_data_dir):
@@ -234,25 +235,15 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
         processed = np.asarray(processed, dtype=np.float64)
 
         end_second = sweep_points / sample_rate
-        event_times = self.event_times_by_name_for_window(session_manager, sweep_idx, 0.0, end_second)
-        period_intervals = self.period_intervals_for_window(
-            session_manager, sweep_idx, 0.0, end_second, params["ignore_period_names"]
-        )
-        ignore_rules: List[IgnoreEventsRule] = []
-        if params["ignore_event_names"] and (params["ignore_before_ms"] > 0.0 or params["ignore_after_ms"] > 0.0):
-            ignore_rules = [
-                IgnoreEventsRule(
-                    event_names=params["ignore_event_names"],
-                    before_ms=params["ignore_before_ms"],
-                    after_ms=params["ignore_after_ms"],
-                )
-            ]
-        valid_mask = build_valid_mask(
-            sweep_points,
-            sample_rate,
-            event_times_by_name=event_times,
-            event_rules=ignore_rules,
-            period_intervals_s=period_intervals,
+        selection = params["selection"]
+        valid_mask = self.build_selection_valid_mask(
+            session_manager,
+            n_samples=sweep_points,
+            sample_rate=sample_rate,
+            sweep_idx=sweep_idx,
+            start_second=0.0,
+            end_second=end_second,
+            selection=selection,
         )
 
         threshold = params["threshold"]
@@ -320,10 +311,12 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
             detect_positive=detect_positive,
             detect_negative=detect_negative,
             merge_window_ms=merge_window_ms,
-            ignore_event_names=params["ignore_event_names"],
-            ignore_before_ms=params["ignore_before_ms"],
-            ignore_after_ms=params["ignore_after_ms"],
-            ignore_period_names=params["ignore_period_names"],
+            ignore_event_names=list(selection.get("event_names") or []),
+            ignore_before_ms=float(selection.get("event_before_ms", 0.0)),
+            ignore_after_ms=float(selection.get("event_after_ms", 0.0)),
+            ignore_period_names=list(selection.get("period_names") or []),
+            events_mode=str(selection.get("events_mode", "ignore")),
+            periods_mode=str(selection.get("periods_mode", "ignore")),
             spikes_by_channel=spikes_by_channel,
         )
         output_path = out_dir / f"{sweep_idx}.spikes.json"

@@ -1,10 +1,11 @@
 """Events detection add-on.
 
-Runnable. Merges the analog (paired-impulse) and digital (per-channel peak)
-detection strategies into a single add-on with a configurable preprocessing
-pipeline and channel selection. Detected events are appended to the session
-vocabulary; if more than 1000 events are found, the user is asked to confirm
-before adding them (to avoid freezing the interface).
+Runnable. Two detection modes:
+- TTL: threshold crossings on rising or falling edge
+- Above threshold: peak detection above a height with min distance
+
+Detected events are appended to the session vocabulary; if more than 1000
+events are found, the user must confirm before adding them.
 """
 
 from __future__ import annotations
@@ -39,6 +40,58 @@ from weegit.logger import weegit_logger
 from weegit_add_ons.labeling_utils._common import LabelingUtilsBase
 
 CONFIRM_THRESHOLD = 1000
+MODE_TTL = "ttl"
+MODE_ABOVE = "above_threshold"
+EDGE_RISING = "rising"
+EDGE_FALLING = "falling"
+
+
+def detect_ttl_edges(
+    signal_1d: np.ndarray,
+    threshold: float,
+    edge: str,
+    min_distance_samples: int = 1,
+) -> np.ndarray:
+    """Return sample indices of TTL threshold crossings."""
+    x = np.asarray(signal_1d, dtype=np.float64)
+    if x.size < 2:
+        return np.asarray([], dtype=np.int64)
+    prev = x[:-1]
+    curr = x[1:]
+    if edge == EDGE_FALLING:
+        crossings = np.flatnonzero((prev >= threshold) & (curr < threshold)) + 1
+    else:
+        crossings = np.flatnonzero((prev < threshold) & (curr >= threshold)) + 1
+    if crossings.size == 0:
+        return crossings.astype(np.int64)
+    distance = max(1, int(min_distance_samples))
+    if distance <= 1:
+        return crossings.astype(np.int64)
+    kept = [int(crossings[0])]
+    for idx in crossings[1:]:
+        if int(idx) - kept[-1] >= distance:
+            kept.append(int(idx))
+    return np.asarray(kept, dtype=np.int64)
+
+
+def detect_above_threshold(
+    signal_1d: np.ndarray,
+    height: float,
+    min_distance_samples: int = 1,
+) -> np.ndarray:
+    """Return peak indices above ``height`` (supports negative height)."""
+    x = np.asarray(signal_1d, dtype=np.float64)
+    search = x
+    search_height = float(height)
+    if height < 0:
+        search = -x
+        search_height = -height
+    peaks, _props = find_peaks(
+        search,
+        height=search_height,
+        distance=max(1, int(min_distance_samples)),
+    )
+    return np.asarray(peaks, dtype=np.int64)
 
 
 class EventsDetectionAddOn(LabelingUtilsBase, BaseAddOn):
@@ -56,7 +109,7 @@ class EventsDetectionAddOn(LabelingUtilsBase, BaseAddOn):
         dialog = QDialog()
         dialog.setWindowTitle("Events detection")
         dialog.setMinimumWidth(540)
-        dialog.setFixedHeight(600)
+        dialog.setFixedHeight(620)
         outer = QVBoxLayout(dialog)
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -78,39 +131,53 @@ class EventsDetectionAddOn(LabelingUtilsBase, BaseAddOn):
         form.addRow("Preprocessing pipeline:", pipeline_selector)
 
         mode_combo = QComboBox()
-        mode_combo.addItem("Digital (per-channel peaks)", "digital")
-        mode_combo.addItem("Analog (paired impulses)", "analog")
-        idx = mode_combo.findData(str(params.get("mode", "digital")))
+        mode_combo.addItem("TTL", MODE_TTL)
+        mode_combo.addItem("Above threshold", MODE_ABOVE)
+        saved_mode = str(params.get("mode", MODE_TTL))
+        if saved_mode in {"digital", "analog"}:
+            saved_mode = MODE_ABOVE if saved_mode == "digital" else MODE_TTL
+        idx = mode_combo.findData(saved_mode)
         mode_combo.setCurrentIndex(max(0, idx))
         form.addRow("Detection mode:", mode_combo)
-
-        polarity_combo = QComboBox()
-        polarity_combo.addItem("Upward", "up")
-        polarity_combo.addItem("Downward", "down")
-        idx = polarity_combo.findData(str(params.get("polarity", "up")))
-        polarity_combo.setCurrentIndex(max(0, idx))
-        form.addRow("Polarity:", polarity_combo)
 
         name_edit = QLineEdit(str(params.get("event_name", "")))
         form.addRow("Event name:", name_edit)
 
+        # TTL-specific
+        edge_combo = QComboBox()
+        edge_combo.addItem("Rising edge", EDGE_RISING)
+        edge_combo.addItem("Falling edge", EDGE_FALLING)
+        edge_idx = edge_combo.findData(str(params.get("edge", EDGE_RISING)))
+        edge_combo.setCurrentIndex(max(0, edge_idx))
+        form.addRow("TTL edge:", edge_combo)
+
+        ttl_threshold_spin = QDoubleSpinBox()
+        ttl_threshold_spin.setDecimals(6)
+        ttl_threshold_spin.setRange(-1e9, 1e9)
+        ttl_threshold_spin.setValue(float(params.get("ttl_threshold", params.get("height", 0.5))))
+        form.addRow("TTL threshold:", ttl_threshold_spin)
+
+        # Above-threshold specific
         height_spin = QDoubleSpinBox()
         height_spin.setDecimals(6)
-        height_spin.setRange(0.0, 1e9)
+        height_spin.setRange(-1e9, 1e9)
         height_spin.setValue(float(params.get("height", 50.0)))
         form.addRow("Height (threshold):", height_spin)
 
         distance_spin = QDoubleSpinBox()
         distance_spin.setDecimals(3)
         distance_spin.setRange(0.0, 1e9)
-        distance_spin.setValue(float(params.get("distance_ms", 500.0)))
+        distance_spin.setValue(float(params.get("distance_ms", 1.0)))
         form.addRow("Min distance (ms):", distance_spin)
 
-        stim_spin = QDoubleSpinBox()
-        stim_spin.setDecimals(3)
-        stim_spin.setRange(-1e6, 1e6)
-        stim_spin.setValue(float(params.get("stim_offset_ms", 0.0)))
-        form.addRow("Analog stim offset (ms):", stim_spin)
+        def _sync_mode_visibility() -> None:
+            is_ttl = str(mode_combo.currentData()) == MODE_TTL
+            edge_combo.setEnabled(is_ttl)
+            ttl_threshold_spin.setEnabled(is_ttl)
+            height_spin.setEnabled(not is_ttl)
+
+        mode_combo.currentIndexChanged.connect(lambda _i: _sync_mode_visibility())
+        _sync_mode_visibility()
 
         scroll_area.setWidget(scroll_widget)
         outer.addWidget(scroll_area)
@@ -139,32 +206,22 @@ class EventsDetectionAddOn(LabelingUtilsBase, BaseAddOn):
             QMessageBox.warning(dialog, "Events detection", "Event name must be unique.")
             return None
 
+        mode = str(mode_combo.currentData())
         self.save_common(
             add_on_data_dir,
             {"group_idx": int(group_combo.currentData()), "channel_indexes": channels},
         )
-        self.save_params(
-            add_on_data_dir,
-            {
-                "pipeline": pipeline_selector.current_pipeline_name(),
-                "mode": str(mode_combo.currentData()),
-                "polarity": str(polarity_combo.currentData()),
-                "event_name": event_name,
-                "height": float(height_spin.value()),
-                "distance_ms": float(distance_spin.value()),
-                "stim_offset_ms": float(stim_spin.value()),
-            },
-        )
-        return {
-            "channels": channels,
+        payload = {
             "pipeline": pipeline_selector.current_pipeline_name(),
-            "mode": str(mode_combo.currentData()),
-            "polarity": str(polarity_combo.currentData()),
+            "mode": mode,
             "event_name": event_name,
+            "edge": str(edge_combo.currentData()),
+            "ttl_threshold": float(ttl_threshold_spin.value()),
             "height": float(height_spin.value()),
             "distance_ms": float(distance_spin.value()),
-            "stim_offset_ms": float(stim_spin.value()),
         }
+        self.save_params(add_on_data_dir, payload)
+        return {"channels": channels, **payload}
 
     def run(self, session_manager, add_on_data_dir):
         header = session_manager.header
@@ -181,9 +238,12 @@ class EventsDetectionAddOn(LabelingUtilsBase, BaseAddOn):
         sample_rate = float(header.sample_rate)
         channels = params["channels"]
         pipeline = read_pipeline_store(self.pipelines_path(add_on_data_dir)).get(params["pipeline"])
-        downward = params["polarity"] == "down"
-        analog_mode = params["mode"] == "analog"
-        distance_samples = max(1, int((params["distance_ms"] * sample_rate) / 1000.0)) if params["distance_ms"] > 0 else 1
+        mode = str(params["mode"])
+        distance_samples = (
+            max(1, int((params["distance_ms"] * sample_rate) / 1000.0))
+            if params["distance_ms"] > 0
+            else 1
+        )
 
         detected: List[Tuple[int, float]] = []
         for sweep_idx in range(total_sweeps):
@@ -200,20 +260,25 @@ class EventsDetectionAddOn(LabelingUtilsBase, BaseAddOn):
 
             for row_idx in range(processed.shape[0]):
                 signal = processed[row_idx]
-                search_signal = -signal if downward else signal
                 try:
-                    if analog_mode:
-                        peaks, _props = find_peaks(search_signal, height=params["height"])
-                        peaks = peaks[0:-1:2]
+                    if mode == MODE_TTL:
+                        peaks = detect_ttl_edges(
+                            signal,
+                            threshold=float(params["ttl_threshold"]),
+                            edge=str(params["edge"]),
+                            min_distance_samples=distance_samples,
+                        )
                     else:
-                        peaks, _props = find_peaks(search_signal, height=params["height"], distance=distance_samples)
+                        peaks = detect_above_threshold(
+                            signal,
+                            height=float(params["height"]),
+                            min_distance_samples=distance_samples,
+                        )
                 except Exception as e:
                     weegit_logger().debug(str(e))
                     continue
                 for peak_sample in peaks:
                     time_ms = (float(peak_sample) * 1000.0) / sample_rate
-                    if analog_mode:
-                        time_ms += float(params["stim_offset_ms"])
                     detected.append((sweep_idx, float(time_ms)))
             yield {
                 "progress": int(((sweep_idx + 1) / total_sweeps) * 90),
@@ -221,7 +286,11 @@ class EventsDetectionAddOn(LabelingUtilsBase, BaseAddOn):
             }
 
         if not detected:
-            QMessageBox.information(None, "Events detection", "No events were detected. Vocabulary was not created.")
+            QMessageBox.information(
+                None,
+                "Events detection",
+                "No events were detected. Vocabulary was not created.",
+            )
             return
 
         n_detected = len(detected)

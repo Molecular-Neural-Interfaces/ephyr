@@ -186,8 +186,8 @@ class GuiSetup(BaseModel):
 
     current_sweep_idx: int = 0
     start_point: int = 0
-    duration_ms: int = 10000
-    time_step_ms: int = 1000
+    duration_ms: int = settings.DEFAULT_DURATION
+    time_step_ms: int = settings.DEFAULT_TIME_STEP
     autoscroll_step_interval_ms: int = settings.AUTO_SCROLL_STEP_INTERVAL_MS
     number_of_dots_to_display: int = settings.DEFAULT_NUMBER_OF_DOTS_TO_DISPLAY
     channels_groups: List[ChannelGroup] = Field(default_factory=list)

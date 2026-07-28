@@ -53,6 +53,8 @@ class SpikesPayload(BaseModel):
     ignore_before_ms: float = 0.0
     ignore_after_ms: float = 0.0
     ignore_period_names: List[str] = Field(default_factory=list)
+    events_mode: str = "ignore"
+    periods_mode: str = "ignore"
     spikes_by_channel: Dict[int, List[SpikePoint]] = Field(default_factory=dict)
 
 

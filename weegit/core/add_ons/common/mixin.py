@@ -18,11 +18,17 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
+    QHBoxLayout,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QPushButton,
 )
 
+from weegit.core.add_ons.common.ignore import (
+    SELECTION_MODE_APPLY,
+    SELECTION_MODE_IGNORE,
+)
 from weegit.core.add_ons.common.preprocessing import (
     PIPELINES_FILENAME,
     PipelineSpec,
@@ -137,6 +143,29 @@ class WeegitAddOnMixin:
 
         group_combo.currentIndexChanged.connect(lambda _idx: rebuild())
         rebuild()
+
+        btn_row = QHBoxLayout()
+        btn_all = QPushButton("Select all")
+        btn_odd = QPushButton("Select odd")
+        btn_even = QPushButton("Select even")
+        btn_row.addWidget(btn_all)
+        btn_row.addWidget(btn_odd)
+        btn_row.addWidget(btn_even)
+        btn_row.addStretch(1)
+        form.addRow("", btn_row)
+
+        def _select_by_predicate(predicate) -> None:
+            # Clear previous selection, then select matching rows only.
+            for row in range(channels_list.count()):
+                item = channels_list.item(row)
+                if item is None:
+                    continue
+                item.setSelected(bool(predicate(row, item)))
+
+        btn_all.clicked.connect(lambda: _select_by_predicate(lambda _row, _item: True))
+        btn_odd.clicked.connect(lambda: _select_by_predicate(lambda row, _item: row % 2 == 0))
+        btn_even.clicked.connect(lambda: _select_by_predicate(lambda row, _item: row % 2 == 1))
+
         return group_combo, channels_list
 
     @staticmethod
@@ -173,6 +202,15 @@ class WeegitAddOnMixin:
                 names.append(name)
         return sorted(set(names))
 
+    @staticmethod
+    def _selection_mode_combo(current: str = SELECTION_MODE_IGNORE) -> QComboBox:
+        combo = QComboBox()
+        combo.addItem("Ignore selected", SELECTION_MODE_IGNORE)
+        combo.addItem("Apply to selected", SELECTION_MODE_APPLY)
+        idx = combo.findData(str(current or SELECTION_MODE_IGNORE))
+        combo.setCurrentIndex(max(0, idx))
+        return combo
+
     def build_ignore_events_controls(
         self,
         form: QFormLayout,
@@ -180,7 +218,9 @@ class WeegitAddOnMixin:
         selected_names: Optional[List[str]] = None,
         before_ms: float = 0.0,
         after_ms: float = 0.0,
-    ) -> Tuple[QListWidget, QDoubleSpinBox, QDoubleSpinBox]:
+        selection_mode: str = SELECTION_MODE_IGNORE,
+    ) -> Tuple[QListWidget, QDoubleSpinBox, QDoubleSpinBox, QComboBox]:
+        """Build Select events controls (name kept for call-site compatibility)."""
         events_list = QListWidget()
         events_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         selected = set(selected_names or [])
@@ -189,27 +229,32 @@ class WeegitAddOnMixin:
             item.setData(Qt.ItemDataRole.UserRole, name)
             item.setSelected(name in selected)
             events_list.addItem(item)
-        form.addRow("Ignore events:", events_list)
+        form.addRow("Select events:", events_list)
+
+        mode_combo = self._selection_mode_combo(selection_mode)
+        form.addRow("Events action:", mode_combo)
 
         before_spin = QDoubleSpinBox()
         before_spin.setRange(0.0, 60_000.0)
         before_spin.setDecimals(3)
         before_spin.setValue(float(before_ms))
-        form.addRow("Ignore before (ms):", before_spin)
+        form.addRow("Window before (ms):", before_spin)
 
         after_spin = QDoubleSpinBox()
         after_spin.setRange(0.0, 60_000.0)
         after_spin.setDecimals(3)
         after_spin.setValue(float(after_ms))
-        form.addRow("Ignore after (ms):", after_spin)
-        return events_list, before_spin, after_spin
+        form.addRow("Window after (ms):", after_spin)
+        return events_list, before_spin, after_spin, mode_combo
 
     def build_ignore_periods_controls(
         self,
         form: QFormLayout,
         session_manager,
         selected_names: Optional[List[str]] = None,
-    ) -> QListWidget:
+        selection_mode: str = SELECTION_MODE_IGNORE,
+    ) -> Tuple[QListWidget, QComboBox]:
+        """Build Select periods controls (name kept for call-site compatibility)."""
         periods_list = QListWidget()
         periods_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         selected = set(selected_names or [])
@@ -218,8 +263,11 @@ class WeegitAddOnMixin:
             item.setData(Qt.ItemDataRole.UserRole, name)
             item.setSelected(name in selected)
             periods_list.addItem(item)
-        form.addRow("Ignore periods:", periods_list)
-        return periods_list
+        form.addRow("Select periods:", periods_list)
+
+        mode_combo = self._selection_mode_combo(selection_mode)
+        form.addRow("Periods action:", mode_combo)
+        return periods_list, mode_combo
 
     @staticmethod
     def selected_names_from_list(list_widget: QListWidget) -> List[str]:
@@ -229,6 +277,110 @@ class WeegitAddOnMixin:
             if value:
                 names.append(str(value))
         return sorted(set(names))
+
+    @staticmethod
+    def selection_mode_from_combo(combo: QComboBox) -> str:
+        data = combo.currentData()
+        mode = str(data) if data is not None else SELECTION_MODE_IGNORE
+        return mode if mode in (SELECTION_MODE_IGNORE, SELECTION_MODE_APPLY) else SELECTION_MODE_IGNORE
+
+    def load_event_period_selection(self, common: Dict[str, Any]) -> Dict[str, Any]:
+        """Load selection params with backward-compatible ignore_* keys."""
+        return {
+            "event_names": list(
+                common.get("event_names")
+                or common.get("ignore_event_names")
+                or []
+            ),
+            "event_before_ms": float(
+                common.get("event_before_ms", common.get("ignore_before_ms", 0.0))
+            ),
+            "event_after_ms": float(
+                common.get("event_after_ms", common.get("ignore_after_ms", 0.0))
+            ),
+            "events_mode": str(common.get("events_mode", SELECTION_MODE_IGNORE)),
+            "period_names": list(
+                common.get("period_names")
+                or common.get("ignore_period_names")
+                or []
+            ),
+            "periods_mode": str(common.get("periods_mode", SELECTION_MODE_IGNORE)),
+        }
+
+    def event_period_selection_to_common(self, selection: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist selection under both new and legacy keys."""
+        event_names = list(selection.get("event_names") or [])
+        period_names = list(selection.get("period_names") or [])
+        before_ms = float(selection.get("event_before_ms", 0.0))
+        after_ms = float(selection.get("event_after_ms", 0.0))
+        events_mode = str(selection.get("events_mode", SELECTION_MODE_IGNORE))
+        periods_mode = str(selection.get("periods_mode", SELECTION_MODE_IGNORE))
+        return {
+            "event_names": event_names,
+            "event_before_ms": before_ms,
+            "event_after_ms": after_ms,
+            "events_mode": events_mode,
+            "period_names": period_names,
+            "periods_mode": periods_mode,
+            # Legacy keys so older code paths keep working.
+            "ignore_event_names": event_names,
+            "ignore_before_ms": before_ms,
+            "ignore_after_ms": after_ms,
+            "ignore_period_names": period_names,
+        }
+
+    def build_selection_valid_mask(
+        self,
+        session_manager,
+        *,
+        n_samples: int,
+        sample_rate: float,
+        sweep_idx: int,
+        start_second: float,
+        end_second: float,
+        selection: Dict[str, Any],
+    ) -> np.ndarray:
+        """Build keep-mask from Select events/periods + Ignore/Apply modes."""
+        from weegit.core.add_ons.common.ignore import IgnoreEventsRule, build_valid_mask
+
+        event_names = list(selection.get("event_names") or [])
+        before_ms = float(selection.get("event_before_ms", 0.0))
+        after_ms = float(selection.get("event_after_ms", 0.0))
+        events_mode = str(selection.get("events_mode", SELECTION_MODE_IGNORE))
+        period_names = list(selection.get("period_names") or [])
+        periods_mode = str(selection.get("periods_mode", SELECTION_MODE_IGNORE))
+
+        event_times = self.event_times_by_name_for_window(
+            session_manager, sweep_idx, start_second, end_second
+        )
+        period_intervals = self.period_intervals_for_window(
+            session_manager, sweep_idx, start_second, end_second, period_names
+        )
+        event_rules = []
+        if event_names:
+            use_before = before_ms
+            use_after = after_ms
+            if events_mode == SELECTION_MODE_APPLY and before_ms <= 0.0 and after_ms <= 0.0:
+                # Keep at least one sample around each event.
+                use_after = max(1000.0 / float(sample_rate), 0.0) if sample_rate > 0 else 0.0
+            if events_mode == SELECTION_MODE_APPLY or before_ms > 0.0 or after_ms > 0.0:
+                event_rules = [
+                    IgnoreEventsRule(
+                        event_names=event_names,
+                        before_ms=use_before,
+                        after_ms=use_after,
+                    )
+                ]
+
+        return build_valid_mask(
+            n_samples,
+            sample_rate,
+            event_times_by_name=event_times,
+            event_rules=event_rules,
+            events_mode=events_mode,
+            period_intervals_s=period_intervals,
+            periods_mode=periods_mode,
+        )
 
     # ---- Time resolution ----
     def event_times_by_name_for_window(

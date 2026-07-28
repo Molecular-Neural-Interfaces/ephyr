@@ -8,7 +8,6 @@ overlap) are configurable.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,9 +29,7 @@ from scipy.signal import welch
 
 from weegit.core.add_ons.base import BaseAddOn
 from weegit.core.add_ons import (
-    IgnoreEventsRule,
     PipelineSelector,
-    build_valid_mask,
     read_pipeline_store,
 )
 from weegit.logger import weegit_logger
@@ -115,15 +112,20 @@ class PowerSpectralDensityPlotAddOn(SignalUtilsBase, BaseAddOn):
         scale_combo.setCurrentText(str(params.get("scale", "dB (10*log10)")))
         form.addRow("Y scale:", scale_combo)
 
-        events_list, before_spin, after_spin = self.build_ignore_events_controls(
+        ep_sel = self.load_event_period_selection(common)
+        events_list, before_spin, after_spin, events_mode_combo = self.build_ignore_events_controls(
             form,
             session_manager,
-            selected_names=common.get("ignore_event_names", []),
-            before_ms=float(common.get("ignore_before_ms", 0.0)),
-            after_ms=float(common.get("ignore_after_ms", 0.0)),
+            selected_names=ep_sel["event_names"],
+            before_ms=ep_sel["event_before_ms"],
+            after_ms=ep_sel["event_after_ms"],
+            selection_mode=ep_sel["events_mode"],
         )
-        periods_list = self.build_ignore_periods_controls(
-            form, session_manager, selected_names=common.get("ignore_period_names", [])
+        periods_list, periods_mode_combo = self.build_ignore_periods_controls(
+            form,
+            session_manager,
+            selected_names=ep_sel["period_names"],
+            selection_mode=ep_sel["periods_mode"],
         )
 
         plot_image_checkbox = QCheckBox("Plot image")
@@ -159,20 +161,21 @@ class PowerSpectralDensityPlotAddOn(SignalUtilsBase, BaseAddOn):
             QMessageBox.warning(dialog, "Power spectral density", "Freq max must be greater than freq min.")
             return None
 
-        ignore_event_names = self.selected_names_from_list(events_list)
-        ignore_before_ms = float(before_spin.value())
-        ignore_after_ms = float(after_spin.value())
-        ignore_period_names = self.selected_names_from_list(periods_list)
+        selection = {
+            "event_names": self.selected_names_from_list(events_list),
+            "event_before_ms": float(before_spin.value()),
+            "event_after_ms": float(after_spin.value()),
+            "events_mode": self.selection_mode_from_combo(events_mode_combo),
+            "period_names": self.selected_names_from_list(periods_list),
+            "periods_mode": self.selection_mode_from_combo(periods_mode_combo),
+        }
 
         self.save_common(
             add_on_data_dir,
             {
                 "group_idx": int(group_combo.currentData()),
                 "channel_indexes": channels,
-                "ignore_event_names": ignore_event_names,
-                "ignore_before_ms": ignore_before_ms,
-                "ignore_after_ms": ignore_after_ms,
-                "ignore_period_names": ignore_period_names,
+                **self.event_period_selection_to_common(selection),
             },
         )
         self.save_params(
@@ -199,10 +202,7 @@ class PowerSpectralDensityPlotAddOn(SignalUtilsBase, BaseAddOn):
             "nperseg": int(nperseg_spin.value()),
             "overlap_pct": int(overlap_spin.value()),
             "scale": scale_combo.currentText(),
-            "ignore_event_names": ignore_event_names,
-            "ignore_before_ms": ignore_before_ms,
-            "ignore_after_ms": ignore_after_ms,
-            "ignore_period_names": ignore_period_names,
+            "selection": selection,
             "plot_image": plot_image_checkbox.isChecked(),
         }
 
@@ -229,25 +229,14 @@ class PowerSpectralDensityPlotAddOn(SignalUtilsBase, BaseAddOn):
         )
         processed = np.asarray(processed, dtype=np.float64)
 
-        event_times = self.event_times_by_name_for_window(session_manager, sweep_idx, start_second, end_second)
-        period_intervals = self.period_intervals_for_window(
-            session_manager, sweep_idx, start_second, end_second, params["ignore_period_names"]
-        )
-        event_rules: List[IgnoreEventsRule] = []
-        if params["ignore_event_names"] and (params["ignore_before_ms"] > 0.0 or params["ignore_after_ms"] > 0.0):
-            event_rules = [
-                IgnoreEventsRule(
-                    event_names=params["ignore_event_names"],
-                    before_ms=params["ignore_before_ms"],
-                    after_ms=params["ignore_after_ms"],
-                )
-            ]
-        valid_mask = build_valid_mask(
-            n_samples,
-            sample_rate,
-            event_times_by_name=event_times,
-            event_rules=event_rules,
-            period_intervals_s=period_intervals,
+        valid_mask = self.build_selection_valid_mask(
+            session_manager,
+            n_samples=n_samples,
+            sample_rate=sample_rate,
+            sweep_idx=sweep_idx,
+            start_second=start_second,
+            end_second=end_second,
+            selection=params["selection"],
         )
 
         nperseg = min(int(params["nperseg"]), n_samples)

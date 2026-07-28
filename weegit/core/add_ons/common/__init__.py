@@ -3,6 +3,9 @@
 from weegit.core.add_ons.common.ignore import (
     IgnoreEventsRule,
     IgnorePeriodsRule,
+    SELECTION_MODE_APPLY,
+    SELECTION_MODE_IGNORE,
+    SELECTION_MODES,
     build_valid_mask,
 )
 from weegit.core.add_ons.common.mixin import WeegitAddOnMixin
@@ -33,6 +36,9 @@ __all__ = [
     "FilterEditor",
     "IgnoreEventsRule",
     "IgnorePeriodsRule",
+    "SELECTION_MODE_APPLY",
+    "SELECTION_MODE_IGNORE",
+    "SELECTION_MODES",
     "PipelineBuilderDialog",
     "PipelineSelector",
     "PipelineSpec",
