@@ -31,9 +31,9 @@ class RightPanelWidgetEnum(Enum):
     @staticmethod
     def widgets_order():
         return [
-            RightPanelWidgetEnum.ANALYSIS,
             RightPanelWidgetEnum.SIGNAL_SETTINGS,
             RightPanelWidgetEnum.INFORMATION,
+            RightPanelWidgetEnum.ANALYSIS,
             RightPanelWidgetEnum.LOGS,
         ]
 

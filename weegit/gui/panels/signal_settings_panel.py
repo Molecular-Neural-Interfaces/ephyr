@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
 from typing import Dict, List, Optional, Tuple
 
 from weegit import settings
+from weegit.core.global_storage import GuiMode
 from weegit.core.weegit_session import ChannelsLayout, GroupLayout, ChannelGroup
 from weegit.gui.dialogs.header_units_management_dialog import HeaderUnitsManagementDialog
 from weegit.gui._utils import milliseconds_to_readable, sample_rate_to_readable
@@ -609,8 +610,8 @@ class SignalSettingsPanel(QWidget):
         dots_row.addStretch(1)
         self.channels_layout.addLayout(dots_row)
 
-        mapping_group = QGroupBox("Channels mapping image")
-        mapping_layout = QVBoxLayout(mapping_group)
+        self.mapping_group = QGroupBox("Channels mapping image")
+        mapping_layout = QVBoxLayout(self.mapping_group)
         buttons_layout = QHBoxLayout()
         self.btn_attach_link = QPushButton("Attach link")
         self.btn_attach_file = QPushButton("Attach file")
@@ -630,7 +631,7 @@ class SignalSettingsPanel(QWidget):
         self.mapping_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.mapping_image_label.setMinimumWidth(settings.CHANNELS_MAPPING_IMG_DEFAULT_WIDTH)
         mapping_layout.addWidget(self.mapping_image_label)
-        self.channels_layout.addWidget(mapping_group)
+        self.channels_layout.addWidget(self.mapping_group)
 
         instructions = QLabel("Drag&drop tabs to reorder groups. Select multiple channels, then Move selected to target group.")
         instructions.setWordWrap(True)
@@ -649,6 +650,15 @@ class SignalSettingsPanel(QWidget):
         self.groups_tabs.setMovable(True)
         self.channels_layout.addWidget(self.groups_tabs)
         layout.addStretch(1)
+
+        # Expert-only fields are hidden until apply_gui_mode() enables them.
+        self.apply_gui_mode(GuiMode.BEGINNER)
+
+    def apply_gui_mode(self, gui_mode: GuiMode):
+        is_expert = gui_mode == GuiMode.EXPERT
+        self.number_of_dots_label.setVisible(is_expert)
+        self.number_of_dots_spinbox.setVisible(is_expert)
+        self.mapping_group.setVisible(is_expert)
 
     def connect_signals(self):
         self.current_sweep_spinbox.valueChanged.connect(lambda value: self._session_manager.set_current_sweep_idx(value - 1))

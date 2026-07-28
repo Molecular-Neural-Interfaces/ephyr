@@ -1,4 +1,5 @@
 import os.path
+from enum import Enum
 from pathlib import Path
 from typing import List
 
@@ -9,8 +10,21 @@ from weegit import settings
 from weegit.core.exceptions import BrokenGlobalStorageFileError
 
 
+class GuiMode(str, Enum):
+    BEGINNER = "beginner"
+    EXPERT = "expert"
+
+    @property
+    def label(self) -> str:
+        return {
+            GuiMode.BEGINNER: "Beginner mode",
+            GuiMode.EXPERT: "Expert mode",
+        }[self]
+
+
 class GlobalStorage(BaseModel):
     recent_experiments: List[Path] = []
+    gui_mode: GuiMode = GuiMode.BEGINNER
 
     def update_recent_experiments_list(self, opened_weegit_experiment_folder: Path, to_delete: bool):
         try:
@@ -43,6 +57,14 @@ class GlobalStorageManager:
     @property
     def recent_experiments(self):
         return self._global_storage.recent_experiments
+
+    @property
+    def gui_mode(self) -> GuiMode:
+        return self._global_storage.gui_mode
+
+    def set_gui_mode(self, gui_mode: GuiMode):
+        self._global_storage.gui_mode = gui_mode
+        self._save_global_storage()
 
     def update_recent_experiments_list(self, opened_weegit_experiment_folder: Path, to_delete: bool = False):
         self._global_storage.update_recent_experiments_list(opened_weegit_experiment_folder, to_delete)

@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QFileDialog,
     QApplication, QStatusBar, QSizePolicy, QMessageBox, QProgressDialog,
-    QFrame, QScrollArea, QStackedWidget,
+    QFrame, QScrollArea, QStackedWidget, QComboBox,
 )
 
 from weegit import settings
@@ -31,7 +31,7 @@ from weegit import version
 from weegit.gui.mixins.qwidget_mixin import QWidgetMixin
 from weegit.gui._utils import capture_widget_to_file
 from weegit.core.weegit_session import WeegitSessionManager, RightPanelWidgetEnum, UserSession
-from weegit.core.global_storage import GlobalStorageManager
+from weegit.core.global_storage import GlobalStorageManager, GuiMode
 from weegit.converter.weegit_io import WeegitIO
 from weegit.converter.legacy_mat_events import (
     LegacyMatEventsImportError,
@@ -172,6 +172,21 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.right_panel_layout = QVBoxLayout(self.right_panel_container)
         self.right_panel_layout.setContentsMargins(5, 5, 5, 5)
         self.right_panel_layout.setSpacing(8)
+
+        # GUI mode selector at the top of the right panel
+        gui_mode_row = QWidget()
+        gui_mode_layout = QHBoxLayout(gui_mode_row)
+        gui_mode_layout.setContentsMargins(0, 0, 0, 0)
+        gui_mode_layout.setSpacing(8)
+        gui_mode_layout.addWidget(QLabel("GUI mode:"))
+        self.gui_mode_combo = QComboBox()
+        for mode in GuiMode:
+            self.gui_mode_combo.addItem(mode.label, mode)
+        current_mode = self.global_storage_manager.gui_mode
+        self.gui_mode_combo.setCurrentIndex(self.gui_mode_combo.findData(current_mode))
+        gui_mode_layout.addWidget(self.gui_mode_combo, 1)
+        self.right_panel_layout.addWidget(gui_mode_row)
+        self.signal_settings_panel.apply_gui_mode(current_mode)
 
         # Add a stretch to push widgets to the top when there's empty space
         self.right_panel_layout.addStretch(1)
@@ -316,6 +331,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         # Buttons
         self.btn_screenshot.clicked.connect(self.on_screenshot)
         self.btn_right_panel_toggle.clicked.connect(self.toggle_right_panel)
+        self.gui_mode_combo.currentIndexChanged.connect(self.on_gui_mode_changed)
         self.start_screen_panel.open_requested.connect(self.on_open)
 
         # Menus
@@ -432,6 +448,13 @@ class MainWindow(QMainWindow, QWidgetMixin):
         )
 
     # ---------- Right Panel Management ----------
+    def on_gui_mode_changed(self, index: int):
+        mode = self.gui_mode_combo.itemData(index)
+        if mode is None:
+            return
+        self.global_storage_manager.set_gui_mode(mode)
+        self.signal_settings_panel.apply_gui_mode(mode)
+
     def toggle_right_panel(self):
         """Toggle the visibility of the right panel"""
         is_visible = self.right_panel_scroll.isVisible()
@@ -1089,7 +1112,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
             raise ValueError("Unknown widget_type")
 
     def __get_right_panel_widget_position(self, widget_type: RightPanelWidgetEnum, right_panel_widgets: List[RightPanelWidgetEnum]):
-        idx = 0
+        # Index 0 is reserved for the GUI mode selector at the top of the right panel.
+        idx = 1
         for widget in RightPanelWidgetEnum.widgets_order():
             if widget == widget_type:
                 return idx
