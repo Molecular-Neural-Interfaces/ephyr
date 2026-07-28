@@ -343,13 +343,13 @@ class LayoutSettingsDialog(QDialog):
     def _checked_count(self) -> int:
         return sum(1 for row in self._check_boxes for checkbox in row if checkbox.isChecked())
 
-    def _electrode_label(self, channel_idx: int) -> str:
+    def _electrode_tooltip(self, channel_idx: int) -> str:
         name = self._channel_name_getter(channel_idx)
         return f"{channel_idx} [{name}]" if name else str(channel_idx)
 
     def _refresh_assignment_labels(self):
         n = self._checked_count()
-        self.count_label.setText(f"Selected {n} / {self._channel_count} channels")
+        self.count_label.setText(f"Selected {n} / {self._channel_count} channels (hover to see a full name)")
         self.count_label.setStyleSheet(
             "color: red;" if n > self._channel_count else "color: gray;"
         )
@@ -359,14 +359,17 @@ class LayoutSettingsDialog(QDialog):
             for checkbox, name_label in zip(row_boxes, row_labels):
                 if not checkbox.isChecked():
                     name_label.clear()
+                    name_label.setToolTip("")
                     continue
                 try:
                     channel_idx = next(seq)
                 except StopIteration:
                     name_label.setText("—")
+                    name_label.setToolTip("")
                     name_label.setStyleSheet("color: red; font-size: 9pt;")
                     continue
-                name_label.setText(self._electrode_label(channel_idx))
+                name_label.setText(str(channel_idx))
+                name_label.setToolTip(self._electrode_tooltip(channel_idx))
                 name_label.setStyleSheet("color: #336699; font-size: 9pt;")
 
     def _on_save(self):
