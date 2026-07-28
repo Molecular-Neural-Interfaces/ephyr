@@ -7,12 +7,10 @@ from typing import Dict, List, Optional, Any, Tuple
 import numpy as np
 from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtWidgets import (
-    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -22,10 +20,11 @@ from PyQt6.QtGui import QColor, QPen, QPainter, QImage
 from scipy.interpolate import RectBivariateSpline
 
 from weegit.core.add_ons.base import BaseAddOn
+from weegit.core.add_ons.common.mixin import WeegitAddOnMixin
 from weegit.logger import weegit_logger
 
 
-class CSDAddOn(BaseAddOn):
+class CSDAddOn(WeegitAddOnMixin, BaseAddOn):
     """
     View-only add-on that draws interpolated CSD as a colored background
     behind EEG traces. Scale (vmin, vmax) is configurable and cached.
@@ -46,7 +45,7 @@ class CSDAddOn(BaseAddOn):
         self._auto_scale_max: Optional[float] = None
         self._x_pixels_step: int = self.DEFAULT_X_PIXELS_STEP
         self._y_pixels_step: int = self.DEFAULT_Y_PIXELS_STEP
-        self._target_group_key: Optional[str] = None
+        self._target_group_keys: List[str] = []
         self._config_loaded_for_dir: Optional[Path] = None
         self._config_mtime_ns: Optional[int] = None
 
@@ -111,6 +110,7 @@ class CSDAddOn(BaseAddOn):
         self._scale_max = None
         self._x_pixels_step = self.DEFAULT_X_PIXELS_STEP
         self._y_pixels_step = self.DEFAULT_Y_PIXELS_STEP
+        self._target_group_keys = []
         self._config_loaded_for_dir = add_on_data_dir
         self._config_mtime_ns = cfg_mtime_ns
 
@@ -126,19 +126,25 @@ class CSDAddOn(BaseAddOn):
                 self._y_pixels_step = self._sanitize_pixels_step(
                     data.get("y_pixels_step"), self.DEFAULT_Y_PIXELS_STEP
                 )
-                raw_group_key = data.get("target_group_key")
-                if raw_group_key:
-                    self._target_group_key = str(raw_group_key)
+                raw_keys = data.get("target_group_keys")
+                if isinstance(raw_keys, list) and raw_keys:
+                    self._target_group_keys = [str(k) for k in raw_keys if k is not None]
                 else:
-                    raw_group_idx = data.get("target_group_idx")
-                    self._target_group_key = str(raw_group_idx) if raw_group_idx is not None else None
+                    raw_group_key = data.get("target_group_key")
+                    if raw_group_key:
+                        self._target_group_keys = [str(raw_group_key)]
+                    else:
+                        raw_group_idx = data.get("target_group_idx")
+                        self._target_group_keys = (
+                            [str(raw_group_idx)] if raw_group_idx is not None else []
+                        )
             except Exception as e:
                 weegit_logger().debug(str(e))
                 self._scale_min = None
                 self._scale_max = None
                 self._x_pixels_step = self.DEFAULT_X_PIXELS_STEP
                 self._y_pixels_step = self.DEFAULT_Y_PIXELS_STEP
-                self._target_group_key = None
+                self._target_group_keys = []
 
     def _save_config(self, add_on_data_dir: Optional[Path]) -> None:
         if add_on_data_dir is None:
@@ -151,7 +157,7 @@ class CSDAddOn(BaseAddOn):
         payload: Dict[str, Any] = {
             "x_pixels_step": int(self._x_pixels_step),
             "y_pixels_step": int(self._y_pixels_step),
-            "target_group_key": self._target_group_key,
+            "target_group_keys": list(self._target_group_keys),
         }
         if self._scale_min is not None and self._scale_max is not None:
             payload["vmin"] = float(self._scale_min)
@@ -166,25 +172,25 @@ class CSDAddOn(BaseAddOn):
     # ---- Run: choose background scale ----
     def _ask_background_scale(
         self,
-        group_options: List[Tuple[str, str]],
-        default_group_key: str,
+        channel_groups: List[Any],
+        default_group_keys: List[str],
         default_min: float,
         default_max: float,
         default_x_pixels_step: int,
         default_y_pixels_step: int,
-    ) -> Optional[Tuple[str, Optional[float], Optional[float], bool, int, int]]:
+    ) -> Optional[Tuple[List[str], Optional[float], Optional[float], bool, int, int]]:
         dialog = QDialog()
         dialog.setWindowTitle("CSD background scale")
         layout = QVBoxLayout(dialog)
 
         form = QFormLayout()
-
-        group_combo = QComboBox()
-        for group_key, group_label in group_options:
-            group_combo.addItem(group_label, group_key)
-        selected_group_pos = max(0, group_combo.findData(default_group_key))
-        group_combo.setCurrentIndex(selected_group_pos)
-        form.addRow("Channel group:", group_combo)
+        groups_list = self.build_groups_multi_selector(
+            form,
+            channel_groups,
+            preferred_keys=default_group_keys,
+            label="Channel groups:",
+            non_aux_only=True,
+        )
 
         spin_min = QDoubleSpinBox()
         spin_min.setRange(-1e9, 1e9)
@@ -231,11 +237,13 @@ class CSDAddOn(BaseAddOn):
 
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
-        selected_group_key = str(group_combo.currentData())
+        selected_group_keys = self.selected_group_keys(groups_list)
+        if not selected_group_keys:
+            return None
         x_pixels_step = int(spin_x_step.value())
         y_pixels_step = int(spin_y_step.value())
         if reset_selected["value"]:
-            return selected_group_key, None, None, True, x_pixels_step, y_pixels_step
+            return selected_group_keys, None, None, True, x_pixels_step, y_pixels_step
 
         vmin = float(spin_min.value())
         vmax = float(spin_max.value())
@@ -246,38 +254,7 @@ class CSDAddOn(BaseAddOn):
             vmax += epsilon
         if vmin > vmax:
             vmin, vmax = vmax, vmin
-        return selected_group_key, vmin, vmax, False, x_pixels_step, y_pixels_step
-
-    @staticmethod
-    def _group_key(group: Any) -> str:
-        group_name = str(getattr(group, "name", "") or "").strip()
-        channels = ",".join(str(ch) for ch in (getattr(group, "channel_indexes", []) or []))
-        return f"{group_name}|{channels}"
-
-    def _group_options(self, channel_groups: List[Any]) -> List[Tuple[str, str]]:
-        result: List[Tuple[str, str]] = []
-        for idx, group in enumerate(channel_groups or []):
-            if getattr(group, "is_auxiliary", False):
-                continue
-            if not getattr(group, "channel_indexes", []):
-                continue
-            group_name = str(getattr(group, "name", "") or "").strip() or f"Group {idx}"
-            result.append((self._group_key(group), f"#{idx} {group_name}"))
-        return result
-
-    def _resolve_target_group(self, channel_groups: List[Any]) -> Optional[Any]:
-        options = self._group_options(channel_groups)
-        if not options:
-            return None
-        groups_map: Dict[str, Any] = {}
-        for group in (channel_groups or []):
-            key = self._group_key(group)
-            if key not in groups_map:
-                groups_map[key] = group
-        if self._target_group_key and self._target_group_key in groups_map:
-            return groups_map[self._target_group_key]
-        first_key = options[0][0]
-        return groups_map.get(first_key)
+        return selected_group_keys, vmin, vmax, False, x_pixels_step, y_pixels_step
 
     def run(self, session_manager, add_on_data_dir):
         # CSD is computed on-the-fly in view; run() is used only
@@ -296,19 +273,18 @@ class CSDAddOn(BaseAddOn):
             default_min = -1.0
             default_max = 1.0
 
-        group_options = self._group_options(session_manager.gui_setup.channels_groups)
+        channel_groups = session_manager.gui_setup.channels_groups
+        group_options = self.group_options(channel_groups, non_aux_only=True)
         if not group_options:
             yield {"progress": 100, "message": "No non-auxiliary channel groups to configure"}
             return
-        default_group = self._resolve_target_group(session_manager.gui_setup.channels_groups)
-        if default_group is None:
-            yield {"progress": 100, "message": "No non-auxiliary channel groups to configure"}
-            return
-        default_group_key = self._group_key(default_group)
+        default_group_keys = list(self._target_group_keys)
+        if not default_group_keys:
+            default_group_keys = [key for key, _label, _group in group_options]
 
         result = self._ask_background_scale(
-            group_options,
-            default_group_key,
+            channel_groups,
+            default_group_keys,
             default_min,
             default_max,
             self._x_pixels_step,
@@ -317,8 +293,8 @@ class CSDAddOn(BaseAddOn):
         if result is None:
             return
 
-        selected_group_key, vmin, vmax, reset_to_auto, x_pixels_step, y_pixels_step = result
-        self._target_group_key = selected_group_key
+        selected_group_keys, vmin, vmax, reset_to_auto, x_pixels_step, y_pixels_step = result
+        self._target_group_keys = list(selected_group_keys)
         self._x_pixels_step = self._sanitize_pixels_step(
             x_pixels_step, self.DEFAULT_X_PIXELS_STEP
         )
@@ -488,8 +464,13 @@ class CSDAddOn(BaseAddOn):
         if not visible_channel_indexes or not channel_groups:
             return
 
-        target_group = self._resolve_target_group(channel_groups)
-        if target_group is None:
+        target_groups = self.resolve_groups_by_keys(
+            channel_groups,
+            self._target_group_keys,
+            non_aux_only=True,
+            fallback_all=True,
+        )
+        if not target_groups:
             return
 
         # channel_rects are now per-cell rects (one per enabled visible channel).
@@ -497,38 +478,54 @@ class CSDAddOn(BaseAddOn):
         # each column being an independent vertical stack of electrodes over its
         # own time window. CSD is a spatial (depth) vs time image, so we compute
         # and draw it independently per column, using that column's actual rect.
-        target_channel_set = set(getattr(target_group, "channel_indexes", []) or [])
-        usable_rects: Dict[int, QRect] = {}
-        for ch_idx, rect in (channel_rects or []):
-            if ch_idx in target_channel_set and ch_idx in processed_data:
-                usable_rects[ch_idx] = rect
-        if len(usable_rects) < 3:
+        rects_by_channel: Dict[int, QRect] = {
+            ch_idx: rect
+            for ch_idx, rect in (channel_rects or [])
+            if ch_idx in processed_data
+        }
+        if len(rects_by_channel) < 3:
             return
 
-        # Group channels into columns by their cell left-x; order top-to-bottom.
-        columns_map: Dict[int, List[Tuple[int, int]]] = {}
-        for ch_idx, rect in usable_rects.items():
-            columns_map.setdefault(rect.left(), []).append((rect.top(), ch_idx))
-
-        column_specs: List[Tuple[List[int], QRect]] = []
-        for _left_x, entries in columns_map.items():
-            entries.sort(key=lambda item: item[0])
-            channels_ordered = [ch_idx for _top, ch_idx in entries]
-            if len(channels_ordered) < 3:
-                # CSD needs at least 3 electrodes along the depth axis.
+        # Collect columns across all selected groups; keep per-group rects for legends.
+        group_usable_rects: List[Tuple[str, List[QRect]]] = []
+        column_specs: List[Tuple[str, List[int], QRect]] = []
+        for target_group in target_groups:
+            target_channel_set = set(getattr(target_group, "channel_indexes", []) or [])
+            usable_rects: Dict[int, QRect] = {
+                ch_idx: rect
+                for ch_idx, rect in rects_by_channel.items()
+                if ch_idx in target_channel_set
+            }
+            if len(usable_rects) < 3:
                 continue
-            rects = [usable_rects[ch_idx] for ch_idx in channels_ordered]
-            col_left = min(r.left() for r in rects)
-            col_right = max(r.right() for r in rects)
-            col_top = min(r.top() for r in rects)
-            col_bottom = max(r.bottom() for r in rects)
-            col_rect = QRect(
-                col_left,
-                col_top,
-                max(2, col_right - col_left + 1),
-                max(2, col_bottom - col_top + 1),
-            )
-            column_specs.append((channels_ordered, col_rect))
+
+            columns_map: Dict[int, List[Tuple[int, int]]] = {}
+            for ch_idx, rect in usable_rects.items():
+                columns_map.setdefault(rect.left(), []).append((rect.top(), ch_idx))
+
+            group_key = self.group_stable_key(target_group)
+            group_has_columns = False
+            for _left_x, entries in columns_map.items():
+                entries.sort(key=lambda item: item[0])
+                channels_ordered = [ch_idx for _top, ch_idx in entries]
+                if len(channels_ordered) < 3:
+                    # CSD needs at least 3 electrodes along the depth axis.
+                    continue
+                rects = [usable_rects[ch_idx] for ch_idx in channels_ordered]
+                col_left = min(r.left() for r in rects)
+                col_right = max(r.right() for r in rects)
+                col_top = min(r.top() for r in rects)
+                col_bottom = max(r.bottom() for r in rects)
+                col_rect = QRect(
+                    col_left,
+                    col_top,
+                    max(2, col_right - col_left + 1),
+                    max(2, col_bottom - col_top + 1),
+                )
+                column_specs.append((group_key, channels_ordered, col_rect))
+                group_has_columns = True
+            if group_has_columns:
+                group_usable_rects.append((group_key, list(usable_rects.values())))
 
         if not column_specs:
             return
@@ -538,8 +535,7 @@ class CSDAddOn(BaseAddOn):
         columns_csd: List[Tuple[QRect, Tuple, np.ndarray]] = []
         combined_min: Optional[float] = None
         combined_max: Optional[float] = None
-        group_key = self._group_key(target_group)
-        for channels_ordered, col_rect in column_specs:
+        for group_key, channels_ordered, col_rect in column_specs:
             series_list = [processed_data[ch_idx] for ch_idx in channels_ordered]
             lengths = {len(s) for s in series_list}
             if len(lengths) != 1:
@@ -625,8 +621,27 @@ class CSDAddOn(BaseAddOn):
             k: v for k, v in self._col_image_cache.items() if k in used_image_keys
         }
 
+        for _group_key, all_rects in group_usable_rects:
+            self._draw_colorbar(
+                painter,
+                all_rects,
+                vmin=float(vmin),
+                vmax=float(vmax),
+                text_color=text_color,
+            )
+
+    def _draw_colorbar(
+        self,
+        painter: QPainter,
+        all_rects: List[QRect],
+        *,
+        vmin: float,
+        vmax: float,
+        text_color: QColor,
+    ) -> None:
         # Draw a compact legend anchored to the group's on-screen bounding box.
-        all_rects = list(usable_rects.values())
+        if not all_rects:
+            return
         group_left = min(r.left() for r in all_rects)
         group_top = min(r.top() for r in all_rects)
         group_right = max(r.right() for r in all_rects)

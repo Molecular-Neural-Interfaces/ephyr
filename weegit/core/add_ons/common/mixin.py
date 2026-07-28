@@ -94,6 +94,102 @@ class WeegitAddOnMixin:
         return self.ensure_channel_groups(session_manager, title)
 
     @staticmethod
+    def group_stable_key(group: Any) -> str:
+        """Stable identity for a channel group across reorder (name + channels)."""
+        group_name = str(getattr(group, "name", "") or "").strip()
+        channels = ",".join(str(ch) for ch in (getattr(group, "channel_indexes", []) or []))
+        return f"{group_name}|{channels}"
+
+    @staticmethod
+    def group_options(
+        channel_groups: Optional[List[Any]],
+        *,
+        non_aux_only: bool = True,
+    ) -> List[Tuple[str, str, Any]]:
+        """Return ``(stable_key, label, group)`` for selectable channel groups."""
+        result: List[Tuple[str, str, Any]] = []
+        for idx, group in enumerate(channel_groups or []):
+            if non_aux_only and getattr(group, "is_auxiliary", False):
+                continue
+            if not getattr(group, "channel_indexes", []):
+                continue
+            group_name = str(getattr(group, "name", "") or "").strip() or f"Group {idx}"
+            key = WeegitAddOnMixin.group_stable_key(group)
+            result.append((key, f"#{idx} {group_name}", group))
+        return result
+
+    @staticmethod
+    def resolve_groups_by_keys(
+        channel_groups: Optional[List[Any]],
+        keys: Optional[List[str]],
+        *,
+        non_aux_only: bool = True,
+        fallback_all: bool = True,
+    ) -> List[Any]:
+        """Resolve groups by stable keys; optionally fall back to all selectable groups."""
+        options = WeegitAddOnMixin.group_options(channel_groups, non_aux_only=non_aux_only)
+        if not options:
+            return []
+        groups_map = {key: group for key, _label, group in options}
+        selected: List[Any] = []
+        seen = set()
+        for key in keys or []:
+            group = groups_map.get(str(key))
+            if group is None:
+                continue
+            stable = WeegitAddOnMixin.group_stable_key(group)
+            if stable in seen:
+                continue
+            selected.append(group)
+            seen.add(stable)
+        if selected:
+            return selected
+        if fallback_all:
+            return [group for _key, _label, group in options]
+        return []
+
+    def build_groups_multi_selector(
+        self,
+        form: QFormLayout,
+        channel_groups: Optional[List[Any]],
+        preferred_keys: Optional[List[str]] = None,
+        *,
+        label: str = "Channel groups:",
+        non_aux_only: bool = True,
+    ) -> QListWidget:
+        """Multi-select list of channel groups for viewable add-on Run dialogs."""
+        groups_list = QListWidget()
+        groups_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        preferred = {str(k) for k in (preferred_keys or [])}
+        options = self.group_options(channel_groups, non_aux_only=non_aux_only)
+        select_all = not preferred
+        for key, group_label, _group in options:
+            item = QListWidgetItem(group_label)
+            item.setData(Qt.ItemDataRole.UserRole, key)
+            item.setSelected(select_all or key in preferred)
+            groups_list.addItem(item)
+        form.addRow(label, groups_list)
+        return groups_list
+
+    @staticmethod
+    def selected_group_keys(groups_list: QListWidget) -> List[str]:
+        keys: List[str] = []
+        seen = set()
+        for row in range(groups_list.count()):
+            item = groups_list.item(row)
+            if item is None or not item.isSelected():
+                continue
+            value = item.data(Qt.ItemDataRole.UserRole)
+            if value is None:
+                continue
+            key = str(value)
+            if key in seen:
+                continue
+            keys.append(key)
+            seen.add(key)
+        return keys
+
+    @staticmethod
     def channel_name(header, channel_idx: int) -> str:
         try:
             names = header.channel_info.name or []

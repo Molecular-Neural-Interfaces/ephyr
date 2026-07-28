@@ -1,33 +1,37 @@
 """Spike viewer add-on.
 
-Runnable + Viewable. ``run()`` selects a detection result set (and optionally a
-channel subset); ``view()`` overlays red markers at the vertical center of each
-channel cell (amplitude ignored) for spikes inside the visible time window.
+Runnable + Viewable. ``run()`` opens a dialog to pick one or more detection
+methods (each already bound to a channel group). ``view()`` overlays markers for
+all selected results: same-group methods use different colors and are stacked
+upward; methods for different groups are drawn on their own groups.
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPainter, QPen
-from PyQt6.QtWidgets import (
-    QDialog,
-    QFormLayout,
-    QHBoxLayout,
-    QListWidget,
-    QListWidgetItem,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt6.QtWidgets import QWidget
 
 from weegit.core.add_ons.base import BaseAddOn
 from weegit.logger import weegit_logger
 
 from weegit_add_ons.spike_utils._common import SpikesPayload, SpikeUtilsBase
+
+# Distinct marker colors for overlapping methods on the same group.
+_MARKER_COLORS = (
+    QColor(255, 0, 0),
+    QColor(0, 140, 255),
+    QColor(0, 180, 60),
+    QColor(255, 140, 0),
+    QColor(160, 0, 200),
+    QColor(0, 180, 180),
+    QColor(220, 0, 120),
+    QColor(80, 80, 80),
+)
 
 
 class SpikeViewerAddOn(SpikeUtilsBase, BaseAddOn):
@@ -37,88 +41,72 @@ class SpikeViewerAddOn(SpikeUtilsBase, BaseAddOn):
     Z_INDEX = 250
 
     def __init__(self):
-        self._cached_path: Optional[Path] = None
-        self._cached_mtime: Optional[float] = None
-        self._cached_payload: Optional[SpikesPayload] = None
+        # Cache payloads per detection dir: path -> (mtime, payload)
+        self._payload_cache: Dict[str, Tuple[float, SpikesPayload]] = {}
+
+    @staticmethod
+    def _selected_dirs_from_params(params: Dict[str, Any]) -> List[str]:
+        raw_dirs = params.get("selected_dirs")
+        if isinstance(raw_dirs, list) and raw_dirs:
+            return [str(p) for p in raw_dirs if p]
+        single = str(params.get("selected_dir", "") or "")
+        return [single] if single else []
 
     def run(self, session_manager, add_on_data_dir):
         add_on_data_dir = Path(add_on_data_dir)
         params = self.load_params(add_on_data_dir)
-        selected = self.choose_result_dir_dialog(
-            "Spike viewer", add_on_data_dir, selected_dir=str(params.get("selected_dir", ""))
+        selected = self.choose_result_dirs_dialog(
+            "Spike viewer",
+            add_on_data_dir,
+            selected_dirs=self._selected_dirs_from_params(params),
+            label="Detection methods:",
         )
         if selected is None:
             return
 
+        selected_dirs = [str(path) for path in selected]
+        self.save_params(add_on_data_dir, {"selected_dirs": selected_dirs})
+        self._payload_cache.clear()
+
         sweep_idx = int(session_manager.gui_setup.current_sweep_idx)
-        payload = self.read_spikes_payload(selected, sweep_idx)
-        channel_choice = self._ask_channels(payload)
-        if channel_choice is None:
-            return
+        total_spikes = 0
+        labels: List[str] = []
+        for path in selected:
+            payload = self.read_spikes_payload(path, sweep_idx)
+            if payload is not None:
+                total_spikes += sum(len(v) for v in payload.spikes_by_channel.values())
+            labels.append(self.detection_result_label(path))
+        yield {
+            "progress": 100,
+            "message": f"Viewing {len(selected_dirs)} method(s), {total_spikes} spikes",
+        }
 
-        self.save_params(
-            add_on_data_dir,
-            {"selected_dir": str(selected), "channels": channel_choice},
-        )
-        self._cached_path = None
-        n = 0 if payload is None else sum(len(v) for v in payload.spikes_by_channel.values())
-        yield {"progress": 100, "message": f"Viewing {selected.name} ({n} spikes)"}
-
-    def _ask_channels(self, payload: Optional[SpikesPayload]) -> Optional[List[int]]:
-        available = sorted(payload.spikes_by_channel.keys()) if payload is not None else []
-        if not available:
-            # Nothing detected for this sweep yet; view all by default.
-            return []
-        dialog = QDialog()
-        dialog.setWindowTitle("Spike viewer channels")
-        layout = QVBoxLayout(dialog)
-        form = QFormLayout()
-        channels_list = QListWidget()
-        channels_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        for ch in available:
-            item = QListWidgetItem(str(ch))
-            item.setData(Qt.ItemDataRole.UserRole, int(ch))
-            item.setSelected(True)
-            channels_list.addItem(item)
-        form.addRow("Channels (none = all):", channels_list)
-        layout.addLayout(form)
-        actions = QHBoxLayout()
-        btn_cancel = QPushButton("Cancel")
-        btn_ok = QPushButton("Show")
-        actions.addStretch(1)
-        actions.addWidget(btn_cancel)
-        actions.addWidget(btn_ok)
-        layout.addLayout(actions)
-        btn_cancel.clicked.connect(dialog.reject)
-        btn_ok.clicked.connect(dialog.accept)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return None
-        return [
-            channels_list.item(i).data(Qt.ItemDataRole.UserRole)
-            for i in range(channels_list.count())
-            if channels_list.item(i).isSelected()
-        ]
-
-    def _load_payload(self, add_on_data_dir: Path, sweep_idx: int) -> Optional[SpikesPayload]:
-        params = self.load_params(add_on_data_dir)
-        selected_dir = str(params.get("selected_dir", ""))
-        if not selected_dir:
-            return None
-        path = Path(selected_dir) / f"{int(sweep_idx)}.spikes.json"
-        if not path.exists():
-            return None
-        try:
-            mtime = path.stat().st_mtime
-        except Exception as e:
-            weegit_logger().debug(str(e))
-            return None
-        if self._cached_path == path and self._cached_mtime == mtime and self._cached_payload is not None:
-            return self._cached_payload
-        payload = self.read_spikes_payload(Path(selected_dir), int(sweep_idx))
-        self._cached_path = path
-        self._cached_mtime = mtime
-        self._cached_payload = payload
-        return payload
+    def _load_payloads(
+        self,
+        selected_dirs: List[str],
+        sweep_idx: int,
+    ) -> List[Tuple[Path, SpikesPayload]]:
+        loaded: List[Tuple[Path, SpikesPayload]] = []
+        for selected_dir in selected_dirs:
+            path = Path(selected_dir) / f"{int(sweep_idx)}.spikes.json"
+            if not path.exists():
+                continue
+            try:
+                mtime = path.stat().st_mtime
+            except Exception as e:
+                weegit_logger().debug(str(e))
+                continue
+            cache_key = str(path)
+            cached = self._payload_cache.get(cache_key)
+            if cached is not None and cached[0] == mtime:
+                loaded.append((Path(selected_dir), cached[1]))
+                continue
+            payload = self.read_spikes_payload(Path(selected_dir), int(sweep_idx))
+            if payload is None:
+                continue
+            self._payload_cache[cache_key] = (mtime, payload)
+            loaded.append((Path(selected_dir), payload))
+        return loaded
 
     def view(
         self,
@@ -155,27 +143,55 @@ class SpikeViewerAddOn(SpikeUtilsBase, BaseAddOn):
         add_on_data_dir = Path(add_on_data_dir) if add_on_data_dir is not None else None
         if add_on_data_dir is None:
             return
-        payload = self._load_payload(add_on_data_dir, int(sweep_idx))
-        if payload is None:
-            return
 
         params = self.load_params(add_on_data_dir)
-        selected_channels = set(int(c) for c in (params.get("channels", []) or []))
+        selected_dirs = self._selected_dirs_from_params(params)
+        if not selected_dirs:
+            return
 
-        painter.setPen(QPen(QColor(255, 0, 0)))
-        painter.setBrush(QColor(255, 0, 0))
+        loaded = self._load_payloads(selected_dirs, int(sweep_idx))
+        if not loaded:
+            return
+
+        # Within one group, stack methods upward with distinct colors.
+        by_group: Dict[str, List[int]] = defaultdict(list)
+        for method_idx, (_result_dir, payload) in enumerate(loaded):
+            group_key = str(payload.group_key or "").strip() or f"__method_{method_idx}"
+            by_group[group_key].append(method_idx)
+
+        offset_rank: Dict[int, int] = {}
+        for _group_key, indexes in by_group.items():
+            for rank, method_idx in enumerate(indexes):
+                offset_rank[method_idx] = rank
+
         marker_size = 4
         half = marker_size // 2
-        for channel_idx, rect in channel_rects:
-            if selected_channels and int(channel_idx) not in selected_channels:
+        stack_step = marker_size + 2
+
+        for method_idx, (_result_dir, payload) in enumerate(loaded):
+            color = _MARKER_COLORS[method_idx % len(_MARKER_COLORS)]
+            y_shift = -offset_rank.get(method_idx, 0) * stack_step
+
+            allowed_channels = set(
+                self.channels_for_detection_payload(payload, channel_groups=channel_groups)
+            )
+            allowed_channels.update(int(ch) for ch in (payload.spikes_by_channel or {}).keys())
+            if not allowed_channels:
                 continue
-            spikes = payload.spikes_by_channel.get(int(channel_idx))
-            if not spikes:
-                continue
-            y = rect.center().y()
-            for spike in spikes:
-                if not (start_time_ms <= spike.time_ms <= end_time_ms):
+
+            painter.setPen(QPen(color))
+            painter.setBrush(color)
+            for channel_idx, rect in channel_rects:
+                ch = int(channel_idx)
+                if ch not in allowed_channels:
                     continue
-                rel = (spike.time_ms - start_time_ms) / axis_duration_ms
-                x = int(rect.left() + rel * rect.width())
-                painter.drawRect(x - half, y - half, marker_size, marker_size)
+                spikes = payload.spikes_by_channel.get(ch)
+                if not spikes:
+                    continue
+                y = rect.center().y() + y_shift
+                for spike in spikes:
+                    if not (start_time_ms <= spike.time_ms <= end_time_ms):
+                        continue
+                    rel = (spike.time_ms - start_time_ms) / axis_duration_ms
+                    x = int(rect.left() + rel * rect.width())
+                    painter.drawRect(x - half, y - half, marker_size, marker_size)

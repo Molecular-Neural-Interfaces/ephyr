@@ -11,12 +11,16 @@ from typing import List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -36,15 +40,34 @@ class RasterPlotAddOn(SpikeUtilsBase, BaseAddOn):
     RUNNABLE = True
 
     def _ask_parameters(self, session_manager, header, add_on_data_dir: Path) -> Optional[dict]:
-        groups = self.ensure_non_aux_groups(session_manager, "Raster plot")
-        if groups is None:
-            return None
-        common = self.load_common(add_on_data_dir)
         params = self.load_params(add_on_data_dir)
         selected_dir = self.choose_result_dir_dialog(
-            "Raster plot", add_on_data_dir, selected_dir=str(params.get("selected_dir", ""))
+            "Raster plot",
+            add_on_data_dir,
+            selected_dir=str(params.get("selected_dir", "")),
+            label="Detection method:",
         )
         if selected_dir is None:
+            return None
+
+        sweep_idx = int(session_manager.gui_setup.current_sweep_idx)
+        payload = self.read_spikes_payload(selected_dir, sweep_idx)
+        if payload is None:
+            QMessageBox.warning(
+                None,
+                "Raster plot",
+                "No spikes for current sweep in selected detection method.",
+            )
+            return None
+
+        detection_channels = self.channels_for_detection_payload(
+            payload,
+            channel_groups=session_manager.gui_setup.channels_groups,
+        )
+        if not detection_channels:
+            detection_channels = sorted(int(ch) for ch in payload.spikes_by_channel.keys())
+        if not detection_channels:
+            QMessageBox.warning(None, "Raster plot", "Selected detection has no channels.")
             return None
 
         dialog = QDialog()
@@ -57,16 +80,25 @@ class RasterPlotAddOn(SpikeUtilsBase, BaseAddOn):
         scroll_widget = QWidget()
         form = QFormLayout(scroll_widget)
 
-        group_combo, channels_list = self.build_group_channel_selector(
-            form,
-            groups,
-            header,
-            preferred_group_idx=int(common.get("group_idx", 0)),
-            preferred_channels=common.get("channel_indexes", []),
+        meta = self.read_detection_meta(selected_dir)
+        group_label = QLabel(
+            (payload.group_name or meta.group_name or "Group").strip() or "Group"
         )
+        form.addRow("Detection group:", group_label)
+
+        channels_list = QListWidget()
+        channels_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        preferred = set(int(c) for c in (params.get("channel_indexes") or []))
+        select_all = not preferred
+        for ch_idx in detection_channels:
+            ch_name = self.channel_name(header, int(ch_idx))
+            item = QListWidgetItem(f"{ch_idx} [{ch_name}]")
+            item.setData(Qt.ItemDataRole.UserRole, int(ch_idx))
+            item.setSelected(select_all or int(ch_idx) in preferred)
+            channels_list.addItem(item)
+        form.addRow("Channels:", channels_list)
 
         sample_rate = float(header.sample_rate)
-        sweep_idx = int(session_manager.gui_setup.current_sweep_idx)
         sweep_points = int(header.number_of_points_per_sweep[sweep_idx])
         sweep_duration_ms = (sweep_points / sample_rate) * 1000.0 if sample_rate > 0 else 0.0
         default_from = float(session_manager.gui_setup.start_point) * 1000.0 / sample_rate if sample_rate > 0 else 0.0
@@ -111,14 +143,11 @@ class RasterPlotAddOn(SpikeUtilsBase, BaseAddOn):
             QMessageBox.warning(dialog, "Raster plot", "Window 'to' must be greater than 'from'.")
             return None
 
-        self.save_common(
-            add_on_data_dir,
-            {"group_idx": int(group_combo.currentData()), "channel_indexes": channels},
-        )
         self.save_params(
             add_on_data_dir,
             {
                 "selected_dir": str(selected_dir),
+                "channel_indexes": channels,
                 "window_from_ms": window_from_ms,
                 "window_to_ms": window_to_ms,
                 "plot_image": plot_image_checkbox.isChecked(),
@@ -172,7 +201,9 @@ class RasterPlotAddOn(SpikeUtilsBase, BaseAddOn):
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Channel")
         ax.grid(True, axis="x", alpha=0.3)
-        ax.set_title(f"Raster plot | sweep {sweep_idx} | {params['selected_dir'].name}")
+        ax.set_title(
+            f"Raster plot | {self.detection_result_label(params['selected_dir'])} | sweep {sweep_idx}"
+        )
         fig.tight_layout()
         if params["plot_image"]:
             try:

@@ -34,6 +34,7 @@ from weegit.core.add_ons import (
 from weegit.logger import weegit_logger
 
 from weegit_add_ons.spike_utils._common import (
+    DetectionResultMeta,
     SpikePoint,
     SpikesPayload,
     SpikeUtilsBase,
@@ -163,6 +164,11 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
             QMessageBox.warning(dialog, "Spike detection", "Select at least one polarity.")
             return None
 
+        group_idx = int(group_combo.currentData())
+        group = next((g for idx, g in groups if idx == group_idx), None)
+        group_name = str(getattr(group, "name", "") or "").strip() or f"Group {group_idx}"
+        group_key = self.group_stable_key(group) if group is not None else ""
+
         selection = {
             "event_names": self.selected_names_from_list(events_list),
             "event_before_ms": float(before_spin.value()),
@@ -181,7 +187,7 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
         self.save_common(
             add_on_data_dir,
             {
-                "group_idx": int(group_combo.currentData()),
+                "group_idx": group_idx,
                 "channel_indexes": channels,
                 **self.event_period_selection_to_common(selection),
             },
@@ -203,6 +209,8 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
         )
         return {
             "channels": channels,
+            "group_key": group_key,
+            "group_name": group_name,
             "pipeline": pipeline_selector.current_pipeline_name(),
             "threshold": float(threshold_spin.value()),
             "adaptive_sigma": adaptive_checkbox.isChecked(),
@@ -299,7 +307,12 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
             ]
             yield {"progress": int(40 + ((row_idx + 1) / total) * 55), "message": f"Detected on channel {row_idx + 1}/{total}"}
 
-        out_dir = add_on_data_dir / safe_detection_dir_name(params["pipeline"], threshold, adaptive_sigma)
+        out_dir = add_on_data_dir / safe_detection_dir_name(
+            params["pipeline"],
+            threshold,
+            adaptive_sigma,
+            group_name=params["group_name"],
+        )
         payload = SpikesPayload(
             detector_name="adaptive_mad" if adaptive_sigma else "mad",
             preprocessing_pipeline=params["pipeline"],
@@ -311,6 +324,8 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
             detect_positive=detect_positive,
             detect_negative=detect_negative,
             merge_window_ms=merge_window_ms,
+            group_key=str(params.get("group_key", "") or ""),
+            group_name=str(params.get("group_name", "") or ""),
             ignore_event_names=list(selection.get("event_names") or []),
             ignore_before_ms=float(selection.get("event_before_ms", 0.0)),
             ignore_after_ms=float(selection.get("event_after_ms", 0.0)),
@@ -322,6 +337,17 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
         output_path = out_dir / f"{sweep_idx}.spikes.json"
         try:
             self.save_spikes_payload(output_path, payload)
+            self.save_detection_meta(
+                out_dir,
+                DetectionResultMeta(
+                    group_key=payload.group_key,
+                    group_name=payload.group_name,
+                    preprocessing_pipeline=payload.preprocessing_pipeline,
+                    threshold=payload.threshold,
+                    adaptive_sigma=payload.adaptive_sigma,
+                    detector_name=payload.detector_name,
+                ),
+            )
         except Exception as e:
             weegit_logger().debug(str(e))
             yield {"progress": 100, "message": "Failed to save spikes"}

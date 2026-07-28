@@ -46,8 +46,8 @@ class _SpikeNavigationWindow(QWidget):
 
         self._dir_combo = QComboBox()
         for path in self._add_on.list_detection_result_dirs(self._add_on_data_dir):
-            self._dir_combo.addItem(path.name, str(path))
-        form.addRow("Detection set:", self._dir_combo)
+            self._dir_combo.addItem(self._add_on.detection_result_label(path), str(path))
+        form.addRow("Detection method:", self._dir_combo)
 
         self._channel_combo = QComboBox()
         form.addRow("Channel:", self._channel_combo)
