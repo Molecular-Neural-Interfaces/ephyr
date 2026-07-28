@@ -373,7 +373,6 @@ class SignalWidget(QWidget):
         self._periods_are_visible = True
         self._viewable_add_ons: List[BaseAddOn] = []
         self._add_ons_data_dir: Optional[Path] = None
-        self._cut_traces = False
         self._overlay_widget: Optional['OverlayWidget'] = None
         self._digital_channel_rects: List[Tuple[int, QRect]] = []
         self._channel_names: List[str] = []
@@ -382,6 +381,7 @@ class SignalWidget(QWidget):
         self._auxiliary_group_rects: List[Tuple[int, QRect]] = []
         self._non_aux_group_rects: List[Tuple[int, QRect]] = []
         self._channel_group_rects: Dict[int, QRect] = {}
+        self._channel_cut_traces: Dict[int, bool] = {}
         # (channel_idx, cell_rect, enabled, group_visible_cell_count)
         self._cell_rects: List[Tuple[int, QRect, bool, int]] = []
         self._cell_border_rects: List[QRect] = []
@@ -424,7 +424,6 @@ class SignalWidget(QWidget):
             events_are_visible: bool = True,
             periods_are_visible: bool = True,
             traces_are_visible: bool = True,
-            cut_traces: bool = False,
             viewable_add_ons: Optional[List[BaseAddOn]] = None,
             add_ons_data_dir: Optional[Path] = None,
     ):
@@ -445,12 +444,16 @@ class SignalWidget(QWidget):
         self._events_are_visible = events_are_visible
         self._periods_are_visible = periods_are_visible
         self._traces_are_visible = traces_are_visible
-        self._cut_traces = bool(cut_traces)
         self._viewable_add_ons = list(viewable_add_ons or [])
         self._add_ons_data_dir = add_ons_data_dir
         self._channel_names = channel_names or []
         self._group_layouts = list(group_layouts or [])
         self._channels_setup = dict(channels_setup or {})
+        self._channel_cut_traces = {
+            ch: bool(group.cut_traces)
+            for group in self._group_layouts
+            for ch in group.channel_indexes
+        }
 
         self._draw_area_height = max(0, self.height() - self._bottom_margin)
         self._signal_pixmap_offset = QPoint(self._left_margin, 0)
@@ -982,7 +985,7 @@ class SignalWidget(QWidget):
         channel_mid_y = channel_rect.top() + channel_rect.height() / 2.0
         y_offsets = (channel_data + y_offset) * pixel_per_uv
         y_coords = channel_mid_y - y_offsets
-        if self._cut_traces:
+        if self._channel_cut_traces.get(channel_idx, False):
             clip_rect = channel_rect
         else:
             clip_rect = self._channel_group_rects.get(channel_idx, channel_rect)
@@ -1943,7 +1946,6 @@ class SignalPanel(QWidget):
             events_are_visible=gui_setup.events_are_shown,
             periods_are_visible=gui_setup.periods_are_shown,
             traces_are_visible=gui_setup.traces_are_shown,
-            cut_traces=gui_setup.cut_traces,
             viewable_add_ons=viewable_add_ons,
             add_ons_data_dir=add_ons_data_dir,
         )

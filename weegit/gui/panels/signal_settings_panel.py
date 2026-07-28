@@ -609,14 +609,6 @@ class SignalSettingsPanel(QWidget):
         dots_row.addStretch(1)
         self.channels_layout.addLayout(dots_row)
 
-        cut_traces_row = QHBoxLayout()
-        cut_traces_label = QLabel("Cut traces:")
-        cut_traces_row.addWidget(cut_traces_label)
-        self.cut_traces_checkbox = QCheckBox()
-        cut_traces_row.addWidget(self.cut_traces_checkbox)
-        cut_traces_row.addStretch(1)
-        self.channels_layout.addLayout(cut_traces_row)
-
         mapping_group = QGroupBox("Channels mapping image")
         mapping_layout = QVBoxLayout(mapping_group)
         buttons_layout = QHBoxLayout()
@@ -665,11 +657,6 @@ class SignalSettingsPanel(QWidget):
         self.time_step_spinbox.valueChanged.connect(self._session_manager.set_time_step_ms)
         self.autoscroll_step_interval_spinbox.valueChanged.connect(self._session_manager.set_autoscroll_step_interval_ms)
         self.number_of_dots_spinbox.valueChanged.connect(self._session_manager.set_number_of_dots_to_display)
-        self.cut_traces_checkbox.stateChanged.connect(
-            lambda state: self._session_manager.set_cut_traces(
-                Qt.CheckState(state) == Qt.CheckState.Checked
-            )
-        )
         self.create_group_btn.clicked.connect(lambda: self._session_manager.add_channel_group("Group"))
         self.groups_layout_btn.clicked.connect(self.on_groups_layout_clicked)
         self.set_units_btn.clicked.connect(self.on_set_units_clicked)
@@ -687,7 +674,6 @@ class SignalSettingsPanel(QWidget):
         self._session_manager.time_step_ms_changed.connect(self._sync_time_controls)
         self._session_manager.autoscroll_step_interval_ms_changed.connect(self._sync_time_controls)
         self._session_manager.number_of_dots_to_display_changed.connect(self._sync_time_controls)
-        self._session_manager.cut_traces_changed.connect(self._sync_time_controls)
         self._session_manager.filters_changed.connect(self.on_filters_changed)
         self._session_manager.channels_mapping_img_changed.connect(self.on_channels_mapping_img_changed)
         self._session_manager.header_units_changed.connect(lambda _units: self.rebuild_groups_ui())
@@ -744,7 +730,6 @@ class SignalSettingsPanel(QWidget):
         self.time_step_spinbox.setValue(gui_setup.time_step_ms)
         self.autoscroll_step_interval_spinbox.setValue(gui_setup.autoscroll_step_interval_ms)
         self.number_of_dots_spinbox.setValue(gui_setup.number_of_dots_to_display)
-        self.cut_traces_checkbox.setChecked(bool(gui_setup.cut_traces))
         self.duration_label.setText(f"Duration window {milliseconds_to_readable(gui_setup.duration_ms)}")
         self.time_step_label.setText(f"Auto-scroll time step {milliseconds_to_readable(gui_setup.time_step_ms)}")
         self._update_sweep_info_label(current_sweep_idx)
@@ -946,6 +931,15 @@ class SignalSettingsPanel(QWidget):
                 )
             )
             form.addRow("View:", shown)
+
+            cut_traces = QCheckBox()
+            cut_traces.setChecked(group.cut_traces)
+            cut_traces.stateChanged.connect(
+                lambda state, idx=group_idx: self._session_manager.set_cut_traces(
+                    idx, Qt.CheckState(state) == Qt.CheckState.Checked
+                )
+            )
+            form.addRow("Cut traces:", cut_traces)
 
             aux_checkbox = QCheckBox()
             aux_checkbox.setChecked(group.is_auxiliary)

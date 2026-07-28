@@ -318,10 +318,16 @@ class QtWeegitSessionManagerWrapper(QObject):
         self.periods_are_shown_changed.emit(shown)
 
     @user_session_modification
-    def set_cut_traces(self, cut_traces: bool):
+    def set_cut_traces(self, group_idx: int, cut_traces: bool):
+        session = self._session_manager.current_user_session
+        if not session:
+            return
+        groups = session.gui_setup.channels_groups
+        if not (0 <= group_idx < len(groups)):
+            return
         cut_traces = bool(cut_traces)
-        if self._session_manager.current_user_session.gui_setup.cut_traces != cut_traces:
-            self._session_manager.current_user_session.gui_setup.cut_traces = cut_traces
+        if groups[group_idx].cut_traces != cut_traces:
+            groups[group_idx].cut_traces = cut_traces
             self.cut_traces_changed.emit(cut_traces)
 
     @user_session_modification

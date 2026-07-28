@@ -91,6 +91,7 @@ class ChannelGroup(BaseModel):
     name: str = "Default"
     is_shown: bool = True
     is_auxiliary: bool = False
+    cut_traces: bool = False
     group_layout: GroupLayout = Field(default_factory=GroupLayout)
     channels_layout: ChannelsLayout = Field(default_factory=ChannelsLayout)
 
@@ -182,7 +183,6 @@ class GuiSetup(BaseModel):
     traces_are_shown: bool = True
     events_are_shown: bool = True
     periods_are_shown: bool = True
-    cut_traces: bool = False
 
     current_sweep_idx: int = 0
     start_point: int = 0
