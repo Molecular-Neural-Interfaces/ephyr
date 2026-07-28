@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import platform
-
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout
 
 from weegit import version
+from weegit.gui.hotkeys import get_hotkey_descriptions
 
 
 class StartScreenPanel(QWidget):
@@ -52,15 +51,7 @@ class StartScreenPanel(QWidget):
         open_row.addStretch(1)
         content_layout.addLayout(open_row)
 
-        ctrl_key = "Cmd" if platform.system() == "Darwin" else "Ctrl"
-        shortcuts = [
-            f"{ctrl_key} + S: save current session",
-            f"{ctrl_key} + scroll: zoom in/out",
-            "M: measurement bar",
-            "V: view selected area",
-            "Esc: disable",
-        ]
-        for shortcut_text in shortcuts:
+        for shortcut_text in get_hotkey_descriptions():
             shortcut_label = QLabel(shortcut_text)
             shortcut_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             content_layout.addWidget(shortcut_label)

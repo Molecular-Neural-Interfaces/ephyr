@@ -47,6 +47,8 @@ from weegit.gui.dialogs.add_ons_dialog import AddOnsDialog
 from weegit.gui.dialogs.add_on_development_dialog import AddOnDevelopmentDialog
 from weegit.gui.dialogs.script_template_generator_dialog import ScriptTemplateGeneratorDialog
 from weegit.gui.dialogs.screenshot_export_dialog import ScreenshotExportDialog, ScreenshotRenderContext
+from weegit.gui.dialogs.about_dialog import AboutDialog
+from weegit.gui.dialogs.hotkeys_dialog import HotkeysDialog
 from weegit.gui.panels.information_panel import InformationPanel
 from weegit.gui.panels.analysis_panel import AnalysisPanel
 from weegit.gui.panels.logs_panel import LogsPanel
@@ -298,6 +300,15 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.add_ons_generate_script = QAction("Generate script", self)
         add_ons_menu.addAction(self.add_ons_generate_script)
 
+        # Help
+        help_menu = menubar.addMenu("Help")
+        self.act_about = QAction("About", self)
+        self.act_about.setMenuRole(QAction.MenuRole.NoRole)
+        help_menu.addAction(self.act_about)
+        self.act_hotkeys = QAction("Hotkeys", self)
+        self.act_hotkeys.setMenuRole(QAction.MenuRole.NoRole)
+        help_menu.addAction(self.act_hotkeys)
+
     def connect_signals(self):
         if settings.DEBUG:
             self.btn_debug.clicked.connect(self.on_debug)
@@ -337,6 +348,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.add_ons_manage.triggered.connect(self.on_add_ons_manage)
         self.add_ons_create_template.triggered.connect(self.on_add_ons_create_template)
         self.add_ons_generate_script.triggered.connect(self.on_add_ons_generate_script)
+        self.act_about.triggered.connect(self.on_about)
+        self.act_hotkeys.triggered.connect(self.on_hotkeys)
 
         # Different signal params changed
         self.session_manager.number_of_dots_to_display_changed.connect(self.on_number_of_dots_to_display_changed)
@@ -908,6 +921,12 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
     def on_add_ons_generate_script(self):
         ScriptTemplateGeneratorDialog(self.session_manager, self).exec()
+
+    def on_about(self):
+        AboutDialog(self).exec()
+
+    def on_hotkeys(self):
+        HotkeysDialog(self).exec()
 
     def on_debug(self):
         capture_widget_to_file(self, self, "main_window_full")
