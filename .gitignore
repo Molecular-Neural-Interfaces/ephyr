@@ -1,6 +1,5 @@
 .idea
 venv
-.docs-venv/
 site/
 .debug
 .vscode
