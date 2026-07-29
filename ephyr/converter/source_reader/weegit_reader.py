@@ -58,16 +58,16 @@ class WeegitSourceReader(AbstractSourceReader):
 
     @classmethod
     def _try_to_open(cls, experiment_path: Path):
-        old_ephyr_files = cls.old_ephyr_paths(experiment_path)
-        if not old_ephyr_files:
+        weegit_files = cls.weegit_paths(experiment_path)
+        if not weegit_files:
             raise WrongSourceReaderError(cls)
 
-        for path in cls.old_ephyr_paths(experiment_path):
+        for path in cls.weegit_paths(experiment_path):
             if not path.exists():
                 raise WrongSourceReaderError(cls)
 
     @classmethod
-    def old_ephyr_paths(cls, experiment_path: Path):
+    def weegit_paths(cls, experiment_path: Path):
         lfp_files = list(experiment_path.glob("*.lfp"))
         header_files = list(experiment_path.glob("*.header.json"))
 
@@ -87,7 +87,7 @@ class WeegitSourceReader(AbstractSourceReader):
         if self._header_num > 0:
             raise StopIteration
 
-        header_path, lfp_path = self.old_ephyr_paths(self._experiment_path)
+        header_path, lfp_path = self.weegit_paths(self._experiment_path)
         header = self._init_header(header_path)
         data_stream = WeegitDataWriter(header, lfp_path)
         self._header_num += 1
