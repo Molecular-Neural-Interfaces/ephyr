@@ -42,8 +42,6 @@ filters, set units, and control how groups and channels are laid out on screen.
 | **Groups layout** | Both | Opens a dialog to place groups on a shared grid (row, column, height ratio, width ratio). |
 | **Set units** | Both | Opens header units management so you can change voltage units for selected channels. |
 
-![Channels mapping image (Expert)](../source/_static/gui/channels_mapping.png)
-
 ![Groups layout dialog](../source/_static/gui/groups_layout.png)
 
 ### Groups layout

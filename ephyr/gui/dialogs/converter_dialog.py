@@ -31,7 +31,7 @@ class ConverterDialog(QDialog):
         elif isinstance(self._reader, IntanRhdSourceReader):
             source_name = "Intan RHD"
         elif isinstance(self._reader, WeegitSourceReader):
-            source_name = "Old Ephyr"
+            source_name = "Weegit"
         else:
             source_name = self._reader.__class__.__name__
 

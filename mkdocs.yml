@@ -11,6 +11,9 @@ theme:
     - navigation.expand
     - content.code.copy
 
+plugins:
+  - glightbox
+
 nav:
   - Getting Started: index.md
   - Installation: installation.md

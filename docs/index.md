@@ -14,7 +14,6 @@ After installation, launch the app with the `ephyr` command. The About dialog (H
 installed version as `Ephyr v…`.
 
 ![Ephyr application overview](source/_static/getting_started/app_overview.png)
-
 ## Where to go next
 
 Depending on what you need, continue with one of these sections:

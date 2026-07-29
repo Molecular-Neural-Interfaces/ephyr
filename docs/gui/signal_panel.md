@@ -25,7 +25,8 @@ Visibility of traces, events, and periods is controlled from **View** and stored
 ## Add-on overlays
 
 Viewable add-ons draw additional graphics on the same panel after the base traces (and according to their
-z-order relative to periods and events). A common example is highlighted **spikes** from the Spike viewer
+z-order relative to periods and events). A common example is **csd** (current source density) add-on. 
+Another example is highlighted **spikes** from the Spike viewer
 add-on: detection results stored under `add_ons/data/` are rendered as markers on the relevant channels.
 
 ![Signal panel with add-on overlays](../source/_static/gui/signal_panel_addons.png)

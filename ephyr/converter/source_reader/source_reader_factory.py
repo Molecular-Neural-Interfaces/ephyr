@@ -14,7 +14,8 @@ from pathlib import Path
 class SourceReaderFactory:
     @staticmethod
     def get_reader(experiment_path: Path):
-        for reader_class in (AbfSourceReader,
+        for reader_class in (WeegitSourceReader,
+                             AbfSourceReader,
                              EdfSourceReader,
                              DaqSourceReader,
                              XdatSourceReader,
@@ -22,8 +23,7 @@ class SourceReaderFactory:
                              NwbSourceReader,
                              OpenEphysSourceReader,
                              IntanRhdSourceReader,
-                             IntanRhsSourceReader,
-                             WeegitSourceReader,):
+                             IntanRhsSourceReader,):
             try:
                 reader_class.try_to_open(experiment_path)
                 return reader_class(experiment_path)
