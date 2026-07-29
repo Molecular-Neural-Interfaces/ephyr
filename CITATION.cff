@@ -2,7 +2,7 @@ cff-version: 1.2.0
 title: "Ephyr: an open-source platform for visualizing and labeling multimodal electrophysiological data"
 message: "If you use this software, please cite both the software itself, and the paper listed in the preferred-citation field (comming soon)."
 version: 1.0.0
-date-released: 2026-29-07
+date-released: 2026-07-29
 doi:
 repository-code: "https://github.com/Molecular-Neural-Interfaces/ephyr"
 keywords:
