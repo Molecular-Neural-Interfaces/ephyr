@@ -1,0 +1,3 @@
+[submodule "devtools/ephyr-add-ons"]
+	path = devtools/ephyr-add-ons
+	url = git@github.com:Molecular-Neural-Interfaces/ephyr-add-ons.git
