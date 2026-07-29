@@ -1,8 +1,5 @@
 # Ephyr
 
-[![PyPI](https://img.shields.io/pypi/v/ephyr?color=blue)](https://pypi.org/project/ephyr/)
-[![Downloads](https://static.pepy.tech/badge/ephyr)](https://pepy.tech/project/ephyr)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ephyr)](https://pypi.org/project/ephyr/)
 [![Documentation](https://img.shields.io/badge/docs-readthedocs-blue)](https://ephyr.readthedocs.io/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
