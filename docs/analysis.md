@@ -42,9 +42,9 @@ from pathlib import Path
 from ephyr.core.ephyr_session import EphyrSessionManager, UserSession
 
 # Init session
-OUT_WEEGIT_FOLDER = Path("/path/to/experiment_ephyr")
+OUT_EPHYR_FOLDER = Path("/path/to/experiment_ephyr")
 session = EphyrSessionManager()
-session.init_from_folder(OUT_WEEGIT_FOLDER)
+session.init_from_folder(OUT_EPHYR_FOLDER)
 
 # Work with data
 print(session.experiment_data.header)
@@ -82,7 +82,7 @@ for period in session.user_session.periods:
 
 # Work with spikes (Spike detection add-on results under add_ons/data)
 # Each result directory contains files named "{sweep_idx}.spikes.json" (SpikesPayload).
-spikes_root = Path(OUT_WEEGIT_FOLDER) / "add_ons" / "data" / "spike_detection"
+spikes_root = Path(OUT_EPHYR_FOLDER) / "add_ons" / "data" / "spike_detection"
 if spikes_root.exists():
     for result_dir in spikes_root.iterdir():
         if not result_dir.is_dir():

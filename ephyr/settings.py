@@ -3,7 +3,7 @@ import os
 from platformdirs import user_log_dir, user_data_dir
 
 
-WEEGIT_FOLDER_SUFFIX = "_ephyr"
+EPHYR_FOLDER_SUFFIX = "_ephyr"
 SIGNAL_DATA_SUBFOLDER = "data"
 SIGNAL_DATA_SWEEP_SUBFOLDER_PREFIX = "sweep_"
 SIGNAL_DATA_EXTENSION = ".samples"  # ephyr signal data
@@ -44,15 +44,15 @@ LOG_DIRECTORY = user_log_dir(APP_NAME, appauthor=False)
 ADD_ONS_DIRECTORY = user_data_dir(APP_NAME, appauthor=False)
 
 # Add-ons
-ADD_ONS_REPOSITORY = "https://github.com/misisisim/ephyr-add-ons.git"
-INDEX_RAW_URL = "https://raw.githubusercontent.com/misisisim/ephyr-add-ons/main/index.json"
-REPO_RAW_BASE = "https://raw.githubusercontent.com/misisisim/ephyr-add-ons/main"
+ADD_ONS_REPOSITORY = "https://github.com/Molecular-Neural-Interfaces/ephyr-add-ons.git"
+INDEX_RAW_URL = "https://raw.github.com/Molecular-Neural-Interfaces/ephyr-add-ons/main/index.json"
+REPO_RAW_BASE = "https://raw.github.com/Molecular-Neural-Interfaces/ephyr-add-ons/main"
 
 # Documentation
-DOCUMENTATION_LINK = "https://ephyr.github.io/ephyr/"
+DOCUMENTATION_LINK = "https://ephyr.readthedocs.io/"
 
 # Logging
 MAX_LOG_ITEMS = 60
 
 # Development
-DEBUG = bool(os.environ.get('WEEGIT_DEBUG', False))
+DEBUG = bool(os.environ.get('EPHYR_DEBUG', False))

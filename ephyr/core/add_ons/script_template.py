@@ -6,8 +6,8 @@ from ephyr.core.ephyr_session import EphyrSessionManager, UserSession
 
 # Init manager and load experiment data.
 session = EphyrSessionManager()
-OUT_WEEGIT_FOLDER = Path(r"{out_ephyr_folder}")
-session.init_from_folder(OUT_WEEGIT_FOLDER)
+OUT_EPHYR_FOLDER = Path(r"{out_ephyr_folder}")
+session.init_from_folder(OUT_EPHYR_FOLDER)
 
 # Read raw sweep chunks and convert them to uV.
 print("Header:", session.experiment_data.header)

@@ -18,7 +18,7 @@ _max_file_size_kb = 512
 
 _logger_name = 'ephyr'
 _log_dir = 'log'
-_env_var = 'WEEGIT_LOG_DIRECTORY'
+_env_var = 'EPHYR_LOG_DIRECTORY'
 
 # _columns = ['[%(name)s]', '%(asctime)s', '%(threadName)s', '(%(thread)d)', '%(levelname)s',
 #             '%(message)s']

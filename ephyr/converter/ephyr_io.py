@@ -15,7 +15,7 @@ class EphyrIO:
     def ephyr_dir_of_experiment(experiment_folder: Path):
         is_ephyr = EphyrIO.is_valid_ephyr_folder(experiment_folder)
         if not is_ephyr:
-            ephyr_experiment_folder_path = experiment_folder.parent / f"{experiment_folder.stem}{settings.WEEGIT_FOLDER_SUFFIX}"
+            ephyr_experiment_folder_path = experiment_folder.parent / f"{experiment_folder.stem}{settings.EPHYR_FOLDER_SUFFIX}"
         else:
             ephyr_experiment_folder_path = experiment_folder
 
@@ -36,7 +36,7 @@ class EphyrIO:
         reader = SourceReaderFactory.get_reader(experiment_path)
         reader.set_conversion_options(reader_options or {})
         if out_dir is None:
-            out_dir = experiment_path.parent / f"{experiment_path.stem}{settings.WEEGIT_FOLDER_SUFFIX}"
+            out_dir = experiment_path.parent / f"{experiment_path.stem}{settings.EPHYR_FOLDER_SUFFIX}"
 
         lfp_out_dir = out_dir / settings.SIGNAL_DATA_SUBFOLDER
         add_ons_dir = out_dir / settings.ADD_ONS_SUBFOLDER
