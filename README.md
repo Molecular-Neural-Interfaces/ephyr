@@ -29,5 +29,7 @@ The official reference and DOI will be updated here and in the `CITATION.cff` fi
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0 or later** —
-see the [LICENSE](LICENSE) file for details.
+Copyright (C) 2026 Life Improvement by Future Technologies (LIFT).
+
+This project is licensed under the **GNU General Public License v3.0** —
+see the [LICENSE](LICENSE) and [COPYRIGHT](COPYRIGHT) files for details.

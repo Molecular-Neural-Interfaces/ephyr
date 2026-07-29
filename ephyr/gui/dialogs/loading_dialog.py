@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
+# SPDX-License-Identifier: GPL-3.0-only
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QLabel, QProgressBar, QVBoxLayout
 from typing import Optional

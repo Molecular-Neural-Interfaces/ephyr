@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Shared helpers for event/period sample masks.
 
 Selected events and periods can either be ignored (excluded from analysis) or

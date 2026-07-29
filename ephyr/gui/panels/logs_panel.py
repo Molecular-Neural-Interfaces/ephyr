@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
+# SPDX-License-Identifier: GPL-3.0-only
+
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QListWidgetItem, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, \

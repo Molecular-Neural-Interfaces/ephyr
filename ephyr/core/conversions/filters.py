@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
+# SPDX-License-Identifier: GPL-3.0-only
+
 from abc import abstractmethod
 from typing import Annotated, ClassVar, Dict, List, Optional, Type, Union, Literal
 

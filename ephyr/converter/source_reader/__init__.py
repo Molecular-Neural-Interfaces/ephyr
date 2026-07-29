@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
+# SPDX-License-Identifier: GPL-3.0-only
+
 from .abstract_source_reader import AbstractSourceReader
 from .abf_source_reader import AbfSourceReader
 from .daq_source_reader import DaqSourceReader

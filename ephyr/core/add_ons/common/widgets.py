@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Reusable Qt widgets shared by add-on dialogs.
 
 Contains the filter editor, the preprocessing pipeline selector (with an inline

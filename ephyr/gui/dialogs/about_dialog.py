@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
+# SPDX-License-Identifier: GPL-3.0-only
+
 from __future__ import annotations
 
 import sys
@@ -44,7 +47,7 @@ class AboutDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("About Ephyr")
         self.setModal(True)
-        self.resize(520, 300)
+        self.resize(620, 360)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -85,6 +88,15 @@ class AboutDialog(QDialog):
         description.setWordWrap(True)
         description.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         title_block.addWidget(description)
+
+        copyright_label = QLabel(
+            "Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)\n"
+            "Licensed under the GNU General Public License v3.0",
+            self,
+        )
+        copyright_label.setWordWrap(True)
+        copyright_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        title_block.addWidget(copyright_label)
 
         docs_link = QLabel(
             f'<a href="{settings.DOCUMENTATION_LINK}">Documentation</a>',

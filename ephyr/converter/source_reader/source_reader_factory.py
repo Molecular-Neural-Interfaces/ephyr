@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
+# SPDX-License-Identifier: GPL-3.0-only
+
 from ._exceptions import WrongSourceReaderError
 from .weegit_reader import WeegitSourceReader
 from .open_ephys_source_reader import OpenEphysSourceReader

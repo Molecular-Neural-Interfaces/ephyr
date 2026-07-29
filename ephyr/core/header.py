@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
+# SPDX-License-Identifier: GPL-3.0-only
+
 from enum import Enum
 from typing import List, Optional
 from pydantic import BaseModel, Field, model_validator

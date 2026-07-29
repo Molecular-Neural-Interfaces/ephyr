@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Configurable preprocessing pipelines shared by all add-ons.
 
 A pipeline is an ordered list of steps applied to a ``(n_channels, n_samples)``

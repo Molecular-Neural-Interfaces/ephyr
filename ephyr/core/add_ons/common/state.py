@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Session-scoped, disk-backed parameter persistence for add-ons.
 
 Add-on dialogs should remember the values a user entered last time so they do
