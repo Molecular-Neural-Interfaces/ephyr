@@ -11,14 +11,14 @@ build/
 .DS_store
 .ipynb_checkpoints/
 tests/eeg_different_formats/spheroid_*
-tests/eeg_different_formats/OldWeegit_sweeps
+tests/eeg_different_formats/OldEphyr_sweeps
 tests/eeg_different_formats/gitignore_*
 ../../NIR/_experiments.ipynb
 ../../NIR/_experiments_tg.ipynb
-*_weegit/
+*_ephyr/
 TODO.txt
 tests/eeg_different_formats/IntanRHS_XDAQ/*
-tests/eeg_different_formats/OldWeegit/*
+tests/eeg_different_formats/OldEphyr/*
 ../../NIR/importrhsutilities.py
 .debug/*
 !.debug/lfp.header.example.json
@@ -26,4 +26,4 @@ add_on_development/
 test.py
 devtools/NIR
 .python-version
-weegit.egg-info
+ephyr.egg-info

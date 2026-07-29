@@ -19,12 +19,12 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor, QPen, QPainter, QImage
 from scipy.interpolate import RectBivariateSpline
 
-from weegit.core.add_ons.base import BaseAddOn
-from weegit.core.add_ons.common.mixin import WeegitAddOnMixin
-from weegit.logger import weegit_logger
+from ephyr.core.add_ons.base import BaseAddOn
+from ephyr.core.add_ons.common.mixin import EphyrAddOnMixin
+from ephyr.logger import ephyr_logger
 
 
-class CSDAddOn(WeegitAddOnMixin, BaseAddOn):
+class CSDAddOn(EphyrAddOnMixin, BaseAddOn):
     """
     View-only add-on that draws interpolated CSD as a colored background
     behind EEG traces. Scale (vmin, vmax) is configurable and cached.
@@ -68,7 +68,7 @@ class CSDAddOn(WeegitAddOnMixin, BaseAddOn):
             cfg_path.unlink(missing_ok=True)
             self._config_mtime_ns = None
         except Exception as e:
-            weegit_logger().debug(str(e))
+            ephyr_logger().debug(str(e))
 
     @staticmethod
     def _sanitize_pixels_step(
@@ -77,7 +77,7 @@ class CSDAddOn(WeegitAddOnMixin, BaseAddOn):
         try:
             parsed = int(value)
         except Exception as e:
-            weegit_logger().debug(str(e))
+            ephyr_logger().debug(str(e))
             return int(fallback)
         return max(min_value, min(max_value, parsed))
 
@@ -97,7 +97,7 @@ class CSDAddOn(WeegitAddOnMixin, BaseAddOn):
             try:
                 cfg_mtime_ns = int(cfg_path.stat().st_mtime_ns)
             except Exception as e:
-                weegit_logger().debug(str(e))
+                ephyr_logger().debug(str(e))
                 cfg_mtime_ns = None
 
         if (
@@ -139,7 +139,7 @@ class CSDAddOn(WeegitAddOnMixin, BaseAddOn):
                             [str(raw_group_idx)] if raw_group_idx is not None else []
                         )
             except Exception as e:
-                weegit_logger().debug(str(e))
+                ephyr_logger().debug(str(e))
                 self._scale_min = None
                 self._scale_max = None
                 self._x_pixels_step = self.DEFAULT_X_PIXELS_STEP
@@ -167,7 +167,7 @@ class CSDAddOn(WeegitAddOnMixin, BaseAddOn):
             self._config_loaded_for_dir = add_on_data_dir
             self._config_mtime_ns = int(cfg_path.stat().st_mtime_ns)
         except Exception as e:
-            weegit_logger().debug(str(e))
+            ephyr_logger().debug(str(e))
 
     # ---- Run: choose background scale ----
     def _ask_background_scale(
@@ -357,7 +357,7 @@ class CSDAddOn(WeegitAddOnMixin, BaseAddOn):
         try:
             spline = RectBivariateSpline(x, y, csd, kx=kx, ky=ky)
         except Exception as e:
-            weegit_logger().debug(str(e))
+            ephyr_logger().debug(str(e))
             return csd.astype(np.float32, copy=False)
 
         x_new = np.linspace(x[0], x[-1], out_w)

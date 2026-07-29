@@ -27,14 +27,14 @@ from PyQt6.QtWidgets import (
 )
 from scipy.signal import welch
 
-from weegit.core.add_ons.base import BaseAddOn
-from weegit.core.add_ons import (
+from ephyr.core.add_ons.base import BaseAddOn
+from ephyr.core.add_ons import (
     PipelineSelector,
     read_pipeline_store,
 )
-from weegit.logger import weegit_logger
+from ephyr.logger import ephyr_logger
 
-from weegit_add_ons.signal_utils._common import SignalUtilsBase
+from ephyr_add_ons.signal_utils._common import SignalUtilsBase
 
 
 class PowerSpectralDensityPlotAddOn(SignalUtilsBase, BaseAddOn):
@@ -253,12 +253,12 @@ class PowerSpectralDensityPlotAddOn(SignalUtilsBase, BaseAddOn):
             if valid_mask.size == signal.size and (not np.all(valid_mask)):
                 signal = signal[valid_mask]
             if signal.size < nperseg:
-                weegit_logger().debug(f"PSD: channel {channel_idx} too short after masking")
+                ephyr_logger().debug(f"PSD: channel {channel_idx} too short after masking")
                 continue
             try:
                 freqs, psd = welch(signal, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
             except Exception as e:
-                weegit_logger().debug(str(e))
+                ephyr_logger().debug(str(e))
                 continue
             band = (freqs >= params["freq_min_hz"]) & (freqs <= params["freq_max_hz"])
             if not np.any(band):
@@ -281,7 +281,7 @@ class PowerSpectralDensityPlotAddOn(SignalUtilsBase, BaseAddOn):
             try:
                 plt.show()
             except Exception as e:
-                weegit_logger().debug(str(e))
+                ephyr_logger().debug(str(e))
                 plt.close(fig)
         else:
             plt.close(fig)

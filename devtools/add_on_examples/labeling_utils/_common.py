@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from weegit.core.add_ons import WeegitAddOnMixin
+from ephyr.core.add_ons import EphyrAddOnMixin
 
 
-class LabelingUtilsBase(WeegitAddOnMixin):
+class LabelingUtilsBase(EphyrAddOnMixin):
     """Base for labeling add-ons (event detection, ...)."""
 
 

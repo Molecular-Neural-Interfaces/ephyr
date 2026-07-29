@@ -6,19 +6,19 @@ Coming soon.
 
 ## Python installation
 
-Weegit requires **Python 3.11** or newer.
+Ephyr requires **Python 3.11** or newer.
 
-Install the package from [PyPI](https://pypi.org/project/weegit/):
+Install the package from [PyPI](https://pypi.org/project/ephyr/):
 
 ```bash
-pip install weegit
+pip install ephyr
 ```
 
 Start the desktop application:
 
 ```bash
-weegit
+ephyr
 ```
 
-The `weegit` console command launches the GUI entry point. Use the same Python environment for scripts that
-import Weegit APIs (see [Analysis](analysis.md)).
+The `ephyr` console command launches the GUI entry point. Use the same Python environment for scripts that
+import Ephyr APIs (see [Analysis](analysis.md)).

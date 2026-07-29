@@ -23,10 +23,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from weegit.core.add_ons.base import BaseAddOn
-from weegit.logger import weegit_logger
+from ephyr.core.add_ons.base import BaseAddOn
+from ephyr.logger import ephyr_logger
 
-from weegit_add_ons.spike_utils._common import SpikePoint, SpikeUtilsBase
+from ephyr_add_ons.spike_utils._common import SpikePoint, SpikeUtilsBase
 
 
 class _SpikeNavigationWindow(QWidget):
@@ -146,7 +146,7 @@ class _SpikeNavigationWindow(QWidget):
                 f"Spike {index + 1}/{len(self._spikes)} @ {spike.time_ms:.2f} ms"
             )
         except Exception as e:
-            weegit_logger().debug(str(e))
+            ephyr_logger().debug(str(e))
 
 
 class SpikeNavigationAddOn(SpikeUtilsBase, BaseAddOn):
@@ -168,7 +168,7 @@ class SpikeNavigationAddOn(SpikeUtilsBase, BaseAddOn):
             if self._nav_window is not None:
                 self._nav_window.close()
         except Exception as e:
-            weegit_logger().debug(str(e))
+            ephyr_logger().debug(str(e))
         self._nav_window = _SpikeNavigationWindow(self, session_manager, add_on_data_dir)
         self._nav_window.show()
         self._nav_window.raise_()

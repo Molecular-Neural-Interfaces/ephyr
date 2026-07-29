@@ -28,8 +28,8 @@ from PyQt6.QtWidgets import (
 )
 from scipy.signal import find_peaks
 
-from weegit.core.add_ons import WeegitAddOnMixin
-from weegit.logger import weegit_logger
+from ephyr.core.add_ons import EphyrAddOnMixin
+from ephyr.logger import ephyr_logger
 
 DEFAULT_PIPELINE_NAME = "raw"
 DETECTION_MODULE_NAME = "spike_detection"
@@ -265,7 +265,7 @@ def safe_detection_dir_name(
 
 # ---- Base with detection-result locating/reading ----
 
-class SpikeUtilsBase(WeegitAddOnMixin):
+class SpikeUtilsBase(EphyrAddOnMixin):
     def detection_dir(self, add_on_data_dir: Path) -> Path:
         name = Path(add_on_data_dir).name
         prefix = "dev_" if name.startswith("dev_") else ""
@@ -309,7 +309,7 @@ class SpikeUtilsBase(WeegitAddOnMixin):
                     detector_name=str(data.get("detector_name", "mad") or "mad"),
                 )
             except Exception as e:
-                weegit_logger().debug(str(e))
+                ephyr_logger().debug(str(e))
 
         # Fallback: infer from any sweep payload in the directory.
         for spikes_path in sorted(Path(result_dir).glob("*.spikes.json")):
@@ -324,7 +324,7 @@ class SpikeUtilsBase(WeegitAddOnMixin):
                     detector_name=str(payload.detector_name or "mad"),
                 )
             except Exception as e:
-                weegit_logger().debug(str(e))
+                ephyr_logger().debug(str(e))
         return DetectionResultMeta()
 
     def detection_result_label(self, result_dir: Path) -> str:
@@ -338,7 +338,7 @@ class SpikeUtilsBase(WeegitAddOnMixin):
         try:
             return SpikesPayload.model_validate_json(path.read_text(encoding="utf-8"))
         except Exception as e:
-            weegit_logger().debug(str(e))
+            ephyr_logger().debug(str(e))
             return None
 
     def save_spikes_payload(self, path: Path, payload: SpikesPayload) -> None:

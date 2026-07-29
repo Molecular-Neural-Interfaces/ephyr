@@ -9,14 +9,14 @@ you load an experiment.
 
 Opens a dialog titled **Select experiment folder or source file**. Choose either:
 
-- a supported source file or recording folder (Weegit converts it to a `*_weegit` experiment), or
-- an existing Weegit experiment folder that already contains `header.json`.
+- a supported source file or recording folder (Ephyr converts it to a `*_ephyr` experiment), or
+- an existing Ephyr experiment folder that already contains `header.json`.
 
 See [Files Format](../files_format.md) for supported formats and how to select them.
 
 ### Open Recent
 
-Lists recently opened Weegit experiment folders. Selecting an entry reloads that experiment.
+Lists recently opened Ephyr experiment folders. Selecting an entry reloads that experiment.
 Missing folders are removed from the list automatically.
 
 ### Session
@@ -55,7 +55,7 @@ Copies the current session JSON file to a directory you choose.
 
 #### Open in Explorer
 
-Opens the current Weegit experiment folder in the system file manager (Finder / Explorer / equivalent).
+Opens the current Ephyr experiment folder in the system file manager (Finder / Explorer / equivalent).
 
 #### Other Sessions
 
@@ -64,7 +64,7 @@ session without reloading the underlying signal data.
 
 ### Exit
 
-Quits the application. If the current session has unsaved changes, Weegit asks for confirmation.
+Quits the application. If the current session has unsaved changes, Ephyr asks for confirmation.
 Closing the window uses the same unsaved-changes check.
 
 ## Edit
@@ -156,8 +156,8 @@ See [Add-on Development](../add_ons/development.md).
 
 ### Generate script
 
-Opens a dialog that writes a starter Python script for loading the current (or selected) Weegit folder
-and session via `WeegitSessionManager`. See [Analysis](../analysis.md).
+Opens a dialog that writes a starter Python script for loading the current (or selected) Ephyr folder
+and session via `EphyrSessionManager`. See [Analysis](../analysis.md).
 
 ## Help
 

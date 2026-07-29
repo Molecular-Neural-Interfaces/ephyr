@@ -1,6 +1,6 @@
 """Group-shared helpers for the Signal utils add-ons.
 
-Only imports from ``weegit.core.add_ons`` (shared infrastructure); it never
+Only imports from ``ephyr.core.add_ons`` (shared infrastructure); it never
 imports from another add-on group, keeping groups independent.
 """
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from weegit.core.add_ons import WeegitAddOnMixin
+from ephyr.core.add_ons import EphyrAddOnMixin
 
 
 def safe_file_name(raw: str) -> str:
@@ -20,7 +20,7 @@ def safe_file_name(raw: str) -> str:
     return clean.replace(" ", "_")
 
 
-class SignalUtilsBase(WeegitAddOnMixin):
+class SignalUtilsBase(EphyrAddOnMixin):
     """Base for signal-domain add-ons with shared window resolution."""
 
     def sweep_duration_ms(self, session_manager, header) -> float:

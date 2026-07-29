@@ -1,5 +1,5 @@
 app:
-	pyinstaller ./weegit.spec --noconfirm
+	pyinstaller ./ephyr.spec --noconfirm
 
 # pypi
 build-main:

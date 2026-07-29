@@ -1,38 +1,38 @@
 # Add-on Development
 
-You can extend Weegit with custom Transformation, Viewable, and/or Runnable add-ons.
+You can extend Ephyr with custom Transformation, Viewable, and/or Runnable add-ons.
 
 ## Generate a template from the GUI
 
-1. Open Weegit.
+1. Open Ephyr.
 2. Choose **Add-ons → Create**.
 3. Fill in project metadata (`name`, `description`, authors) and capability flags
    (`viewable`, `transformation`, `runnable`).
 4. Click **Generate template**.
 
-Weegit writes a scaffold under the current working directory:
+Ephyr writes a scaffold under the current working directory:
 
 ```text
 add_on_development/
 ├── README.md
 ├── pyproject.toml
-└── weegit_add_ons/
+└── ephyr_add_ons/
     └── <project_name>/
         ├── __init__.py
         └── entry_point.py
 ```
 
 Implement your logic in `entry_point.py` (a subclass of `BaseAddOn`). Metadata and the
-`weegit.add_ons` entry point are declared in `pyproject.toml`.
+`ephyr.add_ons` entry point are declared in `pyproject.toml`.
 
 ## How development add-ons are loaded
 
-On startup (and when the runtime add-on list is refreshed), Weegit:
+On startup (and when the runtime add-on list is refreshed), Ephyr:
 
-1. Loads **installed** packages via the `weegit.add_ons` entry-point group.
+1. Loads **installed** packages via the `ephyr.add_ons` entry-point group.
 2. Loads **development** modules from `./add_on_development` if that folder exists:
       - top-level `*.py` files appear as `dev_<stem>`
-      - packages under `weegit_add_ons/<name>/` (including `entry_point.py` and nested modules) appear as `dev_*` entries
+      - packages under `ephyr_add_ons/<name>/` (including `entry_point.py` and nested modules) appear as `dev_*` entries
 
 Development add-ons show up in the Add-ons side panel under the development group. You can enable
 View / Transform and press **Run** the same way as for installed packages. No separate install step is
@@ -42,7 +42,7 @@ required while iterating locally.
 
 Study published packages in the official repository:
 
-[https://github.com/misisisim/weegit-add-ons](https://github.com/misisisim/weegit-add-ons)
+[https://github.com/misisisim/ephyr-add-ons](https://github.com/misisisim/ephyr-add-ons)
 
 In this repository, reference implementations also live under `devtools/add_on_examples/`, including:
 
@@ -55,6 +55,6 @@ Use those examples together with the generated template as a starting point for 
 
 ## Related tools
 
-**Add-ons → Generate script** creates a Python script that loads a Weegit folder and session through
-`WeegitSessionManager`. That path is aimed at post-annotation analysis rather than GUI add-ons; see
+**Add-ons → Generate script** creates a Python script that loads a Ephyr folder and session through
+`EphyrSessionManager`. That path is aimed at post-annotation analysis rather than GUI add-ons; see
 [Analysis](../analysis.md).

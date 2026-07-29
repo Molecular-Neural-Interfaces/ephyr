@@ -2,7 +2,7 @@
 
 ## Usage of the Labeled Data
 
-After you annotate an experiment in Weegit, you can load the same `*_weegit` folder from Python and work
+After you annotate an experiment in Ephyr, you can load the same `*_ephyr` folder from Python and work
 with signals, sessions, events, periods, and add-on outputs.
 
 You can also generate a starter script from the GUI (**Add-ons → Generate script**). The example below
@@ -12,7 +12,7 @@ follows the same API and extends it with reading spike detection results from di
 
 | Object | Role |
 |--------|------|
-| `WeegitSessionManager` | Entry point: load an experiment folder, switch sessions, access `experiment_data` and `user_session` |
+| `EphyrSessionManager` | Entry point: load an experiment folder, switch sessions, access `experiment_data` and `user_session` |
 | `ExperimentData` | `header` plus `data_memmaps[sweep_idx][channel_idx]` and voltage conversion helpers |
 | `Header` | Sample rate, sweep/channel counts, channel names, units, ranges, and source provenance |
 | `UserSession` | Events, periods, vocabularies, experiment description, and `gui_setup` |
@@ -39,11 +39,11 @@ follows the same API and extends it with reading spike detection results from di
 import json
 from pathlib import Path
 
-from weegit.core.weegit_session import WeegitSessionManager, UserSession
+from ephyr.core.ephyr_session import EphyrSessionManager, UserSession
 
 # Init session
-OUT_WEEGIT_FOLDER = Path("/path/to/experiment_weegit")
-session = WeegitSessionManager()
+OUT_WEEGIT_FOLDER = Path("/path/to/experiment_ephyr")
+session = EphyrSessionManager()
 session.init_from_folder(OUT_WEEGIT_FOLDER)
 
 # Work with data
@@ -114,4 +114,4 @@ Add-on authors can instead use `SpikesPayload` / `read_spikes_payload` from the 
 - Indexing for memmaps is `[sweep_idx][channel_idx]`, then a sample slice.
 - `from_int16_to_voltage_val` scales using the channel’s analog/digital range and units (results in µV-oriented values used by the GUI pipeline).
 - `session.user_session` and `session.current_user_session` refer to the active session after `switch_sessions` / `new_user_session`.
-- Run analysis scripts in the same Python environment where `weegit` is installed (`pip install weegit`).
+- Run analysis scripts in the same Python environment where `ephyr` is installed (`pip install ephyr`).

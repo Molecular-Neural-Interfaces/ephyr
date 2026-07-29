@@ -4,7 +4,7 @@ The signal panel is the main workspace for viewing and labeling recordings after
 
 ## How data is shown
 
-Signal samples are loaded from the Weegit experiment folder (`data/sweep_*/*.samples`) together with
+Signal samples are loaded from the Ephyr experiment folder (`data/sweep_*/*.samples`) together with
 `header.json`. Traces are arranged into **channel groups** defined in the current session’s GUI setup.
 
 Each group can show a classic single-column stack of channels or a custom electrode grid (see

@@ -1,19 +1,19 @@
-# Weegit
+# Ephyr
 
-[![PyPI](https://img.shields.io/pypi/v/weegit?color=blue)](https://pypi.org/project/weegit/)
-[![Downloads](https://static.pepy.tech/badge/weegit)](https://pepy.tech/project/weegit)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/weegit)](https://pypi.org/project/weegit/)
+[![PyPI](https://img.shields.io/pypi/v/ephyr?color=blue)](https://pypi.org/project/ephyr/)
+[![Downloads](https://static.pepy.tech/badge/ephyr)](https://pepy.tech/project/ephyr)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ephyr)](https://pypi.org/project/ephyr/)
 
 ## Introduction
 
-**Weegit** is a cross-platform desktop application for viewing and labeling electrophysiology data
+**Ephyr** is a cross-platform desktop application for viewing and labeling electrophysiology data
 (EEG, patch-clamp, multielectrode recordings, and similar signals).  
 It supports Windows, macOS, and Linux.
 
-Weegit stores data in its own folder layout:
+Ephyr stores data in its own folder layout:
 
 ```text
-$EXPERIMENT_weegit
+$EXPERIMENT_ephyr
 ├── header.json
 ├── data
 │   ├── sweep_00000
@@ -29,12 +29,12 @@ $EXPERIMENT_weegit
 ## Run GUI
 
 ```bash
-weegit
+ephyr
 ```
 
 ## Main Features
 
-- Open and switch Weegit experiments/sessions.
+- Open and switch Ephyr experiments/sessions.
 - View traces with per-group and per-channel configuration.
 - Navigate time windows and sweeps.
 - Add, remove, and label events and periods.
@@ -108,7 +108,7 @@ For each add-on module:
 
 ### File and Session
 
-- `Convert to Weegit`:
+- `Convert to Ephyr`:
   - detected source type
   - for RHS: optional `Group all RHS files into one sweep`
   - conversion confirmation
@@ -157,7 +157,7 @@ For each add-on module:
   - feature flags: `viewable`, `transformation`, `runnable`
   - output is generated to `./add_on_development`
 - `Generate Python script` (`Add-ons > Generate script`):
-  - `Weegit folder`
+  - `Ephyr folder`
   - `Session name`
   - `Output script`
   - `Include events block`
@@ -171,28 +171,28 @@ For each add-on module:
 
 ## Developers
 
-### Convert source data to Weegit format
+### Convert source data to Ephyr format
 
 ```python
 from pathlib import Path
-from weegit.converter.weegit_io import WeegitIO
+from ephyr.converter.ephyr_io import EphyrIO
 
 path_to_parent = Path("/path/to/parent/dir")
 exp_name = "20252222"
 exp_dir = path_to_parent / exp_name
-out_weegit_folder = path_to_parent / f"{exp_name}_weegit"
+out_ephyr_folder = path_to_parent / f"{exp_name}_ephyr"
 
-for progress in WeegitIO.convert_from_source_to_weegit(exp_dir):
+for progress in EphyrIO.convert_from_source_to_ephyr(exp_dir):
     print(f"\rProgress: {progress}%", end="", flush=True)
 
-print("Created:", out_weegit_folder)
+print("Created:", out_ephyr_folder)
 ```
 
-Supported import formats include old Weegit and Intan RHS (XDAQ).
+Supported import formats include old Ephyr and Intan RHS (XDAQ).
 
 ### Create add-ons from GUI
 
-1. Open Weegit.
+1. Open Ephyr.
 2. Go to `Add-ons > Create`.
 3. Fill:
    - project metadata (`name`, `description`, `authors`)
@@ -201,18 +201,18 @@ Supported import formats include old Weegit and Intan RHS (XDAQ).
 5. Implement add-on logic in generated `add_on_development/example.py`.
 6. Add metadata/entry point in generated `add_on_development/pyproject.toml`.
 
-### Generate a script with current Weegit API
+### Generate a script with current Ephyr API
 
 1. Go to `Add-ons > Generate script`.
 2. Fill:
-   - `Weegit folder` (`*_weegit`)
+   - `Ephyr folder` (`*_ephyr`)
    - `Session name` (without `.json`)
    - output `.py` file path
    - optional blocks (`events`, `periods`)
-3. Run generated script with the same Python environment where Weegit is installed.
+3. Run generated script with the same Python environment where Ephyr is installed.
 
 Generated script demonstrates:
-- loading experiment data through `WeegitSessionManager`
+- loading experiment data through `EphyrSessionManager`
 - reading raw channel slices from `data_memmaps[sweep_idx][channel_idx]`
 - conversion to voltage values via `from_int16_to_voltage_val(...)`
 - loading a GUI session via `UserSession.session_name_to_filename(...)`

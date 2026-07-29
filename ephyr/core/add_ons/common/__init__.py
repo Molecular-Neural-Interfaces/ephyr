@@ -1,0 +1,54 @@
+"""Shared, group-independent infrastructure for Ephyr add-ons."""
+
+from ephyr.core.add_ons.common.ignore import (
+    IgnoreEventsRule,
+    IgnorePeriodsRule,
+    SELECTION_MODE_APPLY,
+    SELECTION_MODE_IGNORE,
+    SELECTION_MODES,
+    build_valid_mask,
+)
+from ephyr.core.add_ons.common.mixin import EphyrAddOnMixin
+from ephyr.core.add_ons.common.preprocessing import (
+    DEFAULT_PIPELINE_NAME,
+    PIPELINES_FILENAME,
+    STEP_KINDS,
+    PipelineSpec,
+    PreprocessingStep,
+    apply_preprocessing_pipeline,
+    default_pipeline_store,
+    read_pipeline_store,
+    write_pipeline_store,
+)
+from ephyr.core.add_ons.common.state import COMMON_SCOPE, SessionParamStore
+from ephyr.core.add_ons.common.widgets import (
+    FilterEditor,
+    PipelineBuilderDialog,
+    PipelineSelector,
+    filter_from_spec,
+)
+
+__all__ = [
+    "COMMON_SCOPE",
+    "DEFAULT_PIPELINE_NAME",
+    "PIPELINES_FILENAME",
+    "STEP_KINDS",
+    "FilterEditor",
+    "IgnoreEventsRule",
+    "IgnorePeriodsRule",
+    "SELECTION_MODE_APPLY",
+    "SELECTION_MODE_IGNORE",
+    "SELECTION_MODES",
+    "PipelineBuilderDialog",
+    "PipelineSelector",
+    "PipelineSpec",
+    "PreprocessingStep",
+    "SessionParamStore",
+    "EphyrAddOnMixin",
+    "apply_preprocessing_pipeline",
+    "build_valid_mask",
+    "default_pipeline_store",
+    "filter_from_spec",
+    "read_pipeline_store",
+    "write_pipeline_store",
+]

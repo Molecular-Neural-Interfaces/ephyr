@@ -16,10 +16,10 @@ import numpy as np
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
-from weegit.core.add_ons.base import BaseAddOn
-from weegit.logger import weegit_logger
+from ephyr.core.add_ons.base import BaseAddOn
+from ephyr.logger import ephyr_logger
 
-from weegit_add_ons.spike_utils._common import SpikesPayload, SpikeUtilsBase
+from ephyr_add_ons.spike_utils._common import SpikesPayload, SpikeUtilsBase
 
 # Distinct marker colors for overlapping methods on the same group.
 _MARKER_COLORS = (
@@ -94,7 +94,7 @@ class SpikeViewerAddOn(SpikeUtilsBase, BaseAddOn):
             try:
                 mtime = path.stat().st_mtime
             except Exception as e:
-                weegit_logger().debug(str(e))
+                ephyr_logger().debug(str(e))
                 continue
             cache_key = str(path)
             cached = self._payload_cache.get(cache_key)

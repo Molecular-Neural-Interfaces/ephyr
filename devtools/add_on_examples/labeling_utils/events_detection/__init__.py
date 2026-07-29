@@ -29,15 +29,15 @@ from PyQt6.QtWidgets import (
 )
 from scipy.signal import find_peaks
 
-from weegit.core.add_ons.base import BaseAddOn
-from weegit.core.add_ons import (
+from ephyr.core.add_ons.base import BaseAddOn
+from ephyr.core.add_ons import (
     PipelineSelector,
     apply_preprocessing_pipeline,
     read_pipeline_store,
 )
-from weegit.logger import weegit_logger
+from ephyr.logger import ephyr_logger
 
-from weegit_add_ons.labeling_utils._common import LabelingUtilsBase
+from ephyr_add_ons.labeling_utils._common import LabelingUtilsBase
 
 CONFIRM_THRESHOLD = 1000
 MODE_TTL = "ttl"
@@ -275,7 +275,7 @@ class EventsDetectionAddOn(LabelingUtilsBase, BaseAddOn):
                             min_distance_samples=distance_samples,
                         )
                 except Exception as e:
-                    weegit_logger().debug(str(e))
+                    ephyr_logger().debug(str(e))
                     continue
                 for peak_sample in peaks:
                     time_ms = (float(peak_sample) * 1000.0) / sample_rate
@@ -313,7 +313,7 @@ class EventsDetectionAddOn(LabelingUtilsBase, BaseAddOn):
             events_specs = [(event_name_id, sweep_idx, time_ms) for sweep_idx, time_ms in detected]
             session_manager.add_events(events_specs)
         except Exception as e:
-            weegit_logger().debug(str(e))
+            ephyr_logger().debug(str(e))
             yield {"progress": 100, "message": "Failed to add events"}
             return
         yield {"progress": 100, "message": f"Added {n_detected} '{params['event_name']}' events"}

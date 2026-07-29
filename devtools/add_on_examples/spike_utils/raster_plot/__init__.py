@@ -28,10 +28,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from weegit.core.add_ons.base import BaseAddOn
-from weegit.logger import weegit_logger
+from ephyr.core.add_ons.base import BaseAddOn
+from ephyr.logger import ephyr_logger
 
-from weegit_add_ons.spike_utils._common import SpikeUtilsBase
+from ephyr_add_ons.spike_utils._common import SpikeUtilsBase
 
 
 class RasterPlotAddOn(SpikeUtilsBase, BaseAddOn):
@@ -209,7 +209,7 @@ class RasterPlotAddOn(SpikeUtilsBase, BaseAddOn):
             try:
                 plt.show()
             except Exception as e:
-                weegit_logger().debug(str(e))
+                ephyr_logger().debug(str(e))
                 plt.close(fig)
         else:
             plt.close(fig)

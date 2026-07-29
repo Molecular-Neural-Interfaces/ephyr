@@ -1,6 +1,6 @@
 # Add-ons Workflow
 
-Add-ons extend Weegit without changing the core application. Each add-on is a Python class that can
+Add-ons extend Ephyr without changing the core application. Each add-on is a Python class that can
 enable any combination of three capabilities:
 
 | Type | What it does | Where it fits |
@@ -34,7 +34,7 @@ flowchart LR
    analyses, or write result files that other Viewable tools later overlay.
 
 Session toggles for View / Transform are stored in `gui_setup.add_ons`. Persistent outputs usually live
-under `{experiment}_weegit/add_ons/data/$ADD_ON_MODULE_NAME/`.
+under `{experiment}_ephyr/add_ons/data/$ADD_ON_MODULE_NAME/`.
 
 ## Example: Viewable — Spike viewer
 

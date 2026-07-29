@@ -26,14 +26,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from weegit.core.add_ons.base import BaseAddOn
-from weegit.core.add_ons import (
+from ephyr.core.add_ons.base import BaseAddOn
+from ephyr.core.add_ons import (
     PipelineSelector,
     read_pipeline_store,
 )
-from weegit.logger import weegit_logger
+from ephyr.logger import ephyr_logger
 
-from weegit_add_ons.spike_utils._common import (
+from ephyr_add_ons.spike_utils._common import (
     DetectionResultMeta,
     SpikePoint,
     SpikesPayload,
@@ -349,7 +349,7 @@ class SpikeDetectionAddOn(SpikeUtilsBase, BaseAddOn):
                 ),
             )
         except Exception as e:
-            weegit_logger().debug(str(e))
+            ephyr_logger().debug(str(e))
             yield {"progress": 100, "message": "Failed to save spikes"}
             return
         n_total = sum(len(v) for v in spikes_by_channel.values())

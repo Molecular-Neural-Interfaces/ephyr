@@ -28,14 +28,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from weegit.core.add_ons.base import BaseAddOn
-from weegit.core.add_ons import (
+from ephyr.core.add_ons.base import BaseAddOn
+from ephyr.core.add_ons import (
     PipelineBuilderDialog,
     read_pipeline_store,
 )
-from weegit.logger import weegit_logger
+from ephyr.logger import ephyr_logger
 
-from weegit_add_ons.signal_utils._common import SignalUtilsBase
+from ephyr_add_ons.signal_utils._common import SignalUtilsBase
 
 
 class PreprocessingPlotAddOn(SignalUtilsBase, BaseAddOn):
@@ -276,7 +276,7 @@ class PreprocessingPlotAddOn(SignalUtilsBase, BaseAddOn):
                 try:
                     plt.show()
                 except Exception as e:
-                    weegit_logger().debug(str(e))
+                    ephyr_logger().debug(str(e))
                     plt.close(fig)
             else:
                 plt.close(fig)

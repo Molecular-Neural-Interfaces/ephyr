@@ -1,6 +1,6 @@
 # Main Window
 
-When an experiment session is open, the Weegit window is organized as follows.
+When an experiment session is open, the Ephyr window is organized as follows.
 
 ![Annotated main window](../source/_static/gui/main_window_annotated.png)
 

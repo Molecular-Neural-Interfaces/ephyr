@@ -25,14 +25,14 @@ from PyQt6.QtWidgets import (
 )
 from scipy.signal import spectrogram
 
-from weegit.core.add_ons.base import BaseAddOn
-from weegit.core.add_ons import (
+from ephyr.core.add_ons.base import BaseAddOn
+from ephyr.core.add_ons import (
     PipelineSelector,
     read_pipeline_store,
 )
-from weegit.logger import weegit_logger
+from ephyr.logger import ephyr_logger
 
-from weegit_add_ons.signal_utils._common import SignalUtilsBase
+from ephyr_add_ons.signal_utils._common import SignalUtilsBase
 
 
 class SpectrogramPlotAddOn(SignalUtilsBase, BaseAddOn):
@@ -252,7 +252,7 @@ class SpectrogramPlotAddOn(SignalUtilsBase, BaseAddOn):
                 ax.set_ylim(params["freq_min_hz"], params["freq_max_hz"])
                 fig.colorbar(mesh, ax=ax, label="Power (dB)")
             except Exception as e:
-                weegit_logger().debug(str(e))
+                ephyr_logger().debug(str(e))
                 plt.close(fig)
                 continue
             ax.set_xlabel("Time (s)")
@@ -263,7 +263,7 @@ class SpectrogramPlotAddOn(SignalUtilsBase, BaseAddOn):
                 try:
                     plt.show()
                 except Exception as e:
-                    weegit_logger().debug(str(e))
+                    ephyr_logger().debug(str(e))
                     plt.close(fig)
             else:
                 plt.close(fig)

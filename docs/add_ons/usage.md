@@ -12,13 +12,13 @@ The dialog loads the remote catalog and shows:
 |------|---------|
 | **Left list** | Available packages with install state and name |
 | **Details** | Module name, version (remote and installed), author, keywords, links, and description |
-| **Install** | Downloads and installs the selected package into the Weegit environment |
+| **Install** | Downloads and installs the selected package into the Ephyr environment |
 | **Update** | Upgrades an already installed package |
 | **Uninstall** | Removes the package and cleans related session toggles / experiment `add_ons/data` for that module |
 
 Use Manage when you want to add tools from the published catalog, keep them up to date, or remove ones
 you no longer need. Package sources are published in the
-[weegit-add-ons](https://github.com/misisisim/weegit-add-ons) repository.
+[ephyr-add-ons](https://github.com/misisisim/ephyr-add-ons) repository.
 
 ## Search and run from the side panel
 

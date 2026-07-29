@@ -8,7 +8,7 @@ the header bar to hide the entire panel.
 
 At the top of the panel, choose **Beginner mode** or **Expert mode**.
 
-The choice is stored in Weegit’s global user settings and applied whenever you open the app.
+The choice is stored in Ephyr’s global user settings and applied whenever you open the app.
 Expert mode reveals additional Channel Management controls (see below). All other menus and panels
 remain available in both modes.
 
