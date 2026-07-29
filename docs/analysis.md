@@ -1,5 +1,31 @@
 # Analysis
 
+## Convert source data without the GUI
+
+You can convert supported recordings into a `*_ephyr` experiment folder from Python with `EphyrIO`,
+without opening the desktop app. The result is the same layout as **File → Open** in the GUI
+(see [Files Format](files_format.md) for supported sources and folder structure).
+
+`convert_from_source_to_ephyr` is a generator: it yields progress percentages while writing
+`header.json` and the `data/` memmaps. By default the output folder is created next to the source as
+`{stem}_ephyr`; pass `out_dir` to override that path.
+
+```python
+from pathlib import Path
+
+from ephyr.converter.ephyr_io import EphyrIO
+
+source_path = Path("/path/to/recording")  # file or folder, depending on format
+out_ephyr_folder = source_path.parent / f"{source_path.stem}_ephyr"
+
+for progress in EphyrIO.convert_from_source_to_ephyr(source_path):
+    print(f"\rProgress: {progress}%", end="", flush=True)
+
+print("Created:", out_ephyr_folder)
+```
+
+After conversion, open the resulting folder in the GUI or load it with `EphyrSessionManager` as below.
+
 ## Usage of the Labeled Data
 
 After you annotate an experiment in Ephyr, you can load the same `*_ephyr` folder from Python and work
