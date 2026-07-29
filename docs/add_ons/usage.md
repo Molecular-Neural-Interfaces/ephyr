@@ -18,7 +18,7 @@ The dialog loads the remote catalog and shows:
 
 Use Manage when you want to add tools from the published catalog, keep them up to date, or remove ones
 you no longer need. Package sources are published in the
-[ephyr-add-ons](https://github.com/misisisim/ephyr-add-ons) repository.
+[ephyr-add-ons](https://github.com/Molecular-Neural-Interfaces/ephyr-add-ons) repository.
 
 ## Search and run from the side panel
 

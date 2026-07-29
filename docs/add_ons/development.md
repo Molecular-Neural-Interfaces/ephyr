@@ -40,18 +40,18 @@ required while iterating locally.
 
 ## Learn from existing add-ons
 
-Study published packages in the official repository:
+Study published packages in the official repository (also checked out as the `devtools/ephyr-add-ons` submodule):
 
-[https://github.com/misisisim/ephyr-add-ons](https://github.com/misisisim/ephyr-add-ons)
+[https://github.com/Molecular-Neural-Interfaces/ephyr-add-ons](https://github.com/Molecular-Neural-Interfaces/ephyr-add-ons)
 
-In this repository, reference implementations also live under `devtools/add_on_examples/`, including:
+Reference implementations include:
 
 - **Spike utils** — detection, viewer, navigation, aligned waveforms, raster
 - **Labeling utils** — events detection
 - **Signal utils** — preprocessing comparison, PSD, spectrogram
 - **LFP utils** — current-source density (CSD) visualization
 
-Use those examples together with the generated template as a starting point for your own tools.
+Use those packages together with the generated template as a starting point for your own tools.
 
 ## Related tools
 
