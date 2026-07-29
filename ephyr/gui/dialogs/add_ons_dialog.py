@@ -490,7 +490,7 @@ class AddOnsDialog(QDialog):
                 if not module_names and self._session_manager.has_runtime_add_on(item.module_name):
                     module_names = [item.module_name]
                 for module_name in module_names:
-                    self._session_manager.set_add_on(module_name, view_enabled=True, transform_enabled=True)
+                    self._session_manager.set_add_on(module_name, view_enabled=False, transform_enabled=False)
             self._reload_table()
         except Exception as exc:
             QMessageBox.warning(self, "Add-ons", f"Operation failed: {exc}")

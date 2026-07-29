@@ -191,8 +191,8 @@ class QtEphyrSessionManagerWrapper(QObject):
             self,
             module_name: str,
             *,
-            view_enabled: bool = True,
-            transform_enabled: bool = True,
+            view_enabled: bool = False,
+            transform_enabled: bool = False,
     ):
         if module_name not in self._runtime_add_ons:
             self.refresh_runtime_add_ons()
