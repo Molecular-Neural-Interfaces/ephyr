@@ -1,7 +1,7 @@
 site_name: Ephyr
 site_description: Documentation for Ephyr — electrophysiology viewing and labeling
 site_url: https://ephyr.readthedocs.io/
-repo_url: https://github.com/ephyr/ephyr
+repo_url: https://github.com/Molecular-Neural-Interfaces/ephyr
 docs_dir: docs
 
 theme:
