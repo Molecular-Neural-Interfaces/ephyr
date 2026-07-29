@@ -55,4 +55,4 @@ DOCUMENTATION_LINK = "https://ephyr.readthedocs.io/"
 MAX_LOG_ITEMS = 60
 
 # Development
-DEBUG = bool(os.environ.get('EPHYR_DEBUG', False))
+DEBUG = bool(int(os.environ.get('EPHYR_DEBUG'), False))

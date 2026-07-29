@@ -1,5 +1,12 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
+title: "Ephyr: an open-source platform for visualizing and labeling multimodal electrophysiological data"
+message: "If you use this software, please cite both the software itself, and the paper listed in the preferred-citation field (comming soon)."
+version: 1.0.0
+date-released: 2026-29-07
+doi:
+repository-code: "https://github.com/Molecular-Neural-Interfaces/ephyr"
+keywords:
+  - electrophysiology
 authors:
   - family-names: Kireev
     given-names: Aleksandr
@@ -7,12 +14,3 @@ authors:
   - family-names: Suchkov
     given-names: Dmitry
     orcid: https://orcid.org/0000-0002-1189-1350
-  - family-names: Belousov
-    given-names: Vsevolod
-    orcid: https://orcid.org/0000-0001-6637-8098
-title: "Ephyr: an open-source platform for visualizing and labeling multimodal electrophysiological data"
-version: 1.0.1
-identifiers:
-  - type: doi
-    value:  # 10.5281/zenodo.1234
-date-released: 2026-29-07
