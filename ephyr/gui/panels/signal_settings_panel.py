@@ -40,6 +40,11 @@ from PyQt6.QtWidgets import (
 from typing import Dict, List, Optional, Tuple
 
 from ephyr import settings
+from ephyr.converter.channel_order import (
+    import_channel_order,
+    resolve_source_path,
+    source_file_dialog_filter,
+)
 from ephyr.converter.source_reader.nwb import (
     layout_table_from_nwb,
     resolve_nwb_source_path,
@@ -111,7 +116,9 @@ class ChannelLayoutDialog(QDialog):
 
         settings_row = QHBoxLayout()
         self.layout_settings_btn = QPushButton("Layout settings")
+        self.import_order_btn = QPushButton("Import from source")
         settings_row.addWidget(self.layout_settings_btn)
+        settings_row.addWidget(self.import_order_btn)
         settings_row.addStretch(1)
         layout.addLayout(settings_row)
 
@@ -128,8 +135,71 @@ class ChannelLayoutDialog(QDialog):
         self.down_btn.clicked.connect(lambda: self._move_selected(1))
         self.apply_manual_btn.clicked.connect(self._apply_manual)
         self.layout_settings_btn.clicked.connect(self._open_layout_settings)
+        self.import_order_btn.clicked.connect(self._import_order_from_source)
         self.cancel_btn.clicked.connect(self.reject)
         self.ok_btn.clicked.connect(self.accept)
+
+    def _pick_source_path(self) -> Optional[Path]:
+        header = self._header
+        if header is None:
+            return None
+        name_filter, prefer_directory = source_file_dialog_filter(header.type_before_conversion)
+        start = str(self._ephyr_folder or Path.home())
+        if prefer_directory:
+            chosen = QFileDialog.getExistingDirectory(self, "Select source folder", start)
+            return Path(chosen) if chosen else None
+        chosen, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select source file",
+            start,
+            name_filter or "All files (*)",
+        )
+        return Path(chosen) if chosen else None
+
+    def _import_order_from_source(self) -> None:
+        header = self._header
+        if header is None:
+            QMessageBox.warning(self, "Import from source", "No experiment header is loaded.")
+            return
+
+        src_type = str(header.type_before_conversion or "").lower()
+        source_path = resolve_source_path(self._ephyr_folder, header)
+        if source_path is None and src_type in {"nwb", "rhs", "rhd"}:
+            source_path = self._pick_source_path()
+            if source_path is None:
+                return
+
+        try:
+            new_order, method = import_channel_order(
+                header,
+                self.get_order(),
+                source_path=source_path,
+            )
+        except Exception as exc:
+            if source_path is None:
+                source_path = self._pick_source_path()
+                if source_path is None:
+                    QMessageBox.warning(self, "Import from source", str(exc))
+                    return
+                try:
+                    new_order, method = import_channel_order(
+                        header,
+                        self.get_order(),
+                        source_path=source_path,
+                    )
+                except Exception as retry_exc:
+                    QMessageBox.warning(self, "Import from source", str(retry_exc))
+                    return
+            else:
+                QMessageBox.warning(self, "Import from source", str(exc))
+                return
+
+        self._set_order(new_order)
+        QMessageBox.information(
+            self,
+            "Import from source",
+            f"Channel order updated using {method}.",
+        )
 
     def _open_layout_settings(self):
         dialog = LayoutSettingsDialog(
