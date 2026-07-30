@@ -12,13 +12,18 @@ import numpy as np
 from pynwb import NWBHDF5IO, TimeSeries
 from pynwb.ecephys import ElectricalSeries
 
-from ._exceptions import WrongSourceReaderError
-from .abstract_source_reader import AbstractDataWriter, AbstractSourceReader
 from ephyr.core.header import ChannelInfo, Header
 
-_CHUNK_SAMPLES = 512
+from .._exceptions import WrongSourceReaderError
+from ..abstract_source_reader import AbstractDataWriter, AbstractSourceReader
+
+# Prefer large time chunks: HD-MEA NWB is often gzip-chunked (~78k samples),
+# and tiny reads re-decompress the same HDF5 slabs thousands of times.
+_CHUNK_SAMPLES = 65536
 _DIGITAL_MIN = -32768
 _DIGITAL_MAX = 32767
+_FLOAT_SAMPLE_WINDOWS = 8
+_FLOAT_SAMPLE_WINDOW = 8192
 
 
 @dataclass(frozen=True)
@@ -216,28 +221,85 @@ def _physical_chunk(series: TimeSeries, start: int, end: int, ref: NwbSeriesRef)
     return data
 
 
-def _scan_quantization(experiment_path: Path, ref: NwbSeriesRef) -> np.ndarray:
+def _writer_chunk_samples(series: TimeSeries, n_samples: int) -> int:
+    """Pick a time-chunk size that avoids re-decompressing the same HDF5 slabs."""
+    chunks = getattr(getattr(series, "data", None), "chunks", None)
+    if chunks and len(chunks) >= 1:
+        try:
+            hdf5_rows = int(chunks[0])
+            if hdf5_rows > 0:
+                return max(1, min(hdf5_rows, n_samples))
+        except Exception:
+            pass
+    return max(1, min(_CHUNK_SAMPLES, n_samples))
+
+
+def _dtype_analog_abs_max(series: TimeSeries, ref: NwbSeriesRef) -> Optional[np.ndarray]:
+    """Map full integer ADC range through conversion/offset — O(1), no data read."""
+    try:
+        dtype = np.dtype(series.data.dtype)
+    except Exception:
+        return None
+    if not np.issubdtype(dtype, np.integer):
+        return None
+    info = np.iinfo(dtype)
+    extrema = np.asarray([info.min, info.max], dtype=np.float64) * ref.conversion + ref.offset
+    peak = float(np.nanmax(np.abs(extrema)))
+    if not np.isfinite(peak) or peak <= 0:
+        peak = 1.0
+    return np.full(ref.n_channels, peak, dtype=np.float64)
+
+
+def _sample_analog_abs_max(series: TimeSeries, ref: NwbSeriesRef) -> np.ndarray:
+    """Cheap strided peak estimate for float series (avoids a full-file scan)."""
     max_abs = np.zeros(ref.n_channels, dtype=np.float64)
-    chunk_size = _CHUNK_SAMPLES * 1024
-    with NWBHDF5IO(str(experiment_path), "r", load_namespaces=True) as io:
-        nwbfile = io.read()
-        series = _series_by_location(nwbfile, ref.location)
-        for start in range(0, ref.n_samples, chunk_size):
-            end = min(start + chunk_size, ref.n_samples)
-            chunk = _physical_chunk(series, start, end, ref)
-            chunk_max = np.nanmax(np.abs(chunk), axis=0)
-            max_abs = np.maximum(max_abs, chunk_max)
+    if ref.n_samples <= 0:
+        return np.ones(ref.n_channels, dtype=np.float64)
+    window = max(1, min(_FLOAT_SAMPLE_WINDOW, ref.n_samples))
+    if ref.n_samples <= window * _FLOAT_SAMPLE_WINDOWS:
+        starts = list(range(0, ref.n_samples, window))
+    else:
+        starts = [
+            int(round(i * (ref.n_samples - window) / max(1, _FLOAT_SAMPLE_WINDOWS - 1)))
+            for i in range(_FLOAT_SAMPLE_WINDOWS)
+        ]
+    for start in starts:
+        end = min(start + window, ref.n_samples)
+        chunk = _physical_chunk(series, start, end, ref)
+        if chunk.size == 0:
+            continue
+        max_abs = np.maximum(max_abs, np.nanmax(np.abs(chunk), axis=0))
     max_abs[~np.isfinite(max_abs)] = 1.0
     max_abs[max_abs <= 0] = 1.0
     return max_abs
 
 
+def _estimate_quantization(
+    experiment_path: Path, ref: NwbSeriesRef
+) -> Tuple[np.ndarray, int]:
+    with NWBHDF5IO(str(experiment_path), "r", load_namespaces=True) as io:
+        nwbfile = io.read()
+        series = _series_by_location(nwbfile, ref.location)
+        chunk_samples = _writer_chunk_samples(series, ref.n_samples)
+        dtype_max = _dtype_analog_abs_max(series, ref)
+        if dtype_max is not None:
+            return dtype_max, chunk_samples
+        return _sample_analog_abs_max(series, ref), chunk_samples
+
+
 class NwbDataWriter(AbstractDataWriter):
-    def __init__(self, experiment_path: Path, ref: NwbSeriesRef, analog_abs_max: np.ndarray):
+    def __init__(
+        self,
+        experiment_path: Path,
+        ref: NwbSeriesRef,
+        analog_abs_max: np.ndarray,
+        chunk_samples: int = _CHUNK_SAMPLES,
+    ):
         self._experiment_path = experiment_path
         self._ref = ref
         self._analog_abs_max = analog_abs_max
         self._sample_pos = 0
+        self._chunk_samples = max(1, int(chunk_samples))
         self._io: Optional[NWBHDF5IO] = None
         self._series: Optional[TimeSeries] = None
 
@@ -258,7 +320,7 @@ class NwbDataWriter(AbstractDataWriter):
             self._series = None
             raise StopIteration
 
-        end = min(self._sample_pos + _CHUNK_SAMPLES, self._ref.n_samples)
+        end = min(self._sample_pos + self._chunk_samples, self._ref.n_samples)
         physical = _physical_chunk(self._series, self._sample_pos, end, self._ref)
         scales = self._analog_abs_max[np.newaxis, :] / float(_DIGITAL_MAX)
         quantized = np.rint(physical / scales)
@@ -268,7 +330,8 @@ class NwbDataWriter(AbstractDataWriter):
 
     def total_chunks(self, header: Header) -> int:
         total_points = sum(header.number_of_points_per_sweep)
-        return max(1, (total_points + _CHUNK_SAMPLES - 1) // _CHUNK_SAMPLES)
+        chunk = max(1, int(self._chunk_samples))
+        return max(1, (total_points + chunk - 1) // chunk)
 
 
 class NwbSourceReader(AbstractSourceReader):
@@ -303,7 +366,7 @@ class NwbSourceReader(AbstractSourceReader):
             if not isinstance(start_dt, datetime):
                 start_dt = datetime.fromtimestamp(self._experiment_path.stat().st_mtime)
 
-        analog_abs_max = _scan_quantization(self._experiment_path, ref)
+        analog_abs_max, chunk_samples = _estimate_quantization(self._experiment_path, ref)
         channel_info = ChannelInfo(
             name=ref.channel_names,
             probe=ref.probes,
@@ -327,4 +390,6 @@ class NwbSourceReader(AbstractSourceReader):
             number_of_points_per_sweep=[ref.n_samples],
             channel_info=channel_info,
         )
-        return header, NwbDataWriter(self._experiment_path, ref, analog_abs_max)
+        return header, NwbDataWriter(
+            self._experiment_path, ref, analog_abs_max, chunk_samples=chunk_samples
+        )

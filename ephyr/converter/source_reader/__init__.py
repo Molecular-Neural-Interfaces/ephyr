@@ -6,7 +6,7 @@ from .abf_source_reader import AbfSourceReader
 from .daq_source_reader import DaqSourceReader
 from .xdat_source_reader import XdatSourceReader
 from .ncs_source_reader import NcsSourceReader
-from .nwb_source_reader import NwbSourceReader
+from .nwb import NwbSourceReader
 from .open_ephys_source_reader import OpenEphysSourceReader
 from .edf_source_reader import EdfSourceReader
 from .intan_rhs_source_reader import IntanRhdSourceReader, IntanRhsSourceReader

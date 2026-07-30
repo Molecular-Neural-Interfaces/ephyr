@@ -10,7 +10,7 @@ from .abf_source_reader import AbfSourceReader
 from .daq_source_reader import DaqSourceReader
 from .xdat_source_reader import XdatSourceReader
 from .ncs_source_reader import NcsSourceReader
-from .nwb_source_reader import NwbSourceReader
+from .nwb import NwbSourceReader
 from pathlib import Path
 
 

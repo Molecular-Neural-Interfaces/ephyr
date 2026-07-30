@@ -7,6 +7,8 @@ import urllib.request
 
 from PyQt6.QtCore import Qt, QUrl, QTimer
 from PyQt6.QtGui import QColor, QPixmap, QDesktopServices
+from pathlib import Path
+
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -29,15 +31,22 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QScrollArea,
+    QScrollBar,
     QInputDialog,
     QTabWidget,
     QGridLayout,
+    QSizePolicy,
 )
 from typing import Dict, List, Optional, Tuple
 
 from ephyr import settings
+from ephyr.converter.source_reader.nwb import (
+    layout_table_from_nwb,
+    resolve_nwb_source_path,
+)
 from ephyr.core.global_storage import GuiMode
 from ephyr.core.ephyr_session import ChannelsLayout, GroupLayout, ChannelGroup
+from ephyr.core.header import Header
 from ephyr.gui.dialogs.header_units_management_dialog import HeaderUnitsManagementDialog
 from ephyr.gui._utils import milliseconds_to_readable, sample_rate_to_readable
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
@@ -52,13 +61,23 @@ from ephyr.core.conversions.filters import (
 
 
 class ChannelLayoutDialog(QDialog):
-    def __init__(self, channels: List[int], channels_layout: ChannelsLayout,
-                 channel_name_getter, parent=None):
+    def __init__(
+        self,
+        channels: List[int],
+        channels_layout: ChannelsLayout,
+        channel_name_getter,
+        parent=None,
+        *,
+        header: Optional[Header] = None,
+        ephyr_folder: Optional[Path] = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Channels layout")
         self.resize(480, 560)
         self._channel_name_getter = channel_name_getter
         self._channels_layout = channels_layout
+        self._header = header
+        self._ephyr_folder = ephyr_folder
 
         layout = QVBoxLayout(self)
         info = QLabel("Order channels (drag&drop, arrows, or format 1,10,12,14-18,20). "
@@ -118,9 +137,12 @@ class ChannelLayoutDialog(QDialog):
             self.get_order(),
             self._channel_name_getter,
             self,
+            header=self._header,
+            ephyr_folder=self._ephyr_folder,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._channels_layout = dialog.get_channels_layout()
+            self._set_order(dialog.get_order())
 
     def get_channels_layout(self) -> ChannelsLayout:
         layout = self._channels_layout
@@ -206,27 +228,40 @@ class ChannelLayoutDialog(QDialog):
 
 
 class LayoutSettingsDialog(QDialog):
+    _VIEW_ROWS = 10
+    _VIEW_COLS = 10
+
     def __init__(
         self,
         channels_layout: ChannelsLayout,
         channel_order: List[int],
         channel_name_getter,
         parent=None,
+        *,
+        header: Optional[Header] = None,
+        ephyr_folder: Optional[Path] = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Layout settings")
-        self.resize(520, 620)
+        self.resize(640, 680)
         self._channel_order = list(channel_order)
         self._channel_count = len(self._channel_order)
         self._channel_name_getter = channel_name_getter
+        self._header = header
+        self._ephyr_folder = Path(ephyr_folder) if ephyr_folder is not None else None
+        self._mask: List[List[bool]] = []
+        self._view_row = 0
+        self._view_col = 0
         self._check_boxes: List[List[QCheckBox]] = []
         self._name_labels: List[List[QLabel]] = []
+        self._updating_view = False
 
         root = QVBoxLayout(self)
         caption = QLabel(
             "Electrodes are placed into the checked cells in order, from the "
             "top-left to the bottom-right corner. Checked cells show the "
-            "electrode that will appear there."
+            "electrode that will appear there. The editor shows at most a "
+            f"{self._VIEW_ROWS}×{self._VIEW_COLS} window; use scrollbars to move."
         )
         caption.setWordWrap(True)
         root.addWidget(caption)
@@ -243,8 +278,8 @@ class LayoutSettingsDialog(QDialog):
         self.rows_spin = QSpinBox(); self.rows_spin.setRange(1, 4096); self.rows_spin.setValue(rows0)
         self.rows_show_spin = QSpinBox(); self.rows_show_spin.setRange(1, 4096)
         self.rows_show_spin.setValue(max(1, int(channels_layout.rows_num_to_show)))
-        self.cols_spin = QSpinBox(); self.cols_spin.setRange(1, 512); self.cols_spin.setValue(cols0)
-        self.cols_show_spin = QSpinBox(); self.cols_show_spin.setRange(1, 512)
+        self.cols_spin = QSpinBox(); self.cols_spin.setRange(1, 4096); self.cols_spin.setValue(cols0)
+        self.cols_show_spin = QSpinBox(); self.cols_show_spin.setRange(1, 4096)
         self.cols_show_spin.setValue(max(1, int(channels_layout.columns_num_to_show)))
         self.enable_cb = QCheckBox(); self.enable_cb.setChecked(bool(channels_layout.enable_custom_layout))
         self.draw_borders_cb = QCheckBox(); self.draw_borders_cb.setChecked(bool(channels_layout.draw_borders))
@@ -264,20 +299,32 @@ class LayoutSettingsDialog(QDialog):
 
         self.count_label = QLabel("")
         root.addWidget(self.count_label)
+        self.view_label = QLabel("")
+        self.view_label.setStyleSheet("color: gray;")
+        root.addWidget(self.view_label)
 
-        self.table_scroll = QScrollArea()
-        self.table_scroll.setWidgetResizable(True)
+        grid_wrap = QWidget()
+        grid_wrap_layout = QGridLayout(grid_wrap)
+        grid_wrap_layout.setContentsMargins(0, 0, 0, 0)
+        grid_wrap_layout.setSpacing(2)
         self.table_container = QWidget()
         self.table_grid = QGridLayout(self.table_container)
         self.table_grid.setSpacing(4)
-        self.table_scroll.setWidget(self.table_container)
-        root.addWidget(self.table_scroll, 1)
+        self.table_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.v_scroll = QScrollBar(Qt.Orientation.Vertical)
+        self.h_scroll = QScrollBar(Qt.Orientation.Horizontal)
+        grid_wrap_layout.addWidget(self.table_container, 0, 0)
+        grid_wrap_layout.addWidget(self.v_scroll, 0, 1)
+        grid_wrap_layout.addWidget(self.h_scroll, 1, 0)
+        root.addWidget(grid_wrap, 1)
 
         select_row = QHBoxLayout()
         self.select_all_btn = QPushButton("Select all")
         self.unselect_all_btn = QPushButton("Unselect all")
+        self.import_source_btn = QPushButton("Import from source")
         select_row.addWidget(self.select_all_btn)
         select_row.addWidget(self.unselect_all_btn)
+        select_row.addWidget(self.import_source_btn)
         select_row.addStretch(1)
         root.addLayout(select_row)
 
@@ -289,28 +336,108 @@ class LayoutSettingsDialog(QDialog):
         actions.addWidget(self.save_btn)
         root.addLayout(actions)
 
-        self._build_table(initial_table=existing_table)
-        self.rows_spin.valueChanged.connect(lambda _v: self._build_table())
-        self.cols_spin.valueChanged.connect(lambda _v: self._build_table())
+        self._init_mask_from_table(existing_table, rows0, cols0)
+        self._build_viewport_widgets()
+        self._refresh_scrollbars()
+        self._render_viewport()
+
+        self.rows_spin.valueChanged.connect(self._on_dims_changed)
+        self.cols_spin.valueChanged.connect(self._on_dims_changed)
+        self.v_scroll.valueChanged.connect(self._on_scroll_changed)
+        self.h_scroll.valueChanged.connect(self._on_scroll_changed)
         self.select_all_btn.clicked.connect(lambda: self._set_all(True))
         self.unselect_all_btn.clicked.connect(lambda: self._set_all(False))
+        self.import_source_btn.clicked.connect(self._import_from_source)
         self.cancel_btn.clicked.connect(self.reject)
         self.save_btn.clicked.connect(self._on_save)
 
-    def _build_table(self, initial_table: Optional[List[List[int]]] = None):
+    def _init_mask_from_table(
+        self,
+        table: Optional[List[List[int]]],
+        rows: int,
+        cols: int,
+    ) -> None:
+        self._mask = [[False] * cols for _ in range(rows)]
+        if not table:
+            return
+        for r in range(min(rows, len(table))):
+            row = table[r]
+            for c in range(min(cols, len(row))):
+                self._mask[r][c] = row[c] != -1
+
+    def _flush_viewport_to_mask(self) -> None:
+        if not self._check_boxes:
+            return
+        rows = len(self._mask)
+        cols = len(self._mask[0]) if self._mask else 0
+        for vr, row_boxes in enumerate(self._check_boxes):
+            r = self._view_row + vr
+            if r >= rows:
+                break
+            for vc, checkbox in enumerate(row_boxes):
+                c = self._view_col + vc
+                if c >= cols:
+                    break
+                self._mask[r][c] = checkbox.isChecked()
+
+    def _on_dims_changed(self, _value: int = 0) -> None:
+        if self._updating_view:
+            return
+        self._flush_viewport_to_mask()
+        new_rows = self.rows_spin.value()
+        new_cols = self.cols_spin.value()
+        old = self._mask
+        new_mask = [[False] * new_cols for _ in range(new_rows)]
+        for r in range(min(new_rows, len(old))):
+            for c in range(min(new_cols, len(old[r]) if old else 0)):
+                new_mask[r][c] = old[r][c]
+        self._mask = new_mask
+        self._view_row = min(self._view_row, max(0, new_rows - 1))
+        self._view_col = min(self._view_col, max(0, new_cols - 1))
+        self._refresh_scrollbars()
+        self._render_viewport()
+
+    def _on_scroll_changed(self, _value: int = 0) -> None:
+        if self._updating_view:
+            return
+        self._flush_viewport_to_mask()
+        self._view_row = int(self.v_scroll.value())
+        self._view_col = int(self.h_scroll.value())
+        self._render_viewport()
+
+    def _refresh_scrollbars(self) -> None:
+        rows = len(self._mask)
+        cols = len(self._mask[0]) if self._mask else 0
+        max_row = max(0, rows - self._VIEW_ROWS)
+        max_col = max(0, cols - self._VIEW_COLS)
+        self._updating_view = True
+        self.v_scroll.setRange(0, max_row)
+        self.h_scroll.setRange(0, max_col)
+        self.v_scroll.setPageStep(self._VIEW_ROWS)
+        self.h_scroll.setPageStep(self._VIEW_COLS)
+        self.v_scroll.setVisible(max_row > 0)
+        self.h_scroll.setVisible(max_col > 0)
+        self._view_row = min(self._view_row, max_row)
+        self._view_col = min(self._view_col, max_col)
+        self.v_scroll.setValue(self._view_row)
+        self.h_scroll.setValue(self._view_col)
+        self._updating_view = False
+
+    def _clear_grid_widgets(self) -> None:
         while self.table_grid.count():
             item = self.table_grid.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
-        rows = self.rows_spin.value()
-        cols = self.cols_spin.value()
         self._check_boxes = []
         self._name_labels = []
-        for r in range(rows):
+
+    def _build_viewport_widgets(self) -> None:
+        self._clear_grid_widgets()
+        for r in range(self._VIEW_ROWS):
             row_boxes: List[QCheckBox] = []
             row_labels: List[QLabel] = []
-            for c in range(cols):
+            for c in range(self._VIEW_COLS):
                 cell = QWidget()
                 cell_layout = QHBoxLayout(cell)
                 cell_layout.setContentsMargins(0, 0, 4, 0)
@@ -318,9 +445,7 @@ class LayoutSettingsDialog(QDialog):
                 checkbox = QCheckBox()
                 name_label = QLabel("")
                 name_label.setStyleSheet("font-size: 9pt;")
-                if initial_table and r < len(initial_table) and c < len(initial_table[r]):
-                    checkbox.setChecked(initial_table[r][c] != -1)
-                checkbox.stateChanged.connect(lambda _s: self._refresh_assignment_labels())
+                checkbox.stateChanged.connect(self._on_checkbox_changed)
                 cell_layout.addWidget(checkbox)
                 cell_layout.addWidget(name_label)
                 cell_layout.addStretch(1)
@@ -329,23 +454,55 @@ class LayoutSettingsDialog(QDialog):
                 row_labels.append(name_label)
             self._check_boxes.append(row_boxes)
             self._name_labels.append(row_labels)
+
+    def _on_checkbox_changed(self, _state: int = 0) -> None:
+        if self._updating_view:
+            return
+        self._flush_viewport_to_mask()
+        self._refresh_assignment_labels()
+
+    def _render_viewport(self) -> None:
+        rows = len(self._mask)
+        cols = len(self._mask[0]) if self._mask else 0
+        self._updating_view = True
+        for vr in range(self._VIEW_ROWS):
+            for vc in range(self._VIEW_COLS):
+                checkbox = self._check_boxes[vr][vc]
+                name_label = self._name_labels[vr][vc]
+                cell_widget = checkbox.parentWidget()
+                r = self._view_row + vr
+                c = self._view_col + vc
+                in_bounds = r < rows and c < cols
+                if cell_widget is not None:
+                    cell_widget.setVisible(in_bounds)
+                if not in_bounds:
+                    continue
+                checkbox.blockSignals(True)
+                checkbox.setChecked(self._mask[r][c])
+                checkbox.blockSignals(False)
+        self._updating_view = False
+        visible_rows = min(self._VIEW_ROWS, max(0, rows - self._view_row))
+        visible_cols = min(self._VIEW_COLS, max(0, cols - self._view_col))
+        self.view_label.setText(
+            f"View rows {self._view_row + 1}–{self._view_row + visible_rows} / {rows}, "
+            f"cols {self._view_col + 1}–{self._view_col + visible_cols} / {cols}"
+        )
         self._refresh_assignment_labels()
 
     def _set_all(self, checked: bool):
+        self._flush_viewport_to_mask()
         count = 0
-        for row in self._check_boxes:
-            for checkbox in row:
-                checkbox.blockSignals(True)
+        for r, row in enumerate(self._mask):
+            for c, _ in enumerate(row):
                 if checked and count < self._channel_count:
-                    checkbox.setChecked(True)
+                    self._mask[r][c] = True
                     count += 1
                 else:
-                    checkbox.setChecked(False)
-                checkbox.blockSignals(False)
-        self._refresh_assignment_labels()
+                    self._mask[r][c] = False
+        self._render_viewport()
 
     def _checked_count(self) -> int:
-        return sum(1 for row in self._check_boxes for checkbox in row if checkbox.isChecked())
+        return sum(1 for row in self._mask for value in row if value)
 
     def _electrode_tooltip(self, channel_idx: int) -> str:
         name = self._channel_name_getter(channel_idx)
@@ -359,15 +516,30 @@ class LayoutSettingsDialog(QDialog):
         )
 
         seq = iter(self._channel_order)
-        for row_boxes, row_labels in zip(self._check_boxes, self._name_labels):
-            for checkbox, name_label in zip(row_boxes, row_labels):
-                if not checkbox.isChecked():
+        assigned: dict[Tuple[int, int], int] = {}
+        for r, row in enumerate(self._mask):
+            for c, is_checked in enumerate(row):
+                if not is_checked:
+                    continue
+                try:
+                    assigned[(r, c)] = next(seq)
+                except StopIteration:
+                    assigned[(r, c)] = -2
+
+        for vr, row_labels in enumerate(self._name_labels):
+            for vc, name_label in enumerate(row_labels):
+                r = self._view_row + vr
+                c = self._view_col + vc
+                if r >= len(self._mask) or c >= len(self._mask[0]):
                     name_label.clear()
                     name_label.setToolTip("")
                     continue
-                try:
-                    channel_idx = next(seq)
-                except StopIteration:
+                if not self._mask[r][c]:
+                    name_label.clear()
+                    name_label.setToolTip("")
+                    continue
+                channel_idx = assigned.get((r, c), -2)
+                if channel_idx < 0:
                     name_label.setText("—")
                     name_label.setToolTip("")
                     name_label.setStyleSheet("color: red; font-size: 9pt;")
@@ -376,7 +548,64 @@ class LayoutSettingsDialog(QDialog):
                 name_label.setToolTip(self._electrode_tooltip(channel_idx))
                 name_label.setStyleSheet("color: #336699; font-size: 9pt;")
 
+    def _import_from_source(self) -> None:
+        header = self._header
+        if header is not None and header.type_before_conversion != "nwb":
+            QMessageBox.information(
+                self,
+                "Import from source",
+                "Import from source currently supports only NWB files.",
+            )
+            return
+
+        path = resolve_nwb_source_path(self._ephyr_folder, header)
+        if path is None:
+            start = str(self._ephyr_folder or Path.home())
+            chosen, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select NWB source",
+                start,
+                "NWB files (*.nwb);;All files (*)",
+            )
+            if not chosen:
+                return
+            path = Path(chosen)
+
+        try:
+            table, order = layout_table_from_nwb(path, allowed_channels=self._channel_order)
+        except Exception as exc:
+            QMessageBox.warning(self, "Import from source", str(exc))
+            return
+
+        rows = len(table)
+        cols = len(table[0]) if table else 0
+        if rows <= 0 or cols <= 0:
+            QMessageBox.warning(self, "Import from source", "Imported layout is empty.")
+            return
+
+        self._flush_viewport_to_mask()
+        self._channel_order = list(order)
+        self._channel_count = len(self._channel_order)
+        self._mask = [[cell != -1 for cell in row] for row in table]
+        self._updating_view = True
+        self.rows_spin.setValue(rows)
+        self.cols_spin.setValue(cols)
+        self.rows_show_spin.setValue(min(max(1, self.rows_show_spin.value()), rows))
+        self.cols_show_spin.setValue(min(max(1, self.cols_show_spin.value()), cols))
+        self.enable_cb.setChecked(True)
+        self._updating_view = False
+        self._view_row = 0
+        self._view_col = 0
+        self._refresh_scrollbars()
+        self._render_viewport()
+        QMessageBox.information(
+            self,
+            "Import from source",
+            f"Loaded layout {rows}×{cols} with {self._checked_count()} electrodes from\n{path.name}",
+        )
+
     def _on_save(self):
+        self._flush_viewport_to_mask()
         n = self._checked_count()
         if n > self._channel_count:
             QMessageBox.warning(
@@ -387,17 +616,20 @@ class LayoutSettingsDialog(QDialog):
             return
         self.accept()
 
+    def get_order(self) -> List[int]:
+        return list(self._channel_order)
+
     def get_channels_layout(self) -> ChannelsLayout:
-        rows = self.rows_spin.value()
-        cols = self.cols_spin.value()
-        mask = [[checkbox.isChecked() for checkbox in row] for row in self._check_boxes]
-        table = ChannelLayoutDialog._fill_layout_table(rows, cols, mask, self._channel_order)
+        self._flush_viewport_to_mask()
+        rows = len(self._mask)
+        cols = len(self._mask[0]) if self._mask else 0
+        table = ChannelLayoutDialog._fill_layout_table(rows, cols, self._mask, self._channel_order)
         return ChannelsLayout(
             columns_num=cols,
-            columns_num_to_show=min(max(1, self.cols_show_spin.value()), cols),
+            columns_num_to_show=min(max(1, self.cols_show_spin.value()), max(1, cols)),
             cur_column_idx=0,
             rows_num=rows,
-            rows_num_to_show=min(max(1, self.rows_show_spin.value()), rows),
+            rows_num_to_show=min(max(1, self.rows_show_spin.value()), max(1, rows)),
             cur_row_idx=0,
             enable_custom_layout=self.enable_cb.isChecked(),
             draw_borders=self.draw_borders_cb.isChecked(),
@@ -1205,6 +1437,12 @@ class SignalSettingsPanel(QWidget):
             group.channels_layout.model_copy(deep=True),
             self.get_channel_name,
             self,
+            header=self._session_manager.header,
+            ephyr_folder=(
+                Path(self._session_manager.ephyr_experiment_folder)
+                if self._session_manager.ephyr_experiment_folder
+                else None
+            ),
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
