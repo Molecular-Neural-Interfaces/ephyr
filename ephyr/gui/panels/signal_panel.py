@@ -372,6 +372,7 @@ class SignalWidget(QWidget):
         self._periods_vocabulary: Dict[int, PeriodVocabularyEntry] = {}
         self._current_sweep_idx: int = 0
         self._traces_are_visible = True
+        self._channel_names_are_visible = True
         self._events_are_visible = True
         self._periods_are_visible = True
         self._viewable_add_ons: List[BaseAddOn] = []
@@ -427,6 +428,7 @@ class SignalWidget(QWidget):
             events_are_visible: bool = True,
             periods_are_visible: bool = True,
             traces_are_visible: bool = True,
+            channel_names_are_visible: bool = True,
             viewable_add_ons: Optional[List[BaseAddOn]] = None,
             add_ons_data_dir: Optional[Path] = None,
     ):
@@ -447,6 +449,7 @@ class SignalWidget(QWidget):
         self._events_are_visible = events_are_visible
         self._periods_are_visible = periods_are_visible
         self._traces_are_visible = traces_are_visible
+        self._channel_names_are_visible = channel_names_are_visible
         self._viewable_add_ons = list(viewable_add_ons or [])
         self._add_ons_data_dir = add_ons_data_dir
         self._channel_names = channel_names or []
@@ -512,7 +515,8 @@ class SignalWidget(QWidget):
         if self._events_are_visible:
             self._draw_events(painter)
 
-        self._draw_channel_names(painter)
+        if self._channel_names_are_visible:
+            self._draw_channel_names(painter)
         self._draw_cell_borders(painter)
         painter.end()
         self.update()  # Trigger paint event
@@ -1949,6 +1953,7 @@ class SignalPanel(QWidget):
             events_are_visible=gui_setup.events_are_shown,
             periods_are_visible=gui_setup.periods_are_shown,
             traces_are_visible=gui_setup.traces_are_shown,
+            channel_names_are_visible=gui_setup.channel_names_are_shown,
             viewable_add_ons=viewable_add_ons,
             add_ons_data_dir=add_ons_data_dir,
         )

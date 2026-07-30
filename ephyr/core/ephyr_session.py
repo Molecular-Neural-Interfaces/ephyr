@@ -184,6 +184,7 @@ class GuiSetup(BaseModel):
     add_ons: Dict[str, AddOnSetup] = Field(default_factory=dict)
 
     traces_are_shown: bool = True
+    channel_names_are_shown: bool = True
     events_are_shown: bool = True
     periods_are_shown: bool = True
 
