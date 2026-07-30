@@ -344,14 +344,6 @@ class PipelineBuilderDialog(QDialog):
             params_layout.addRow(label, spin)
             widgets[key] = spin
 
-        def add_combo(label: str, key: str, values: List[str], current: str) -> None:
-            combo = QComboBox()
-            combo.addItems(values)
-            idx = combo.findText(current)
-            combo.setCurrentIndex(max(0, idx))
-            params_layout.addRow(label, combo)
-            widgets[key] = combo
-
         def rebuild_params() -> None:
             clear_params()
             kind = str(kind_combo.currentData())
@@ -372,8 +364,6 @@ class PipelineBuilderDialog(QDialog):
             elif kind == "notch":
                 add_double("Frequency (Hz):", "notch_freq_hz", 50.0, 1.0)
                 add_double("Q factor:", "q_factor", 30.0, 0.1, 300.0)
-            elif kind == "cmr":
-                add_combo("Method:", "method", ["median", "mean"], "median")
             elif kind == "artifact_removal":
                 add_double("Threshold (robust z):", "threshold_z", 5.0, 0.1, 1000.0)
                 add_double("Min distance (ms):", "min_distance_ms", 20.0, 0.0, 60_000.0)

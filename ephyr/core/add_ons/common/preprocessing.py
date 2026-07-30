@@ -4,9 +4,8 @@
 """Configurable preprocessing pipelines shared by all add-ons.
 
 A pipeline is an ordered list of steps applied to a ``(n_channels, n_samples)``
-matrix. Steps mirror the stages explored in the NIR analysis notebooks
-(trimming, baseline correction, band filtering, notch, common reference,
-artefact removal). Pipelines are stored as JSON in the shared
+matrix. Steps cover trimming, baseline correction, band filtering, notch, and
+artefact removal. Pipelines are stored as JSON in the shared
 ``$SESSION/add_ons/data/ephyr`` folder so every add-on sees the same set of
 named pipelines within a session.
 """
@@ -39,7 +38,6 @@ STEP_KINDS: Dict[str, str] = {
     "lowpass": "Butterworth low-pass",
     "bandpass": "Butterworth band-pass",
     "notch": "Notch (line noise)",
-    "cmr": "Common median/mean reference",
     "artifact_removal": "Artifact removal (robust-z blanking)",
 }
 
@@ -162,18 +160,6 @@ def apply_baseline(matrix: np.ndarray, step: PreprocessingStep) -> np.ndarray:
     return out
 
 
-def apply_cmr(matrix: np.ndarray, method: str = "median", exclude_rows: Optional[Sequence[int]] = None) -> np.ndarray:
-    x = np.asarray(matrix, dtype=np.float64)
-    if x.ndim != 2 or x.shape[0] == 0:
-        return x.copy()
-    exclude = set(int(i) for i in (exclude_rows or []))
-    keep = [i for i in range(x.shape[0]) if i not in exclude]
-    if not keep:
-        return x.copy()
-    ref = np.mean(x[keep], axis=0) if str(method).lower() == "mean" else np.median(x[keep], axis=0)
-    return x - ref[None, :]
-
-
 def _merge_windows(windows: Sequence[Tuple[int, int]], gap: int = 0) -> List[Tuple[int, int]]:
     clean = sorted((max(0, int(a)), max(0, int(b))) for a, b in windows if int(b) > int(a))
     if not clean:
@@ -276,17 +262,11 @@ def apply_single_step(matrix: np.ndarray, sample_rate: float, step: Preprocessin
             return apply_trim(out, sample_rate, step)
         if kind == "baseline":
             return apply_baseline(out, step)
-        if kind == "cmr":
-            return apply_cmr(
-                out,
-                method=str(step.params.get("method", "median")),
-                exclude_rows=step.params.get("exclude_rows", []),
-            )
         if kind == "artifact_removal":
             return apply_artifact_removal(out, sample_rate, step)
-        if kind in {"wavelet_denoise", "ica"}:
-            # Removed from the supported set (slow / hard to validate); skip if
-            # an old saved pipeline still references them.
+        if kind in {"cmr", "wavelet_denoise", "ica"}:
+            # Removed from the supported set; skip if an old saved pipeline
+            # still references them.
             ephyr_logger().debug(f"Skipping unsupported preprocessing step: {kind}")
             return out.copy()
     except Exception as e:
