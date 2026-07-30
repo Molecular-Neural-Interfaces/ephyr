@@ -49,6 +49,9 @@ def _electrode_xy(series: ElectricalSeries) -> Optional[Tuple[List[float], List[
     except Exception:
         return None
 
+    # Prefer probe-relative columns; fall back to absolute ElectrodesTable x/y.
+    # NWB absolute (+x posterior, +y inferior, +z right) is for anatomy; MEA/probe
+    # face geometry is normally stored in rel_x / rel_y.
     x_col = next((name for name in ("rel_x", "x") if name in table), None)
     y_col = next((name for name in ("rel_y", "y") if name in table), None)
     if x_col is None or y_col is None:
@@ -57,9 +60,11 @@ def _electrode_xy(series: ElectricalSeries) -> Optional[Tuple[List[float], List[
     xs: List[float] = []
     ys: List[float] = []
     try:
+        x_data = table[x_col].data
+        y_data = table[y_col].data
         for table_idx in indexes:
-            xs.append(float(table[x_col].data[table_idx]))
-            ys.append(float(table[y_col].data[table_idx]))
+            xs.append(float(x_data[table_idx]))
+            ys.append(float(y_data[table_idx]))
     except Exception:
         return None
     if len(xs) != len(ys) or not xs:
@@ -75,6 +80,10 @@ def layout_table_from_nwb(
     """Return ``(layout_table, channel_order)`` from NWB ``rel_x``/``rel_y`` (or ``x``/``y``).
 
     Empty cells are ``-1``. ``channel_order`` is row-major over occupied cells.
+
+    Grid orientation matches a Cartesian probe map: ``x`` increases to the right,
+    ``y`` increases upward (larger ``y`` → top rows). Ephyr draws ``layout_table[0]``
+    at the top of the panel, so ``y`` is sorted descending when assigning rows.
     """
     path = Path(nwb_path)
     if not path.is_file() or path.suffix.lower() != ".nwb":
@@ -112,7 +121,8 @@ def layout_table_from_nwb(
         raise ValueError("No channels with coordinates match the current group")
 
     uniq_x = sorted({x for _ch, x, _y in pairs})
-    uniq_y = sorted({y for _ch, _x, y in pairs})
+    # Row 0 is the top of the Ephyr grid → larger Y must come first (Y-up).
+    uniq_y = sorted({y for _ch, _x, y in pairs}, reverse=True)
     x_to_col = {value: idx for idx, value in enumerate(uniq_x)}
     y_to_row = {value: idx for idx, value in enumerate(uniq_y)}
     rows = len(uniq_y)
