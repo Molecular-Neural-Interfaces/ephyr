@@ -56,7 +56,9 @@ follows the same API and extends it with reading spike detection results from di
 
 - Labels: `events`, `events_vocabulary`, `periods`, `periods_vocabulary`
 - Text: `experiment_description`
-- View: `gui_setup` (`current_sweep_idx`, `start_point`, `duration_ms`, `channels_groups`, `channels_setup`, …)
+- View: `gui_setup` (`current_sweep_idx`, `start_point`, `duration_ms`, `channels_groups`, `channels_setup`,
+  visibility flags such as `traces_are_shown` / `channel_names_are_shown` / `events_are_shown` /
+  `periods_are_shown`, …)
 - `events_table` rows: `name`, `sweep_idx`, `time_ms`, `is_bad`, `periods` (list of period names)
 
 ### Example script

@@ -25,6 +25,14 @@ Ephyr detects the format, converts it into a Ephyr experiment folder when needed
   (for example, `exp.abf` → `exp_ephyr`, folder `my_rec` → `my_rec_ephyr`).
 - For Intan recordings, the conversion dialog may offer **Group all Intan files into one sweep**.
 - If a valid `{stem}_ephyr` folder already exists next to the source, Ephyr loads it instead of converting again.
+- **NWB** conversion requires a regular `TimeSeries` / `ElectricalSeries` with a usable sample rate
+  (typically under `acquisition` or `processing`). Files that only contain spike-sorted `Units`
+  (no continuous voltage series) are not supported for conversion. Large HD-MEA NWB files are quantized
+  without a full-file peak scan; conversion still streams the entire series once into `data/`.
+
+After conversion, electrode order and (for NWB) spatial layout can be restored from the original source
+via **Channels layout → Import from source** and **Layout settings → Import from source**
+(see [Settings Panel](gui/settings_panel.md#channel-layout)).
 
 ## Ephyr files
 
@@ -68,7 +76,8 @@ User annotation and GUI state. Each session is a JSON file (for example `my_sess
 
 - event and period vocabularies and placements
 - experiment description text
-- GUI setup (visible window, channel groups, filters, add-on toggles, and related view state)
+- GUI setup (visible window, channel groups, filters, add-on toggles, layer visibility such as traces /
+  channel names / events / periods, and related view state)
 
 Created when you create or save a session. Switch between sessions without reloading the signal data.
 

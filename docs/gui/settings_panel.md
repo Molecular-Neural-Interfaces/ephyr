@@ -74,10 +74,26 @@ Each channel group has its own tab (tabs can be reordered; empty groups can be c
 Click **Layout** on a group to open **Channels layout**:
 
 - Reorder channels by drag-and-drop, up/down buttons, or a manual index list such as `1,10,12,14-18,20`.
+- **Import from source** restores a preferred electrode order from the original recording when metadata is available (see below).
 - Open **Layout settings** for the electrode grid editor.
 - Save applies the new order and layout table to the group.
 
 ![Channels layout dialog](../source/_static/gui/channels_layout.png)
+
+#### Import from source (channel order)
+
+**Import from source** rebuilds the channel list order using format-specific metadata from the original source next to the `*_ephyr` folder (or a file/folder you pick if auto-resolve fails). Only channels in the current group are reordered; the set of channels is unchanged.
+
+| Source type | Preferred order |
+|-------------|-----------------|
+| **NWB** | Electrode coordinates (`rel_x` / `rel_y`, or `x` / `y`) |
+| **Intan RHS / RHD** | Amplifier `custom_order` (then `native_order`); board ADC channels stay after amplifiers |
+| **XDAT** | Port, then channel name |
+| **DAQ** | Hardware channel number (`HwChannel`) |
+| **Neuralynx NCS** | `AcqEntName` (synthetic Events channel last, if present) |
+| **EDF / ABF / Open Ephys** | Natural sort of channel names from the header |
+
+If a format has no richer key, Ephyr falls back to acquisition order as stored in the converted experiment.
 
 ### Layout settings
 
@@ -89,7 +105,8 @@ The **Layout settings** dialog configures a custom grid for the group:
 | **Rows to show / Columns to show** | Visible window size (use the group minimap on the signal panel to pan). |
 | **Enable custom layout** | Use the grid instead of a single-column classic stack. |
 | **Draw borders** | Draw cell borders around channels on the plot. |
-| Grid checkboxes | Checked cells receive electrodes in channel order (top-left to bottom-right). Select all / Unselect all helpers are available. The number of checked cells must not exceed the number of channels in the group. |
+| Grid editor | Checked cells receive electrodes in channel order (top-left to bottom-right). The editor shows at most a **10×10** window of the full grid; use scrollbars to move across larger arrays. **Select all** / **Unselect all** apply to the whole grid. The number of checked cells must not exceed the number of channels in the group. |
+| **Import from source** | Currently supported for **NWB**: builds the grid and occupied cells from electrode `rel_x` / `rel_y` (or `x` / `y`), enables custom layout, and updates the channel order to match the spatial filling order. |
 
 ![Layout settings dialog](../source/_static/gui/layout_settings.png)
 

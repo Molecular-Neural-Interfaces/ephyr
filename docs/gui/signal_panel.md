@@ -9,7 +9,8 @@ Signal samples are loaded from the Ephyr experiment folder (`data/sweep_*/*.samp
 
 Each group can show a classic single-column stack of channels or a custom electrode grid (see
 [Channel Management](settings_panel.md#channel-management)). Per-channel scale, color, Y offset, and
-optional clipping apply when drawing.
+optional clipping apply when drawing. Channel name labels on each cell can be hidden with
+**View → Channel names**.
 
 ## Events and periods
 
@@ -20,7 +21,7 @@ On top of the traces you can place:
 - **Periods** — labeled intervals (optionally spanning sweeps). Use the Periods menu to manage vocabulary
   and to add intervals with two clicks.
 
-Visibility of traces, events, and periods is controlled from **View** and stored in the session.
+Visibility of traces, channel names, events, and periods is controlled from **View** and stored in the session.
 
 ## Add-on overlays
 
