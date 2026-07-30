@@ -17,7 +17,7 @@ Fully open-source and built in Python, the platform provides a flexible API for 
 
 If you use this application in your research, please cite the software itself using the Zenodo DOI:
 
-> Kireev, A., & Suchkov, D. (2026). *Ephyr: an open-source platform for visualizing and labeling multimodal electrophysiological data* (Version 1.0.3). Zenodo. https://doi.org/10.5281/zenodo.21678950
+> Kireev, A., & Suchkov, D. (2026). *Ephyr: an open-source platform for visualizing and labeling multimodal electrophysiological data* (Version 1.0.4). Zenodo. https://doi.org/10.5281/zenodo.21703394
 
 ### Article (Coming Soon)
 
