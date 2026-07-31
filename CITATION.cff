@@ -3,7 +3,7 @@ title: "Ephyr: an open-source platform for visualizing and labeling multimodal e
 message: "If you use this software, please cite both the software itself, and the paper listed in the preferred-citation field."
 version: 1.0.4
 date-released: 2026-07-30
-doi: 10.5281/zenodo.21703394
+doi: 10.5281/zenodo.21719977
 repository-code: "https://github.com/Molecular-Neural-Interfaces/ephyr"
 license: GPL-3.0-only
 keywords:
