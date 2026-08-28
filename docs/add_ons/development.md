@@ -46,7 +46,7 @@ Study published packages in the official repository (also checked out as the `de
 
 Reference implementations include:
 
-- **Spike utils** — detection, viewer, navigation, aligned waveforms, raster
+- **Spike utils** — detection, WEEGIT `.spk` import, viewer, navigation, aligned waveforms, raster
 - **Labeling utils** — events detection
 - **Signal utils** — preprocessing comparison, PSD, spectrogram
 - **LFP utils** — current-source density (CSD) visualization
@@ -57,4 +57,4 @@ Use those packages together with the generated template as a starting point for 
 
 **Add-ons → Generate script** creates a Python script that loads a Ephyr folder and session through
 `EphyrSessionManager`. That path is aimed at post-annotation analysis rather than GUI add-ons; see
-[Analysis](../analysis.md).
+[Using Labeled Data](../analysis/labeled_data.md).

@@ -64,19 +64,20 @@ Each channel group has its own tab (tabs can be reordered; empty groups can be c
 | **Auxiliary channels** | Marks the group as auxiliary. Auxiliary groups expose per-channel scale, Y offset, and color, and do not use the same “number to show” windowing as regular groups. Disabling a channel in an aux group can reset its style to defaults. |
 | **Group filters** | Choose a filter type (Butterworth low/high/band-pass, Chebyshev band-pass, Notch), set parameters (cutoff, order, ripple, Q, and so on), and enable or disable each filter. **Disable all** turns every filter off for the group.        |
 | **Common Scale / Y offset / Color** | Applied to all channels in non-auxiliary groups.                                                                                                                                                                                         |
-| **Channel list** | Enable checkbox, channel index and name, free-text **Info** field. Auxiliary rows also show per-channel Scale / Y / Color.                                                                                                               |
-| **Layout** | Opens the channel layout dialog for this group (order + optional grid).                                                                                                                                                                  |
-| **Enable all / Disable all** | Toggles the enabled set for the group.                                                                                                                                                                                                   |
-| **Move selected to** | Moves selected channels to another group.                                                                                                                                                                                                |
+| **Channel list** | Checkbox that marks the channel for moving, channel index and name (disabled channels are greyed out and marked `(disabled)`), free-text **Info** field. Auxiliary rows also show per-channel Scale / Y / Color. Rows cannot be selected: use the checkboxes. |
+| **Layout** | Opens the channel layout dialog for this group (order, enabling, and optional grid).                                                                                                                                                     |
+| **Move checked to** | Moves the checked channels to another group.                                                                                                                                                                                             |
 
 ### Channel layout
 
 Click **Layout** on a group to open **Channels layout**:
 
 - Reorder channels by drag-and-drop, up/down buttons, or a manual index list such as `1,10,12,14-18,20`.
+- Tick the **Enabled** checkbox of a channel to draw it on the signal panel; untick to hide it.
+- The **Enable:** row applies a bulk choice to the enabled state: **All**, **Odd**, **Even** (odd/even by position in the current order, so `Odd` keeps the 1st, 3rd, 5th channel of the list) or **None**.
 - **Import from source** restores a preferred electrode order from the original recording when metadata is available (see below).
 - Open **Layout settings** for the electrode grid editor.
-- Save applies the new order and layout table to the group.
+- Save applies the new order, the enabled set, and the layout table to the group. Nothing changes until you press **Save**.
 
 ![Channels layout dialog](../source/_static/gui/channels_layout.png)
 

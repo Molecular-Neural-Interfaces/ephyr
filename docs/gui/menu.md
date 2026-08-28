@@ -37,7 +37,7 @@ Imports a session JSON file into the current experiment. If the session name alr
 
 #### Import → events
 
-Imports events and their vocabulary from another session JSON file, or from a legacy `.mat` events file.
+Imports events and their vocabulary from another session JSON file, or from a WEEGIT `.mat` events file.
 Imported times are validated against the experiment’s sweeps and duration.
 
 #### Import → periods
@@ -158,7 +158,7 @@ See [Add-on Development](../add_ons/development.md).
 ### Generate script
 
 Opens a dialog that writes a starter Python script for loading the current (or selected) Ephyr folder
-and session via `EphyrSessionManager`. See [Analysis](../analysis.md).
+and session via `EphyrSessionManager`. See [Using Labeled Data](../analysis/labeled_data.md).
 
 ## Help
 

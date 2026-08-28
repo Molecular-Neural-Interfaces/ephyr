@@ -16,7 +16,7 @@ Ephyr detects the format, converts it into a Ephyr experiment folder when needed
 | Open Ephys | session folder (`settings.xml`, continuous streams, etc.) | Select the **session folder**, or a file inside it (Ephyr walks parent directories until a valid session is found). |
 | Intan RHD | `.rhd`, optional `.xml` | Select the **folder** that contains the `.rhd` files, or an `.rhd`/`.xml` file (resolved to the parent folder). |
 | Intan RHS | `.rhs`, optional `.xml` | Same as RHD: prefer the **folder** with `.rhs` files. |
-| Legacy Ephyr | paired `*.lfp` + `*.header.json` | Select the **folder** that contains the matching pair. |
+| WEEGIT | paired `*.lfp` + `*.header.json` | Select the **`.lfp` file**; Ephyr picks up `<name>.header.json` next to it. |
 | Existing Ephyr experiment | `header.json` inside `*_ephyr` | Select the **Ephyr experiment folder** directly (no conversion). |
 
 ### Conversion notes
@@ -68,7 +68,7 @@ Signal samples stored as read-only **int16** memory-mapped files.
 - Inside each sweep, one `*.samples` file per channel (`0.samples`, `1.samples`, …), indexed by channel index.
 
 Scripts and the GUI read these arrays through `ExperimentData.data_memmaps` and convert them to voltage
-with `from_int16_to_voltage_val` (see [Analysis](analysis.md)).
+with `from_int16_to_voltage_val` (see [Using Labeled Data](analysis/labeled_data.md)).
 
 ### `sessions/`
 

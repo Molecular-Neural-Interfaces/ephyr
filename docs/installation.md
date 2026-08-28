@@ -55,7 +55,7 @@ ephyr
 ```
 
 The `ephyr` console command launches the GUI entry point. Use the same Python environment for scripts that
-import Ephyr APIs (see [Analysis](analysis.md)).
+import Ephyr APIs (see [Analysis](analysis/labeled_data.md)).
 
 ## Change Python version
 

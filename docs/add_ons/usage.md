@@ -42,3 +42,19 @@ Typical workflow:
 4. Enable **View** and/or **Transform** so results affect the signal panel while you annotate.
 
 See [Workflow](index.md) for how the three capability types interact with signal data.
+
+## Spike importer
+
+**Spike importer** (part of the **Spike utils** package) brings spikes detected outside Ephyr into the
+experiment. **Run** it, pick a WEEGIT `.spk` file, and the spikes are written as a new spike set in
+`add_ons/data/spike_sets/`, with the sorting method name and the per-spike clusters from the file
+preserved. Spike viewer, Spike navigation, Aligned spikes plot and Raster plot then treat the imported
+set exactly like a set produced by Spike detection, and colour the clusters when the file contains
+more than one.
+
+The file must match the open experiment: channel numbers, sweep numbers and spike positions are
+checked against the converted header, and nothing is written if any of them is out of range. A `.spk`
+file whose name differs from the recording name only raises a confirmation.
+
+Full format description and field reference:
+[Spike utils README](https://github.com/Molecular-Neural-Interfaces/ephyr-add-ons/tree/main/add-ons/spike-utils).

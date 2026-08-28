@@ -27,7 +27,9 @@ nav:
       - Workflow: add_ons/index.md
       - Usage: add_ons/usage.md
       - Add-on Development: add_ons/development.md
-  - Analysis: analysis.md
+  - Analysis:
+      - Reading Sources: analysis/sources.md
+      - Using Labeled Data: analysis/labeled_data.md
 
 markdown_extensions:
   - admonition

@@ -22,4 +22,5 @@ Depending on what you need, continue with one of these sections:
 - **[Files Format](files_format.md)** — which source formats Ephyr can open, how to open them (file vs folder), and the layout of a `*_ephyr` experiment folder.
 - **[Graphic User Interface](gui/index.md)** — main window layout, menus, signal panel, and settings panel.
 - **[Add-ons](add_ons/index.md)** — how Viewable, Runnable, and Transformation add-ons fit into the workflow, how to install and run them, and how to develop your own.
-- **[Analysis](analysis.md)** — how to load labeled experiments in Python (`EphyrSessionManager`), read signals, sessions, events, periods, and spike payloads.
+- **[Reading Sources](analysis/sources.md)** — how to convert recordings into `*_ephyr` folders from Python, one at a time or in batches.
+- **[Using Labeled Data](analysis/labeled_data.md)** — how to load labeled experiments in Python (`EphyrSessionManager`), read signals, sessions, events, periods, and spike sets.
