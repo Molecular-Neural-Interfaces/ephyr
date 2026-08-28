@@ -4,7 +4,7 @@
 import json
 import numpy as np
 from pathlib import Path
-import os
+from typing import Tuple
 
 from ._exceptions import WrongSourceReaderError
 from .abstract_source_reader import AbstractSourceReader, AbstractDataWriter
@@ -50,36 +50,40 @@ class WeegitSourceReader(AbstractSourceReader):
         super().__init__(experiment_path)
         self._header = None
 
-    @staticmethod
-    def _list_ordered_rhs_files(experiment_path: Path):
-        if not experiment_path.is_dir():
-            return []
-
-        rhs_files = [item for item in experiment_path.iterdir() if item.is_file() and item.name.endswith(".rhs")]
-        rhs_files.sort(key=lambda x: os.path.getmtime(x))
-        return rhs_files
+    LFP_EXTENSION = ".lfp"
 
     @classmethod
     def _try_to_open(cls, experiment_path: Path):
-        weegit_files = cls.weegit_paths(experiment_path)
-        if not weegit_files:
-            raise WrongSourceReaderError(cls)
-
-        for path in cls.weegit_paths(experiment_path):
-            if not path.exists():
-                raise WrongSourceReaderError(cls)
+        cls.weegit_paths(experiment_path)
 
     @classmethod
-    def weegit_paths(cls, experiment_path: Path):
-        lfp_files = list(experiment_path.glob("*.lfp"))
-        header_files = list(experiment_path.glob("*.header.json"))
-
-        for lfp_file in lfp_files:
-            for header_file in header_files:
-                if header_file.name.split(".")[0] == lfp_file.name.split(".")[0]:
-                    return header_file, lfp_file
-        else:
+    def _resolve_lfp_path(cls, experiment_path: Path) -> Path:
+        if experiment_path.is_file():
+            if experiment_path.name.endswith(cls.LFP_EXTENSION):
+                return experiment_path
             raise WrongSourceReaderError(cls)
+
+        if not experiment_path.is_dir():
+            raise WrongSourceReaderError(cls)
+
+        # A folder may hold several recordings: only an unambiguous one is accepted,
+        # otherwise the user has to point at the exact .lfp file.
+        lfp_files = sorted(experiment_path.glob(f"*{cls.LFP_EXTENSION}"))
+        if len(lfp_files) != 1:
+            raise WrongSourceReaderError(cls)
+        return lfp_files[0]
+
+    @classmethod
+    def weegit_paths(cls, experiment_path: Path) -> Tuple[Path, Path]:
+        lfp_path = cls._resolve_lfp_path(experiment_path)
+        record_name = lfp_path.name[: -len(cls.LFP_EXTENSION)]
+
+        for header_name in (f"{record_name}.header.json", f"{record_name}.json"):
+            header_path = lfp_path.parent / header_name
+            if header_path.is_file():
+                return header_path, lfp_path
+
+        raise WrongSourceReaderError(cls)
 
     def __iter__(self):
         self._header_num = 0

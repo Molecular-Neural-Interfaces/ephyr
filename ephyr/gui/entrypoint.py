@@ -31,6 +31,14 @@ def excepthook(exc_type, exc_value, exc_tb):
     print(exc_type, exc_value)
     msg = f"Unexpected error occurred"
     ephyr_logger().error(msg, exc_info=exc_value)
+    try:
+        QtWidgets.QMessageBox.critical(
+            None,
+            "Unexpected error",
+            f"{msg}:\n\n{exc_type.__name__}: {exc_value}\n\nThe application will be closed.",
+        )
+    except Exception as dialog_error:
+        ephyr_logger().error("Failed to show the error dialog", exc_info=dialog_error)
     QtWidgets.QApplication.exit(1)
 
 

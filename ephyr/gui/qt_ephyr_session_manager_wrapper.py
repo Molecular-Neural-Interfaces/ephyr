@@ -26,6 +26,7 @@ from ephyr.core.ephyr_session import (
     PeriodVocabularyEntry,
 )
 from ephyr.core.add_ons.base import BaseAddOn
+from ephyr.logger import ephyr_logger
 
 from ephyr.gui.commands.base import BaseCommand
 from ephyr.gui.commands.events import (
@@ -544,6 +545,9 @@ class QtEphyrSessionManagerWrapper(QObject):
         moved = set(channel_indexes)
         if not moved:
             return
+        source_group_names = sorted({
+            group.name for group in groups if any(idx in moved for idx in group.channel_indexes)
+        })
         for group in groups:
             had_channels = any(idx in moved for idx in group.channel_indexes)
             group.channel_indexes = [idx for idx in group.channel_indexes if idx not in moved]
@@ -551,6 +555,10 @@ class QtEphyrSessionManagerWrapper(QObject):
             if had_channels:
                 self._reset_group_channels_layout(group)
         target = groups[target_group_idx]
+        ephyr_logger().info(
+            f"Channels {sorted(moved)} moved from group(s) {source_group_names or ['none']} "
+            f"to group #{target_group_idx} '{target.name}'"
+        )
         for idx in channel_indexes:
             if idx not in target.channel_indexes:
                 target.channel_indexes.append(idx)
@@ -673,11 +681,34 @@ class QtEphyrSessionManagerWrapper(QObject):
         self._execute_new_command(cmd)
 
     # ---- Events helpers ----
+    def _event_name(self, event_name_id: int) -> str:
+        session = self._session_manager.current_user_session
+        if not session:
+            return str(event_name_id)
+        return session.get_event_vocabulary_name(event_name_id) or str(event_name_id)
+
+    def _period_name(self, period_name_id: int) -> str:
+        session = self._session_manager.current_user_session
+        if not session:
+            return str(period_name_id)
+        return session.get_period_vocabulary_name(period_name_id) or str(period_name_id)
+
+    def _event_names_summary(self, events: List[Event]) -> str:
+        counts: Dict[str, int] = {}
+        for event in events:
+            name = self._event_name(event.event_name_id)
+            counts[name] = counts.get(name, 0) + 1
+        return ", ".join(f"{name} x{count}" for name, count in sorted(counts.items()))
+
     @user_session_modification
     def add_event(self, event_name_id: int, sweep_idx: int, time_ms: float):
         """Create a new event in the current user session (with undo support)."""
         cmd = AddEventCommand(event_name_id, sweep_idx, time_ms)
         self._execute_new_command(cmd)
+        ephyr_logger().info(
+            f"Event '{self._event_name(event_name_id)}' added: "
+            f"sweep_idx={sweep_idx} time_ms={time_ms} is_bad=False"
+        )
 
     @user_session_modification
     def add_events(self, events_specs: List[Tuple[int, int, float]]):
@@ -689,6 +720,11 @@ class QtEphyrSessionManagerWrapper(QObject):
             return
         cmd = AddEventsCommand(events_specs)
         self._execute_new_command(cmd)
+        for event_name_id, sweep_idx, time_ms in events_specs:
+            ephyr_logger().info(
+                f"Event '{self._event_name(event_name_id)}' added: "
+                f"sweep_idx={sweep_idx} time_ms={time_ms} is_bad=False"
+            )
 
     @user_session_modification
     def remove_events(self, events: List[Event]):
@@ -697,6 +733,7 @@ class QtEphyrSessionManagerWrapper(QObject):
 
         cmd = RemoveEventsCommand(events)
         self._execute_new_command(cmd)
+        ephyr_logger().info(f"Events removed: {self._event_names_summary(events)}")
 
     @user_session_modification
     def set_events_bad_flag(self, events: List[Event], is_bad: bool):
@@ -705,6 +742,9 @@ class QtEphyrSessionManagerWrapper(QObject):
 
         cmd = SetEventsBadFlagCommand(events, is_bad)
         self._execute_new_command(cmd)
+        ephyr_logger().info(
+            f"Events marked as is_bad={is_bad}: {self._event_names_summary(events)}"
+        )
 
     @user_session_modification
     def import_vocabulary_and_events(
@@ -726,6 +766,11 @@ class QtEphyrSessionManagerWrapper(QObject):
         """Create a new period in the current user session (with undo support)."""
         cmd = AddPeriodCommand(period_name_id, start_sweep_idx, start_time_ms, end_sweep_idx, end_time_ms)
         self._execute_new_command(cmd)
+        ephyr_logger().info(
+            f"Period '{self._period_name(period_name_id)}' added: "
+            f"start_sweep_idx={start_sweep_idx} start_time_ms={start_time_ms} "
+            f"end_sweep_idx={end_sweep_idx} end_time_ms={end_time_ms}"
+        )
 
     @user_session_modification
     def remove_periods(self, periods: List[Period]):

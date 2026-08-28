@@ -37,7 +37,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QSizePolicy,
 )
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from ephyr import settings
 from ephyr.converter.channel_order import (
@@ -55,6 +55,7 @@ from ephyr.core.header import Header
 from ephyr.gui.dialogs.header_units_management_dialog import HeaderUnitsManagementDialog
 from ephyr.gui._utils import milliseconds_to_readable, sample_rate_to_readable
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
+from ephyr.logger import ephyr_logger
 from ephyr.core.conversions.filters import (
     ensure_filters_list,
     ButterworthLowPassFilter,
@@ -73,6 +74,7 @@ class ChannelLayoutDialog(QDialog):
         channel_name_getter,
         parent=None,
         *,
+        enabled_indexes: Optional[Set[int]] = None,
         header: Optional[Header] = None,
         ephyr_folder: Optional[Path] = None,
     ):
@@ -83,12 +85,16 @@ class ChannelLayoutDialog(QDialog):
         self._channels_layout = channels_layout
         self._header = header
         self._ephyr_folder = ephyr_folder
+        self._enabled_indexes: Set[int] = set(channels if enabled_indexes is None else enabled_indexes)
 
         layout = QVBoxLayout(self)
-        info = QLabel("Order channels (drag&drop, arrows, or format 1,10,12,14-18,20). "
+        info = QLabel("Order channels (drag&drop, arrows, or format 1,10,12,14-18,20) and tick "
+                      "the Enabled box to show a channel. "
                       "Use Layout settings to arrange channels into a custom grid.")
         info.setWordWrap(True)
         layout.addWidget(info)
+
+        layout.addWidget(QLabel("Enabled | Channel"))
 
         self.list_widget = QListWidget()
         self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -113,6 +119,17 @@ class ChannelLayoutDialog(QDialog):
         manual_row.addWidget(self.manual_edit, 1)
         manual_row.addWidget(self.apply_manual_btn)
         layout.addLayout(manual_row)
+
+        enable_row = QHBoxLayout()
+        enable_row.addWidget(QLabel("Enable:"))
+        self.enable_buttons: Dict[str, QPushButton] = {}
+        for text, mode in (("All", "all"), ("Odd", "odd"), ("Even", "even"), ("None", "none")):
+            button = QPushButton(text)
+            button.clicked.connect(lambda _c=False, m=mode: self._set_enabled_by_mode(m))
+            enable_row.addWidget(button)
+            self.enable_buttons[mode] = button
+        enable_row.addStretch(1)
+        layout.addLayout(enable_row)
 
         settings_row = QHBoxLayout()
         self.layout_settings_btn = QPushButton("Layout settings")
@@ -238,12 +255,45 @@ class ChannelLayoutDialog(QDialog):
         return table
 
     def _set_order(self, channels: List[int]):
+        # The check state is stored on the item itself (not in an item widget), so it
+        # survives the InternalMove drag&drop that reorders the list.
+        if self.list_widget.count():
+            self._enabled_indexes = self._collect_enabled()
         self.list_widget.clear()
         for ch in channels:
             label = self._channel_name_getter(ch)
             item = QListWidgetItem(f"{ch} [{label}]")
             item.setData(Qt.ItemDataRole.UserRole, ch)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked if ch in self._enabled_indexes else Qt.CheckState.Unchecked
+            )
             self.list_widget.addItem(item)
+
+    def _collect_enabled(self) -> Set[int]:
+        enabled: Set[int] = set()
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item is not None and item.checkState() == Qt.CheckState.Checked:
+                enabled.add(int(item.data(Qt.ItemDataRole.UserRole)))
+        return enabled
+
+    def _set_enabled_by_mode(self, mode: str):
+        """All/Odd/Even/None, where parity is the 1-based position in the current order."""
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item is None:
+                continue
+            if mode == "all":
+                checked = True
+            elif mode == "none":
+                checked = False
+            elif mode == "odd":
+                checked = (i + 1) % 2 == 1
+            else:
+                checked = (i + 1) % 2 == 0
+            item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+        self._enabled_indexes = self._collect_enabled()
 
     def _current_order(self) -> List[int]:
         result: List[int] = []
@@ -295,6 +345,9 @@ class ChannelLayoutDialog(QDialog):
 
     def get_order(self) -> List[int]:
         return self._current_order()
+
+    def get_enabled(self) -> Set[int]:
+        return self._collect_enabled()
 
 
 class LayoutSettingsDialog(QDialog):
@@ -820,7 +873,8 @@ class SignalSettingsPanel(QWidget):
         self._session_manager = session_manager
         self._updating = False
         self._group_list_widgets: Dict[int, QListWidget] = {}
-        self._group_enabled_checkboxes: Dict[Tuple[int, int], QCheckBox] = {}
+        self._group_move_checkboxes: Dict[Tuple[int, int], QCheckBox] = {}
+        self._group_channel_labels: Dict[Tuple[int, int], QLabel] = {}
         self._last_groups_structure_signature: Tuple = tuple()
         self._rebuilding_groups = False
         self._mapping_pixmap: Optional[QPixmap] = None
@@ -938,7 +992,8 @@ class SignalSettingsPanel(QWidget):
         mapping_layout.addWidget(self.mapping_image_label)
         self.channels_layout.addWidget(self.mapping_group)
 
-        instructions = QLabel("Drag&drop tabs to reorder groups. Select multiple channels, then Move selected to target group.")
+        instructions = QLabel("Drag&drop tabs to reorder groups. Tick channels, then Move checked to target group. "
+                              "Channel order and enabling are edited in Layout.")
         instructions.setWordWrap(True)
         instructions.setStyleSheet("color: gray; font-size: 9pt;")
         self.channels_layout.addWidget(instructions)
@@ -1221,7 +1276,8 @@ class SignalSettingsPanel(QWidget):
             if tab is not None:
                 tab.deleteLater()
         self._group_list_widgets.clear()
-        self._group_enabled_checkboxes.clear()
+        self._group_move_checkboxes.clear()
+        self._group_channel_labels.clear()
 
         for group_idx, group in enumerate(gui_setup.channels_groups):
             box = QWidget()
@@ -1272,7 +1328,7 @@ class SignalSettingsPanel(QWidget):
                 self._build_group_common_setup(box_layout, group.channel_indexes, gui_setup.channels_setup)
 
             channel_list = QListWidget()
-            channel_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+            channel_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
             channel_list.setDragDropMode(QListWidget.DragDropMode.NoDragDrop)
             channel_list.setDragEnabled(False)
             channel_list.setAcceptDrops(False)
@@ -1284,17 +1340,12 @@ class SignalSettingsPanel(QWidget):
             btn_row = QHBoxLayout()
             reorder_btn = QPushButton("Layout")
             reorder_btn.clicked.connect(lambda _c=False, idx=group_idx: self._open_reorder_dialog(idx))
-            enable_all = QPushButton("Enable all")
-            enable_all.clicked.connect(lambda _c=False, idx=group_idx: self._set_group_enabled(idx, True))
-            disable_all = QPushButton("Disable all")
-            disable_all.clicked.connect(lambda _c=False, idx=group_idx: self._set_group_enabled(idx, False))
             btn_row.addWidget(reorder_btn)
-            btn_row.addWidget(enable_all)
-            btn_row.addWidget(disable_all)
+            btn_row.addStretch(1)
             box_layout.addLayout(btn_row)
 
             move_row = QHBoxLayout()
-            move_row.addWidget(QLabel("Move selected to"))
+            move_row.addWidget(QLabel("Move checked to"))
             move_combo = QComboBox()
             for to_idx, to_group in enumerate(gui_setup.channels_groups):
                 if to_idx == group_idx:
@@ -1302,7 +1353,7 @@ class SignalSettingsPanel(QWidget):
                 move_combo.addItem(f"#{to_idx} {to_group.name}", to_idx)
             move_btn = QPushButton("Move")
             move_btn.clicked.connect(
-                lambda _c=False, from_idx=group_idx, combo=move_combo: self._move_selected_to_group(
+                lambda _c=False, from_idx=group_idx, combo=move_combo: self._move_checked_to_group(
                     from_idx, int(combo.currentData()) if combo.currentData() is not None else -1
                 )
             )
@@ -1334,27 +1385,28 @@ class SignalSettingsPanel(QWidget):
         if not gui_setup:
             return
         signature = self._groups_structure_signature(gui_setup)
-        if signature == self._last_groups_structure_signature and self._group_enabled_checkboxes:
-            self._sync_group_enabled_checkboxes()
+        if signature == self._last_groups_structure_signature and self._group_channel_labels:
+            self._sync_group_channel_labels()
             return
         self.rebuild_groups_ui()
 
-    def _sync_group_enabled_checkboxes(self):
+    def _sync_group_channel_labels(self):
         gui_setup = self._session_manager.gui_setup
         if not gui_setup:
             return
         for group_idx, group in enumerate(gui_setup.channels_groups):
             enabled_set = set(group.enabled_indexes)
             for channel_idx in group.channel_indexes:
-                checkbox = self._group_enabled_checkboxes.get((group_idx, channel_idx))
-                if checkbox is None:
+                label = self._group_channel_labels.get((group_idx, channel_idx))
+                if label is None:
                     continue
-                should_be_checked = channel_idx in enabled_set
-                if checkbox.isChecked() == should_be_checked:
-                    continue
-                checkbox.blockSignals(True)
-                checkbox.setChecked(should_be_checked)
-                checkbox.blockSignals(False)
+                channel_name = self.get_channel_name(channel_idx)
+                if channel_idx in enabled_set:
+                    label.setText(f"{channel_idx} [{channel_name}]")
+                    label.setStyleSheet("")
+                else:
+                    label.setText(f"{channel_idx} [{channel_name}] (disabled)")
+                    label.setStyleSheet("color: gray;")
 
     def _build_group_common_setup(self, layout: QVBoxLayout, channel_indexes: List[int], channels_setup):
         if not channel_indexes:
@@ -1423,13 +1475,19 @@ class SignalSettingsPanel(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(2)
 
-        enabled_cb = QCheckBox()
-        enabled_cb.setChecked(channel_idx in group.enabled_indexes)
-        enabled_cb.stateChanged.connect(lambda state, idx=channel_idx, gidx=group_idx: self._on_channel_enabled(gidx, idx, state))
-        self._group_enabled_checkboxes[(group_idx, channel_idx)] = enabled_cb
-        row.addWidget(enabled_cb)
+        move_cb = QCheckBox()
+        move_cb.setToolTip("Check to move this channel to another group")
+        self._group_move_checkboxes[(group_idx, channel_idx)] = move_cb
+        row.addWidget(move_cb)
         row.addSpacing(10)
-        row.addWidget(QLabel(f"{channel_idx} [{channel_name}]"), 1)
+
+        is_enabled = channel_idx in group.enabled_indexes
+        channel_label = QLabel(f"{channel_idx} [{channel_name}]" if is_enabled
+                               else f"{channel_idx} [{channel_name}] (disabled)")
+        if not is_enabled:
+            channel_label.setStyleSheet("color: gray;")
+        self._group_channel_labels[(group_idx, channel_idx)] = channel_label
+        row.addWidget(channel_label, 1)
         info_edit = QLineEdit(info)
         info_edit.setPlaceholderText("Info, e.g. area")
         info_edit.setMinimumWidth(140)
@@ -1507,6 +1565,7 @@ class SignalSettingsPanel(QWidget):
             group.channels_layout.model_copy(deep=True),
             self.get_channel_name,
             self,
+            enabled_indexes=set(group.enabled_indexes),
             header=self._session_manager.header,
             ephyr_folder=(
                 Path(self._session_manager.ephyr_experiment_folder)
@@ -1516,7 +1575,7 @@ class SignalSettingsPanel(QWidget):
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        self._apply_group_channel_order(group_idx, dialog.get_order())
+        self._apply_group_channel_order(group_idx, dialog.get_order(), dialog.get_enabled())
         self._session_manager.set_channels_layout(group_idx, dialog.get_channels_layout())
 
     def on_groups_layout_clicked(self):
@@ -1528,51 +1587,45 @@ class SignalSettingsPanel(QWidget):
             return
         self._session_manager.set_group_layouts(dialog.get_group_layouts())
 
-    def _apply_group_channel_order(self, group_idx: int, new_order: List[int]):
+    def _apply_group_channel_order(self, group_idx: int, new_order: List[int],
+                                   new_enabled: Optional[Set[int]] = None):
         gui_setup = self._session_manager.gui_setup
         if not gui_setup or not (0 <= group_idx < len(gui_setup.channels_groups)):
             return
         groups = [g.model_copy(deep=True) for g in gui_setup.channels_groups]
         group = groups[group_idx]
-        enabled_set = set(group.enabled_indexes)
+        previous_order = list(group.channel_indexes)
+        previous_enabled = set(group.enabled_indexes)
+        enabled_set = previous_enabled if new_enabled is None else set(new_enabled)
         group.channel_indexes = list(new_order)
         group.enabled_indexes = {idx for idx in new_order if idx in enabled_set}
         self._session_manager.set_channels_groups(groups)
 
-    def _on_channel_enabled(self, group_idx: int, channel_idx: int, state: int):
-        gui_setup = self._session_manager.gui_setup
-        if not gui_setup or not (0 <= group_idx < len(gui_setup.channels_groups)):
-            return
-        groups = [g.model_copy(deep=True) for g in gui_setup.channels_groups]
-        group = groups[group_idx]
-        checked = Qt.CheckState(state) == Qt.CheckState.Checked
-        if checked:
-            group.enabled_indexes.add(channel_idx)
-        else:
-            group.enabled_indexes.discard(channel_idx)
-        self._session_manager.set_channels_groups(groups)
+        if previous_order != group.channel_indexes:
+            ephyr_logger().info(
+                f"Channels of group #{group_idx} '{group.name}' reordered: "
+                f"{previous_order} -> {group.channel_indexes}"
+            )
+        if previous_enabled != group.enabled_indexes:
+            newly_enabled = sorted(group.enabled_indexes - previous_enabled)
+            newly_disabled = sorted(previous_enabled - group.enabled_indexes)
+            ephyr_logger().info(
+                f"Channels of group #{group_idx} '{group.name}' enabled={newly_enabled} "
+                f"disabled={newly_disabled}"
+            )
 
-    def _set_group_enabled(self, group_idx: int, enabled: bool):
-        gui_setup = self._session_manager.gui_setup
-        if not gui_setup or not (0 <= group_idx < len(gui_setup.channels_groups)):
-            return
-        groups = [g.model_copy(deep=True) for g in gui_setup.channels_groups]
-        target = groups[group_idx]
-        target.enabled_indexes = set(target.channel_indexes) if enabled else set()
-        self._session_manager.set_channels_groups(groups)
-
-    def _move_selected_to_group(self, from_group_idx: int, to_group_idx: int):
+    def _move_checked_to_group(self, from_group_idx: int, to_group_idx: int):
         if to_group_idx < 0:
             return
-        widget = self._group_list_widgets.get(from_group_idx)
-        if widget is None:
+        checked = sorted(
+            channel_idx
+            for (group_idx, channel_idx), checkbox in self._group_move_checkboxes.items()
+            if group_idx == from_group_idx and checkbox.isChecked()
+        )
+        if not checked:
+            QMessageBox.information(self, "Move channels", "Check the channels you want to move first.")
             return
-        selected = []
-        for item in widget.selectedItems():
-            idx = item.data(Qt.ItemDataRole.UserRole)
-            if idx is not None:
-                selected.append(int(idx))
-        self._session_manager.move_channels_to_group(selected, to_group_idx)
+        self._session_manager.move_channels_to_group(checked, to_group_idx)
 
     def _on_remove_group(self, group_idx: int):
         gui_setup = self._session_manager.gui_setup

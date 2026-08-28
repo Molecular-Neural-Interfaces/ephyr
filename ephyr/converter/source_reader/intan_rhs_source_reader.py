@@ -119,7 +119,13 @@ class IntanRhsSourceReader(AbstractSourceReader):
 
     @classmethod
     def _try_to_open(cls, experiment_path: Path):
-        if len(cls._list_ordered_rhs_files(experiment_path)) == 0:
+        rhs_files = cls._list_ordered_rhs_files(experiment_path)
+        if not rhs_files:
+            raise WrongSourceReaderError(cls)
+        try:
+            with open(rhs_files[0], "rb") as fid:
+                read_header(fid)
+        except Exception:
             raise WrongSourceReaderError(cls)
 
     def __iter__(self):

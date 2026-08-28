@@ -510,14 +510,33 @@ class MainWindow(QMainWindow, QWidgetMixin):
             self.session_manager.set_right_panel_widgets(self.right_panel_widgets)
 
     # ---------- Callbacks menu ----------
+    def __confirm_discard_unsaved_changes(self, question: str) -> bool:
+        """Ask the user before dropping unsaved session changes. True means proceed."""
+        if not (self.session_manager.session_is_active
+                and self.session_manager.user_session
+                and not self.session_manager.user_session.changes_saved):
+            return True
+
+        result = QMessageBox.warning(
+            self,
+            "Session not saved",
+            f"Some changes in the session was not saved. {question}",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        return result != QMessageBox.StandardButton.Cancel
+
     def on_open(self):
+        if not self.__confirm_discard_unsaved_changes("Are you sure you want to open another experiment?"):
+            return
+
         dialog = QFileDialog(self, "Select experiment folder or source file", "")
         dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
         dialog.setFileMode(QFileDialog.FileMode.AnyFile)
         dialog.setFilter(QDir.Filter.AllEntries | QDir.Filter.NoDotAndDotDot)
         dialog.setNameFilter(
             "Supported source files "
-            "(*.abf *.daq *.edf *.xdat *.xdat.json *.ncs *.nwb *.rhs *.rhd *.continuous *.dat settings.xml);;"
+            "(*.lfp *.abf *.daq *.edf *.xdat *.xdat.json *.ncs *.nwb *.rhs *.rhd *.continuous *.dat settings.xml);;"
+            "WEEGIT files (*.lfp);;"
             "ABF files (*.abf);;DAQ files (*.daq);;EDF files (*.edf);;"
             "XDAT files (*.xdat *.xdat.json);;Neuralynx files (*.ncs *.nev);;NWB files (*.nwb);;"
             "Intan files (*.rhs *.rhd settings.xml);;"
@@ -555,22 +574,39 @@ class MainWindow(QMainWindow, QWidgetMixin):
                 progress.setWindowModality(Qt.WindowModality.WindowModal)  # Block the entire app
                 progress.setWindowTitle("Please Wait")
                 progress.show()
-                for convertion_progress_percents in EphyrIO.convert_from_source_to_ephyr(
-                        experiment_path,
-                        ephyr_experiment_folder_path,
-                        reader_options=converter_dialog.conversion_options(),
-                ):
-                    if progress.wasCanceled():
-                        shutil.rmtree(ephyr_experiment_folder_path)
-                        return
+                try:
+                    for convertion_progress_percents in EphyrIO.convert_from_source_to_ephyr(
+                            experiment_path,
+                            ephyr_experiment_folder_path,
+                            reader_options=converter_dialog.conversion_options(),
+                    ):
+                        if progress.wasCanceled():
+                            shutil.rmtree(ephyr_experiment_folder_path, ignore_errors=True)
+                            return
 
-                    progress.setValue(convertion_progress_percents)
+                        progress.setValue(convertion_progress_percents)
+                except Exception as exc:
+                    # header.json is written before the data, so a half-converted folder
+                    # would pass is_valid_ephyr_folder and load as a corrupt experiment.
+                    shutil.rmtree(ephyr_experiment_folder_path, ignore_errors=True)
+                    ephyr_logger().error(f"Conversion of {experiment_path} failed", exc_info=exc)
+                    QMessageBox.critical(
+                        self,
+                        "Conversion failed",
+                        f"Could not read {experiment_path}:\n\n{exc}",
+                    )
+                    return
+                finally:
+                    progress.close()
             else:
                 return
 
         self.__load_session(ephyr_experiment_folder_path)
 
     def on_open_recent_experiment(self, experiment_path: Path):
+        if not self.__confirm_discard_unsaved_changes("Are you sure you want to open another experiment?"):
+            return
+
         try:
             self.__load_session(experiment_path)
         except FileNotFoundError:
@@ -762,32 +798,14 @@ class MainWindow(QMainWindow, QWidgetMixin):
             self.__set_status("Warning: ephyr session is not active")
 
     def closeEvent(self, event):
-        if (self.session_manager.session_is_active
-                and self.session_manager.user_session
-                and not self.session_manager.user_session.changes_saved):
-            result = QMessageBox.warning(
-                self,
-                "Session not saved",
-                "Some changes in the session was not saved. Are you sure you want to exit?",
-                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
-            )
-            if result == QMessageBox.StandardButton.Cancel:
-                event.ignore()
-            else:
-                event.accept()
+        if self.__confirm_discard_unsaved_changes("Are you sure you want to exit?"):
+            event.accept()
+        else:
+            event.ignore()
 
     def on_exit(self):
-        if (self.session_manager.session_is_active
-                and self.session_manager.user_session
-                and not self.session_manager.user_session.changes_saved):
-            result = QMessageBox.warning(
-                self,
-                "Session not saved",
-                "Some changes in the session was not saved. Are you sure you want to exit?",
-                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
-            )
-            if result == QMessageBox.StandardButton.Cancel:
-                return
+        if not self.__confirm_discard_unsaved_changes("Are you sure you want to exit?"):
+            return
 
         QApplication.instance().quit()
 
