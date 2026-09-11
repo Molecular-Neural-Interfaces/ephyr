@@ -16,4 +16,4 @@
 #
 # SPDX-License-Identifier: GPL-3.0-only
 
-__version__ = '1.0.7'
+__version__ = '1.0.8'

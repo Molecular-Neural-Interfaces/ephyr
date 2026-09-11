@@ -21,6 +21,7 @@ import sys
 from PyQt6 import QtWidgets
 
 from ephyr.logger import ephyr_logger
+from ephyr.gui._utils import apply_application_icon
 from ephyr.gui.windows import MainWindow
 from ephyr.core.ephyr_session import EphyrSessionManager
 from ephyr.core.global_storage import GlobalStorageManager
@@ -46,6 +47,9 @@ def main():
     sys.excepthook = excepthook
 
     app = QtWidgets.QApplication(sys.argv)
+    app.setApplicationName("Ephyr")
+    app.setApplicationDisplayName("Ephyr")
+    apply_application_icon(app)
     session_manager = EphyrSessionManager()
     session_manager_wrapper = QtEphyrSessionManagerWrapper(session_manager)
     global_storage_manager = GlobalStorageManager()
@@ -53,6 +57,7 @@ def main():
     screen = app.primaryScreen()
     main_window.move_to_center(screen)
     main_window.show()
+    apply_application_icon(app, main_window)
     sys.exit(app.exec())
 
 

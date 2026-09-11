@@ -3,9 +3,6 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QPixmap
 from PyQt6.QtWidgets import (
@@ -18,6 +15,7 @@ from PyQt6.QtWidgets import (
 
 from ephyr import settings
 from ephyr import version
+from ephyr.gui._utils import resolve_app_icon_path
 
 
 _ABOUT_DESCRIPTION = (
@@ -27,19 +25,6 @@ This application is a lightweight yet powerful environment for multimodal annota
 Fully open‑source and built in Python, the platform provides a flexible API for post‑annotation data access. Its add‑on architecture lets you extend functionality seamlessly without modifying the core codebase.
 """
 )
-
-
-def _resolve_app_icon_path() -> Path | None:
-    candidates: list[Path] = []
-    meipass = getattr(sys, "_MEIPASS", None)
-    if meipass:
-        candidates.append(Path(meipass) / "ephyr_assets" / "ephyr.png")
-    repo_root = Path(__file__).resolve().parents[3]
-    candidates.append(repo_root / "devtools" / "distribute" / "assets" / "ephyr.png")
-    for path in candidates:
-        if path.is_file():
-            return path
-    return None
 
 
 class AboutDialog(QDialog):
@@ -58,7 +43,7 @@ class AboutDialog(QDialog):
         header = QHBoxLayout()
         header.setSpacing(16)
 
-        icon_path = _resolve_app_icon_path()
+        icon_path = resolve_app_icon_path()
         if icon_path is not None:
             pixmap = QPixmap(str(icon_path))
             if not pixmap.isNull():
