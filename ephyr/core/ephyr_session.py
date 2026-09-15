@@ -196,7 +196,7 @@ class GuiSetup(BaseModel):
     number_of_dots_to_display: int = settings.DEFAULT_NUMBER_OF_DOTS_TO_DISPLAY
     channels_groups: List[ChannelGroup] = Field(default_factory=list)
     channels_setup: Dict[int, ChannelSetup] = Field(default_factory=dict)
-    channels_mapping_img: str = ""
+    visual_attachment: str = ""
 
     class Config:
         arbitrary_types_allowed = True

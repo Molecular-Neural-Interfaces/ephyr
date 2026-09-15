@@ -86,7 +86,7 @@ class QtEphyrSessionManagerWrapper(QObject):
 
     # Signals for strings
     experiment_description_changed = pyqtSignal(str)
-    channels_mapping_img_changed = pyqtSignal(str)
+    visual_attachment_changed = pyqtSignal(str)
 
     # Signals for channel groups and channels setup
     channels_groups_changed = pyqtSignal(list)
@@ -617,9 +617,9 @@ class QtEphyrSessionManagerWrapper(QObject):
         self.experiment_description_changed.emit(experiment_description)
 
     @user_session_modification
-    def set_channels_mapping_img(self, channels_mapping_img: str):
-        self._session_manager.current_user_session.gui_setup.channels_mapping_img = channels_mapping_img
-        self.channels_mapping_img_changed.emit(channels_mapping_img)
+    def set_visual_attachment(self, visual_attachment: str):
+        self._session_manager.current_user_session.gui_setup.visual_attachment = visual_attachment
+        self.visual_attachment_changed.emit(visual_attachment)
 
     @user_session_modification
     def add_event_vocabulary(self, name: Optional[str] = None) -> int:

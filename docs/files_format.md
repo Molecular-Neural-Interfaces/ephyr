@@ -42,9 +42,11 @@ After conversion (or when you open an existing experiment), Ephyr uses this dire
 $EXPERIMENT_ephyr/
 ├── header.json
 ├── data/
-│   └── sweep_NNNNN/
-│       ├── 0.samples
-│       ├── 1.samples
+│   ├── sweep_0/
+│   │   ├── channel_0.samples
+│   │   ├── channel_1.samples
+│   │   └── ...
+│   └── sweep_1/
 │       └── ...
 ├── sessions/
 │   └── $SESSION_NAME.json
@@ -64,8 +66,11 @@ This file identifies a valid Ephyr experiment folder.
 
 Signal samples stored as read-only **int16** memory-mapped files.
 
-- One subdirectory per sweep: `sweep_00000`, `sweep_00001`, …
-- Inside each sweep, one `*.samples` file per channel (`0.samples`, `1.samples`, …), indexed by channel index.
+- One subdirectory per sweep: `sweep_0`, `sweep_1`, … — **0-based**, no zero padding.
+  A recording with 101 sweeps uses `sweep_0` … `sweep_100`. The GUI sweep control is 1-based
+  (`sweep_0` is shown as sweep 1).
+- Inside each sweep, one `*.samples` file per channel (`channel_0.samples`, `channel_1.samples`, …),
+  indexed by channel index. Same 0-based numbering, no zero padding.
 
 Scripts and the GUI read these arrays through `ExperimentData.data_memmaps` and convert them to voltage
 with `from_int16_to_voltage_val` (see [Using Labeled Data](analysis/labeled_data.md)).

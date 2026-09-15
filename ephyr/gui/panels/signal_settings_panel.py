@@ -854,7 +854,7 @@ class ClickableImageLabel(QLabel):
         if self._original_pixmap is None:
             return
         dialog = QDialog(self)
-        dialog.setWindowTitle("Channels mapping image")
+        dialog.setWindowTitle("Visual attachment")
         layout = QVBoxLayout(dialog)
         scroll = QScrollArea()
         label = QLabel()
@@ -969,7 +969,7 @@ class SignalSettingsPanel(QWidget):
         dots_row.addStretch(1)
         self.channels_layout.addLayout(dots_row)
 
-        self.mapping_group = QGroupBox("Channels mapping image")
+        self.mapping_group = QGroupBox("Visual attachment")
         mapping_layout = QVBoxLayout(self.mapping_group)
         buttons_layout = QHBoxLayout()
         self.btn_attach_link = QPushButton("Attach link")
@@ -988,7 +988,7 @@ class SignalSettingsPanel(QWidget):
 
         self.mapping_image_label = ClickableImageLabel()
         self.mapping_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.mapping_image_label.setMinimumWidth(settings.CHANNELS_MAPPING_IMG_DEFAULT_WIDTH)
+        self.mapping_image_label.setMinimumWidth(settings.VISUAL_ATTACHMENT_DEFAULT_WIDTH)
         mapping_layout.addWidget(self.mapping_image_label)
         self.channels_layout.addWidget(self.mapping_group)
 
@@ -1045,7 +1045,7 @@ class SignalSettingsPanel(QWidget):
         self._session_manager.autoscroll_step_interval_ms_changed.connect(self._sync_time_controls)
         self._session_manager.number_of_dots_to_display_changed.connect(self._sync_time_controls)
         self._session_manager.filters_changed.connect(self.on_filters_changed)
-        self._session_manager.channels_mapping_img_changed.connect(self.on_channels_mapping_img_changed)
+        self._session_manager.visual_attachment_changed.connect(self.on_visual_attachment_changed)
         self._session_manager.header_units_changed.connect(lambda _units: self.rebuild_groups_ui())
 
     def on_session_loaded(self):
@@ -1062,7 +1062,7 @@ class SignalSettingsPanel(QWidget):
                 changed = True
         if changed:
             self._session_manager.set_channels_groups(updated_groups)
-        self._update_mapping_display(gui_setup.channels_mapping_img)
+        self._update_mapping_display(gui_setup.visual_attachment)
         self.rebuild_groups_ui()
 
     def _on_duration_changed(self, duration_ms: int):
@@ -1754,8 +1754,8 @@ class SignalSettingsPanel(QWidget):
             text = f"{val:.2f}".rstrip("0").rstrip(".")
         return f"{text} {units[idx]}"
 
-    def on_channels_mapping_img_changed(self, channels_mapping_img: str):
-        self._update_mapping_display(channels_mapping_img)
+    def on_visual_attachment_changed(self, visual_attachment: str):
+        self._update_mapping_display(visual_attachment)
 
     def on_set_units_clicked(self):
         if not self._session_manager.header:
@@ -1766,7 +1766,7 @@ class SignalSettingsPanel(QWidget):
         link, ok = QInputDialog.getText(self, "Attach link", "Paste image link:")
         if not ok:
             return
-        self._session_manager.set_channels_mapping_img(link.strip())
+        self._session_manager.set_visual_attachment(link.strip())
 
     def on_attach_file_clicked(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1785,10 +1785,10 @@ class SignalSettingsPanel(QWidget):
         mime, _ = mimetypes.guess_type(file_path)
         mime = mime or "image/png"
         encoded = base64.b64encode(data).decode("ascii")
-        self._session_manager.set_channels_mapping_img(f"data:{mime};base64,{encoded}")
+        self._session_manager.set_visual_attachment(f"data:{mime};base64,{encoded}")
 
-    def _update_mapping_display(self, channels_mapping_img: str):
-        self._mapping_text = channels_mapping_img or ""
+    def _update_mapping_display(self, visual_attachment: str):
+        self._mapping_text = visual_attachment or ""
         self._mapping_pixmap = None
         self._mapping_link_url = ""
         self.mapping_image_label.set_pixmap(None)
@@ -1846,7 +1846,7 @@ class SignalSettingsPanel(QWidget):
             return
         target_width = self.mapping_image_label.width()
         if target_width <= 1:
-            target_width = settings.CHANNELS_MAPPING_IMG_DEFAULT_WIDTH
+            target_width = settings.VISUAL_ATTACHMENT_DEFAULT_WIDTH
         display = self._mapping_pixmap.scaledToWidth(
             target_width,
             Qt.TransformationMode.SmoothTransformation,

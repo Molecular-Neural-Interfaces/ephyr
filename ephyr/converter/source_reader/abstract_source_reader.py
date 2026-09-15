@@ -8,7 +8,7 @@ from typing import Any, Tuple, List, Dict, Optional
 
 import numpy as np
 
-from ephyr import settings
+from ephyr.converter.experiment_layout import channel_samples_path, sweep_dir
 from ephyr.core.header import Header
 from ._exceptions import WrongSourceReaderError
 
@@ -29,18 +29,14 @@ class AbstractDataWriter(ABC):
         if any(points < 0 for points in points_per_sweep):
             raise ValueError("Header is inconsistent: negative points per sweep")
 
-        sweep_dirs = [
-            dest_folder / settings.SIGNAL_DATA_SUBFOLDER / f"{settings.SIGNAL_DATA_SWEEP_SUBFOLDER_PREFIX}{sweep_idx}"
-                      for sweep_idx in range(header.number_of_sweeps)]
-        for sweep_dir in sweep_dirs:
-            sweep_dir.mkdir(parents=True, exist_ok=True)
+        sweep_dirs = [sweep_dir(dest_folder, sweep_idx) for sweep_idx in range(header.number_of_sweeps)]
+        for directory in sweep_dirs:
+            directory.mkdir(parents=True, exist_ok=True)
 
         channel_filepaths = []
         for sweep_idx in range(header.number_of_sweeps):
             for ch_idx in range(header.number_of_channels):
-                channel_filepaths.append(
-                    dest_folder / settings.SIGNAL_DATA_SUBFOLDER / f"{settings.SIGNAL_DATA_SWEEP_SUBFOLDER_PREFIX}{sweep_idx}" / f"{ch_idx}{settings.SIGNAL_DATA_EXTENSION}"
-                )
+                channel_filepaths.append(channel_samples_path(dest_folder, sweep_idx, ch_idx))
 
         if header.number_of_sweeps == 0:
             return channel_filepaths
@@ -52,7 +48,7 @@ class AbstractDataWriter(ABC):
         def open_sweep_files(sweep_idx: int) -> List[Any]:
             return [
                 open(
-                    dest_folder / settings.SIGNAL_DATA_SUBFOLDER / f"{settings.SIGNAL_DATA_SWEEP_SUBFOLDER_PREFIX}{sweep_idx}" / f"{ch_idx}{settings.SIGNAL_DATA_EXTENSION}",
+                    channel_samples_path(dest_folder, sweep_idx, ch_idx),
                     "wb",
                 )
                 for ch_idx in range(header.number_of_channels)

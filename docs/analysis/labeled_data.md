@@ -123,7 +123,7 @@ Vocabulary helpers: `add_event_vocabulary`, `get_event_vocabulary_name`, `get_ev
 | `number_of_dots_to_display` | `int` | Target point count per trace (decimation) |
 | `channels_groups` | `List[ChannelGroup]` | Channel groups in display order |
 | `channels_setup` | `Dict[int, ChannelSetup]` | Per-channel style |
-| `channels_mapping_img` | `str` | Optional electrode mapping image |
+| `visual_attachment` | `str` | Optional visual attachment (image URL or embedded file) |
 
 ### `ChannelGroup`
 

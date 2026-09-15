@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Tuple, Union, List, Optional
 
 from ephyr import settings
+from ephyr.converter.experiment_layout import channel_samples_path
 from ephyr.converter.source_reader.source_reader_factory import SourceReaderFactory
 from ephyr.core.header import Header
 
@@ -89,12 +90,7 @@ class EphyrIO:
         for sweep_idx, sweep_points in enumerate(points_per_sweep):
             sweep_memmaps: List[np.memmap] = []
             for ch_idx in range(header.number_of_channels):
-                channel_lfp_file = (
-                    ephyr_experiment_folder
-                    / settings.SIGNAL_DATA_SUBFOLDER
-                    / f"{settings.SIGNAL_DATA_SWEEP_SUBFOLDER_PREFIX}{sweep_idx}"
-                    / f"{ch_idx}{settings.SIGNAL_DATA_EXTENSION}"
-                )
+                channel_lfp_file = channel_samples_path(ephyr_experiment_folder, sweep_idx, ch_idx)
                 data_memmap = np.memmap(
                     channel_lfp_file,
                     dtype='int16',
