@@ -11,3 +11,4 @@ pyqt6-tools>=6.7.0.0.3
 pyabf>=2.3.8
 pyedflib>=0.1.42
 pynwb>=4.0.0
+h5py>=3.11.0

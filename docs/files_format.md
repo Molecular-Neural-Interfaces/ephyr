@@ -12,6 +12,7 @@ Ephyr detects the format, converts it into a Ephyr experiment folder when needed
 | DAQ | `.daq` | Select the **file** |
 | XDAT | `.xdat`, `*.xdat.json` | Select the **file** |
 | NWB | `.nwb` | Select the **file** |
+| Multi Channel Systems | exported `.raw` / `.mcsraw`, DataManager `.h5` / `.hdf5`, CMOS-MEA `.cmcr` / `.cmtr` | Select the **file**. Native `.mcd` files are not supported; export them to MCS RAW with a binary header or MCS HDF5 first. A `.cmtr` file references its source `.cmcr` through an HDF5 external link, so both files must remain together. |
 | Neuralynx | `.ncs` (also `.nev`, related text) | Prefer the **folder** that contains `.ncs` files. Selecting a Neuralynx file is also accepted; Ephyr resolves to the parent folder of the `.ncs` set. |
 | Open Ephys | session folder (`settings.xml`, continuous streams, etc.) | Select the **session folder**, or a file inside it (Ephyr walks parent directories until a valid session is found). |
 | Intan RHD | `.rhd`, optional `.xml` | Select the **folder** that contains the `.rhd` files, or an `.rhd`/`.xml` file (resolved to the parent folder). |
@@ -24,6 +25,10 @@ Ephyr detects the format, converts it into a Ephyr experiment folder when needed
 - Opening a non-Ephyr source creates a sibling folder named `{stem}_ephyr` next to the chosen path
   (for example, `exp.abf` → `exp_ephyr`, folder `my_rec` → `my_rec_ephyr`).
 - For Intan recordings, the conversion dialog may offer **Group all Intan files into one sweep**.
+- Multi Channel Systems files are read directly by Ephyr. For HDF5 files, `stream_id` (or
+  `mcs_stream_id`) can be supplied as a reader option when a file contains several analog streams.
+  CMOS-MEA sensor regions are flattened into channels named by ROI and sensor coordinates.
+  CMOS files containing only detected spikes and no continuous stream cannot be converted to Ephyr traces.
 - If a valid `{stem}_ephyr` folder already exists next to the source, Ephyr loads it instead of converting again.
 - **NWB** conversion requires a regular `TimeSeries` / `ElectricalSeries` with a usable sample rate
   (typically under `acquisition` or `processing`). Files that only contain spike-sorted `Units`

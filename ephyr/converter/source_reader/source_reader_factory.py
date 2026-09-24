@@ -10,6 +10,7 @@ from .abf_source_reader import AbfSourceReader
 from .daq_source_reader import DaqSourceReader
 from .xdat_source_reader import XdatSourceReader
 from .ncs_source_reader import NcsSourceReader
+from .mcs_source_reader import MCSSourceReader
 from .nwb import NwbSourceReader
 from pathlib import Path
 
@@ -23,6 +24,7 @@ class SourceReaderFactory:
                              DaqSourceReader,
                              XdatSourceReader,
                              NcsSourceReader,
+                             MCSSourceReader,
                              NwbSourceReader,
                              OpenEphysSourceReader,
                              IntanRhdSourceReader,
