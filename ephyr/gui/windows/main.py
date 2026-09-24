@@ -293,11 +293,11 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # Events menu
         events_menu = menubar.addMenu("Events")
-        self.events_show_all_action = QAction("Show table", self)
-        self.events_add_action = QAction("Add", self)
+        self.events_show_all_action = QAction("List of events", self)
+        self.events_add_action = QAction("Add event", self)
         self.events_set_bad_event_action = QAction("Set bad event", self)
         self.events_unset_bad_event_action = QAction("Unset bad event", self)
-        self.events_remove_action = QAction("Remove", self)
+        self.events_remove_action = QAction("Remove event", self)
         events_menu.addAction(self.events_show_all_action)
         events_menu.addAction(self.events_add_action)
         events_menu.addAction(self.events_set_bad_event_action)
@@ -306,7 +306,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # Periods menu
         periods_menu = menubar.addMenu("Periods")
-        self.periods_show_all_action = QAction("Show table", self)
+        self.periods_show_all_action = QAction("List of periods", self)
         self.periods_add_action = QAction("Add period", self)
         periods_menu.addAction(self.periods_show_all_action)
         periods_menu.addAction(self.periods_add_action)
