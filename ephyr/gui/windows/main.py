@@ -535,10 +535,12 @@ class MainWindow(QMainWindow, QWidgetMixin):
         dialog.setFilter(QDir.Filter.AllEntries | QDir.Filter.NoDotAndDotDot)
         dialog.setNameFilter(
             "Supported source files "
-            "(*.lfp *.abf *.daq *.edf *.xdat *.xdat.json *.ncs *.nwb *.rhs *.rhd *.continuous *.dat settings.xml);;"
+            "(*.lfp *.abf *.daq *.edf *.xdat *.xdat.json *.ncs *.nwb *.rhs *.rhd "
+            "*.raw *.mcsraw *.h5 *.hdf5 *.cmcr *.cmtr *.continuous *.dat settings.xml);;"
             "WEEGIT files (*.lfp);;"
             "ABF files (*.abf);;DAQ files (*.daq);;EDF files (*.edf);;"
             "XDAT files (*.xdat *.xdat.json);;Neuralynx files (*.ncs *.nev);;NWB files (*.nwb);;"
+            "Multi Channel Systems files (*.raw *.mcsraw *.h5 *.hdf5 *.cmcr *.cmtr);;"
             "Intan files (*.rhs *.rhd settings.xml);;"
             "Open Ephys files (*.continuous *.dat settings.xml);;All files (*)"
         )

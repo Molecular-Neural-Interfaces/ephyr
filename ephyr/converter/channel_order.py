@@ -69,6 +69,13 @@ def resolve_source_path(ephyr_folder: Optional[Path], header: Optional[Header]) 
                 parent / stem,
             ]
         )
+    elif src_type == "mcs_raw":
+        candidates.extend([parent / f"{stem}.raw", parent / f"{stem}.mcsraw"])
+    elif src_type == "mcs_h5":
+        candidates.extend([parent / f"{stem}.h5", parent / f"{stem}.hdf5"])
+    elif src_type in {"mcs_cmcr", "mcs_cmtr"}:
+        suffix = src_type.removeprefix("mcs_")
+        candidates.append(parent / f"{stem}.{suffix}")
     elif src_type in {"rhs", "rhd", "ncs", "openephys"}:
         candidates.append(parent / name if name else parent / stem)
         candidates.append(parent / stem)
@@ -93,6 +100,12 @@ def source_file_dialog_filter(src_type: str) -> Tuple[str, bool]:
         return "DAQ files (*.daq);;All files (*)", False
     if src_type == "xdat":
         return "XDAT metadata (*.xdat.json *.json);;All files (*)", False
+    if src_type == "mcs_raw":
+        return "Multi Channel Systems RAW files (*.raw *.mcsraw);;All files (*)", False
+    if src_type == "mcs_h5":
+        return "Multi Channel Systems HDF5 files (*.h5 *.hdf5);;All files (*)", False
+    if src_type in {"mcs_cmcr", "mcs_cmtr"}:
+        return "MCS CMOS-MEA files (*.cmcr *.cmtr);;All files (*)", False
     if src_type in {"rhs", "rhd", "ncs", "openephys"}:
         return "", True
     return "All files (*)", False
@@ -119,6 +132,10 @@ def preferred_channel_order(
         "edf": lambda: _order_from_names(header, n_channels, "EDF signal labels"),
         "abf": lambda: _order_from_names(header, n_channels, "ABF ADC names"),
         "openephys": lambda: _order_from_names(header, n_channels, "Open Ephys channel names"),
+        "mcs_raw": lambda: _order_from_names(header, n_channels, "MCS channel labels"),
+        "mcs_h5": lambda: _order_from_names(header, n_channels, "MCS electrode labels"),
+        "mcs_cmcr": lambda: _order_from_names(header, n_channels, "CMOS-MEA sensor coordinates"),
+        "mcs_cmtr": lambda: _order_from_names(header, n_channels, "CMOS-MEA sensor coordinates"),
     }
 
     handler = handlers.get(src_type)
