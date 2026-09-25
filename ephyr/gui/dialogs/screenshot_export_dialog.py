@@ -389,7 +389,7 @@ class ScreenshotExportDialog(QDialog):
         painter.save()
         painter.translate(left_margin, 0)
         painter.setClipping(False)
-        sw._draw_group_separators(painter)
+        sw._draw_group_titles(painter)
         if traces_are_visible:
             for _channel_idx, channel_rect in digital_rects:
                 sw._draw_middle_line(painter, channel_rect)
@@ -406,26 +406,26 @@ class ScreenshotExportDialog(QDialog):
                     default_color=signal_default_color,
                     target_dots=target_svg_dots,
                 )
-        if bool(getattr(sw, "_periods_are_visible", True)):
-            sw._draw_periods(painter)
-        if bool(getattr(sw, "_events_are_visible", True)):
-            sw._draw_events(painter)
         cls._draw_auxiliary_groups_resampled(
             painter=painter,
             processed_data=processed_data,
             channels_setup=channels_setup,
             group_layouts=group_layouts,
             aux_group_rects=aux_group_rects,
-            axis_width=max(0, int(getattr(sw, "_axis_width", width - left_margin))),
             grid_color=QColor(getattr(sw, "_GRID_COLOR", QColor(200, 200, 200))),
             default_color=signal_default_color,
             target_dots=target_svg_dots,
         )
+        if bool(getattr(sw, "_periods_are_visible", True)):
+            sw._draw_periods(painter)
+        if bool(getattr(sw, "_events_are_visible", True)):
+            sw._draw_events(painter)
+        if bool(getattr(sw, "_channel_names_are_visible", True)):
+            sw._draw_channel_names(painter)
+        sw._draw_cell_borders(painter)
         painter.restore()
 
-        # Draw channel labels and time axis in widget coordinates.
-        for channel_idx, rect in digital_rects:
-            sw.draw_channel_info(painter, channel_idx, rect)
+        # The time axis uses widget coordinates, unlike the signal pixmap content.
         sw._draw_time_axis(painter, width, height)
 
         # Overlay: draw only measure bar primitives to keep SVG clean and vector-based.
@@ -525,9 +525,8 @@ class ScreenshotExportDialog(QDialog):
         painter: QPainter,
         processed_data: Dict[int, np.ndarray],
         channels_setup: Dict[int, Any],
-        group_layouts: List[Dict[str, Any]],
+        group_layouts: List[ChannelGroup],
         aux_group_rects: List[Any],
-        axis_width: int,
         grid_color: QColor,
         default_color: QColor,
         target_dots: int,
@@ -537,11 +536,11 @@ class ScreenshotExportDialog(QDialog):
                 continue
             center_y = group_rect.top() + group_rect.height() / 2.0
             painter.setPen(QPen(grid_color, 1, Qt.PenStyle.DotLine))
-            painter.drawLine(0, int(center_y), axis_width, int(center_y))
+            painter.drawLine(group_rect.left(), int(center_y), group_rect.right(), int(center_y))
 
             channels = []
             if 0 <= int(group_idx) < len(group_layouts):
-                channels = list(group_layouts[int(group_idx)].get("channels", []))
+                channels = group_layouts[int(group_idx)].visible_channels()
             for channel_idx in channels:
                 data = processed_data.get(channel_idx)
                 if data is None or len(data) < 2:
@@ -557,7 +556,7 @@ class ScreenshotExportDialog(QDialog):
                 if n < 2:
                     continue
 
-                x_coords = np.linspace(0, max(0, axis_width - 1), n, dtype=np.float64)
+                x_coords = np.linspace(group_rect.left(), group_rect.right(), n, dtype=np.float64)
                 pixel_per_uv = group_rect.height() / max(scale, 1e-12)
                 y_coords = center_y - (data_rs + y_offset) * pixel_per_uv
                 top = group_rect.top()

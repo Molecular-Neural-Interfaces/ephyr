@@ -847,7 +847,7 @@ class SignalWidget(QWidget):
             time_ms += tick_interval
 
     def _draw_events(self, painter: QPainter):
-        """Draw vertical lines for events inside each enabled channel cell."""
+        """Draw vertical lines for events inside every displayed channel cell."""
         if not self._visible_events or self._axis_duration_ms <= 0 or self._sample_rate <= 0:
             return
 
@@ -859,9 +859,9 @@ class SignalWidget(QWidget):
                 painter.drawLine(x_int, rect.top(), x_int, rect.bottom())
 
     def _marker_target_rects(self):
-        """Rects (enabled channel cells + auxiliary group rects) to draw markers on."""
-        for _channel_idx, cell_rect, enabled, _count in self._cell_rects:
-            if enabled and cell_rect.width() > 0:
+        """Rects for event and period markers, including disabled channel cells."""
+        for _channel_idx, cell_rect, _enabled, _count in self._cell_rects:
+            if cell_rect.width() > 0:
                 yield cell_rect
         for _group_idx, group_rect in self._auxiliary_group_rects:
             if group_rect.width() > 0:
@@ -1874,12 +1874,22 @@ class SignalPanel(QWidget):
         self._start_time_ms = (gui_setup.start_point / sample_rate) * 1000.0
         self._end_time_ms = self._start_time_ms + gui_setup.duration_ms
 
-        all_events = self._session_manager.events if gui_setup.events_are_shown else []
+        all_events = []
+        if gui_setup.events_are_shown:
+            all_events = [
+                event for event in self._session_manager.events
+                if self._event_type_is_visible(event)
+            ]
         visible_events = []
         if gui_setup.events_are_shown:
             visible_events = self._get_events_for_current_window(gui_setup)
 
-        all_periods = self._session_manager.periods if gui_setup.periods_are_shown else []
+        all_periods = []
+        if gui_setup.periods_are_shown:
+            all_periods = [
+                period for period in self._session_manager.periods
+                if self._period_type_is_visible(period)
+            ]
         visible_periods = []
         if gui_setup and gui_setup.periods_are_shown:
             visible_periods = self._get_periods_for_current_window(gui_setup)
@@ -1978,8 +1988,16 @@ class SignalPanel(QWidget):
         return [
             e
             for e in events
-            if e.sweep_idx == sweep_idx and self._start_time_ms <= e.time_ms <= self._end_time_ms
+            if (
+                self._event_type_is_visible(e)
+                and e.sweep_idx == sweep_idx
+                and self._start_time_ms <= e.time_ms <= self._end_time_ms
+            )
         ]
+
+    def _event_type_is_visible(self, event) -> bool:
+        entry = self._session_manager.events_vocabulary.get(event.event_name_id)
+        return entry is None or getattr(entry, "is_visible", True)
 
     def _get_periods_for_current_window(self, gui_setup):
         """Return periods that overlap with the current time window and sweep.
@@ -2000,6 +2018,8 @@ class SignalPanel(QWidget):
         sweep_idx = gui_setup.current_sweep_idx
         visible = []
         for period in periods:
+            if not self._period_type_is_visible(period):
+                continue
             if period.start_sweep_idx > sweep_idx or period.end_sweep_idx < sweep_idx:
                 continue
             local_start_ms, local_end_ms = self._period_bounds_for_sweep(period, sweep_idx)
@@ -2012,6 +2032,10 @@ class SignalPanel(QWidget):
                 "end_time_ms": local_end_ms,
             }))
         return visible
+
+    def _period_type_is_visible(self, period) -> bool:
+        entry = self._session_manager.periods_vocabulary.get(period.period_name_id)
+        return entry is None or getattr(entry, "is_visible", True)
 
     def _update_overlay_widget(self):
         if (not hasattr(self, 'overlay_widget') or self.overlay_widget is None

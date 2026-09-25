@@ -80,7 +80,7 @@ class ChannelsLayout(BaseModel):
     columns_num_to_show: int = 1
     cur_column_idx: int = 0
     rows_num: Optional[int] = None
-    rows_num_to_show: int = 16
+    rows_num_to_show: int = settings.DEFAULT_VISIBLE_CHANNELS_NUM
     cur_row_idx: int = 0
     enable_custom_layout: bool = False
     draw_borders: bool = False
@@ -228,24 +228,26 @@ class Event(BaseModel):
 class EventVocabularyEntry(BaseModel):
     name: str
     color: str = "#0066FF"
+    is_visible: bool = True
 
     @model_validator(mode="before")
     @classmethod
     def _from_legacy_value(cls, value):
         if isinstance(value, str):
-            return {"name": value, "color": "#0066FF"}
+            return {"name": value, "color": "#0066FF", "is_visible": True}
         return value
 
 
 class PeriodVocabularyEntry(BaseModel):
     name: str
     color: str = "#00AA55"
+    is_visible: bool = True
 
     @model_validator(mode="before")
     @classmethod
     def _from_legacy_value(cls, value):
         if isinstance(value, str):
-            return {"name": value, "color": "#00AA55"}
+            return {"name": value, "color": "#00AA55", "is_visible": True}
         return value
 
 
@@ -336,6 +338,11 @@ class UserSession(BaseModel):
             return
         self.events_vocabulary[event_vocabulary_id].color = color.strip() or "#0066FF"
 
+    def set_event_vocabulary_visibility(self, event_vocabulary_id: int, is_visible: bool):
+        if event_vocabulary_id not in self.events_vocabulary:
+            return
+        self.events_vocabulary[event_vocabulary_id].is_visible = bool(is_visible)
+
     def remove_event_vocabulary(self, event_vocabulary_id: int):
         if event_vocabulary_id not in self.events_vocabulary:
             return
@@ -374,6 +381,11 @@ class UserSession(BaseModel):
         if period_vocabulary_id not in self.periods_vocabulary:
             return
         self.periods_vocabulary[period_vocabulary_id].color = color.strip() or "#00AA55"
+
+    def set_period_vocabulary_visibility(self, period_vocabulary_id: int, is_visible: bool):
+        if period_vocabulary_id not in self.periods_vocabulary:
+            return
+        self.periods_vocabulary[period_vocabulary_id].is_visible = bool(is_visible)
 
     def remove_period_vocabulary(self, period_vocabulary_id: int):
         if period_vocabulary_id not in self.periods_vocabulary:

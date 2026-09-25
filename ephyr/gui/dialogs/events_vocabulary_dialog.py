@@ -28,7 +28,7 @@ class EventsVocabularyDialog(QDialog):
     def __init__(self, session_manager: QtEphyrSessionManagerWrapper, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Events")
-        self.resize(500, 320)
+        self.resize(580, 320)
 
         self._session_manager = session_manager
         self._selected_event_vocabulary_id: Optional[int] = None
@@ -42,8 +42,10 @@ class EventsVocabularyDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["ID", "Name", "Color", "Num in sweep", "Num in sweeps"])
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(
+            ["Visible", "ID", "Name", "Color", "Num in sweep", "Num in sweeps"]
+        )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.SelectedClicked)
@@ -100,15 +102,24 @@ class EventsVocabularyDialog(QDialog):
         for row_idx, (event_vocabulary_id, entry) in enumerate(sorted(vocabulary.items(), key=lambda item: item[0])):
             self.table.insertRow(row_idx)
 
+            visible_item = QTableWidgetItem()
+            visible_item.setFlags(
+                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable
+            )
+            visible_item.setCheckState(
+                Qt.CheckState.Checked if entry.is_visible else Qt.CheckState.Unchecked
+            )
+            self.table.setItem(row_idx, 0, visible_item)
+
             id_item = QTableWidgetItem(str(event_vocabulary_id))
             id_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            self.table.setItem(row_idx, 0, id_item)
+            self.table.setItem(row_idx, 1, id_item)
 
             name_item = QTableWidgetItem(entry.name)
             name_item.setFlags(
                 Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable
             )
-            self.table.setItem(row_idx, 1, name_item)
+            self.table.setItem(row_idx, 2, name_item)
 
             color_value = entry.color or "#0066FF"
             color_item = QTableWidgetItem(color_value.upper())
@@ -116,15 +127,15 @@ class EventsVocabularyDialog(QDialog):
             color = QColor(color_value)
             if color.isValid():
                 color_item.setBackground(color)
-            self.table.setItem(row_idx, 2, color_item)
+            self.table.setItem(row_idx, 3, color_item)
 
             current_sweep_count_item = QTableWidgetItem(str(current_sweep_counts.get(event_vocabulary_id, 0)))
             current_sweep_count_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            self.table.setItem(row_idx, 3, current_sweep_count_item)
+            self.table.setItem(row_idx, 4, current_sweep_count_item)
 
             total_count_item = QTableWidgetItem(str(total_counts.get(event_vocabulary_id, 0)))
             total_count_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            self.table.setItem(row_idx, 4, total_count_item)
+            self.table.setItem(row_idx, 5, total_count_item)
 
             if target_selection_id is not None and event_vocabulary_id == target_selection_id:
                 self.table.selectRow(row_idx)
@@ -162,14 +173,21 @@ class EventsVocabularyDialog(QDialog):
         self.accept()
 
     def _on_item_changed(self, item: QTableWidgetItem):
-        if self._is_updating_table or item.column() != 1:
+        if self._is_updating_table or item.column() not in (0, 2):
             return
 
-        event_vocabulary_id_item = self.table.item(item.row(), 0)
+        event_vocabulary_id_item = self.table.item(item.row(), 1)
         if not event_vocabulary_id_item:
             return
 
         event_vocabulary_id = int(event_vocabulary_id_item.text())
+        if item.column() == 0:
+            self._session_manager.set_event_vocabulary_visibility(
+                event_vocabulary_id,
+                item.checkState() == Qt.CheckState.Checked,
+            )
+            return
+
         new_name = item.text().strip()
         try:
             self._session_manager.set_event_vocabulary_name(event_vocabulary_id, new_name)
@@ -181,10 +199,10 @@ class EventsVocabularyDialog(QDialog):
             self._is_updating_table = False
 
     def _on_cell_double_clicked(self, row: int, column: int):
-        if column != 2:
+        if column != 3:
             return
-        id_item = self.table.item(row, 0)
-        color_item = self.table.item(row, 2)
+        id_item = self.table.item(row, 1)
+        color_item = self.table.item(row, 3)
         if not id_item or not color_item:
             return
         event_vocabulary_id = int(id_item.text())
@@ -200,7 +218,7 @@ class EventsVocabularyDialog(QDialog):
             return None
 
         row = selected_ranges[0].topRow()
-        id_item = self.table.item(row, 0)
+        id_item = self.table.item(row, 1)
         if not id_item:
             return None
         return int(id_item.text())

@@ -37,6 +37,7 @@ from ephyr.gui.commands.events import (
     AddEventVocabularyCommand,
     SetEventVocabularyNameCommand,
     SetEventVocabularyColorCommand,
+    SetEventVocabularyVisibilityCommand,
     RemoveEventVocabularyCommand,
     ImportVocabularyAndEventsCommand,
 )
@@ -46,6 +47,7 @@ from ephyr.gui.commands.periods import (
     AddPeriodVocabularyCommand,
     SetPeriodVocabularyNameCommand,
     SetPeriodVocabularyColorCommand,
+    SetPeriodVocabularyVisibilityCommand,
     RemovePeriodVocabularyCommand,
     ImportVocabularyAndPeriodsCommand,
 )
@@ -645,6 +647,11 @@ class QtEphyrSessionManagerWrapper(QObject):
         self._execute_new_command(cmd)
 
     @user_session_modification
+    def set_event_vocabulary_visibility(self, event_vocabulary_id: int, is_visible: bool):
+        cmd = SetEventVocabularyVisibilityCommand(event_vocabulary_id, is_visible)
+        self._execute_new_command(cmd)
+
+    @user_session_modification
     def remove_event_vocabulary(self, event_vocabulary_id: int):
         """Remove an event vocabulary entry (with undo support)."""
         cmd = RemoveEventVocabularyCommand(event_vocabulary_id)
@@ -672,6 +679,11 @@ class QtEphyrSessionManagerWrapper(QObject):
     @user_session_modification
     def set_period_vocabulary_color(self, period_vocabulary_id: int, color: str):
         cmd = SetPeriodVocabularyColorCommand(period_vocabulary_id, color)
+        self._execute_new_command(cmd)
+
+    @user_session_modification
+    def set_period_vocabulary_visibility(self, period_vocabulary_id: int, is_visible: bool):
+        cmd = SetPeriodVocabularyVisibilityCommand(period_vocabulary_id, is_visible)
         self._execute_new_command(cmd)
 
     @user_session_modification

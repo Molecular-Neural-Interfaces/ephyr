@@ -28,7 +28,7 @@ class PeriodsVocabularyDialog(QDialog):
     def __init__(self, session_manager: QtEphyrSessionManagerWrapper, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Periods")
-        self.resize(360, 320)
+        self.resize(440, 320)
 
         self._session_manager = session_manager
         self._selected_period_vocabulary_id: Optional[int] = None
@@ -42,8 +42,8 @@ class PeriodsVocabularyDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["ID", "Name", "Color"])
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Visible", "ID", "Name", "Color"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.SelectedClicked)
@@ -72,20 +72,32 @@ class PeriodsVocabularyDialog(QDialog):
         self._session_manager.periods_vocabulary_changed.connect(self._populate_table)
 
     def _populate_table(self, vocabulary: Dict[int, PeriodVocabularyEntry]):
+        selected_id = self._current_selected_period_vocabulary_id()
+        target_selection_id = self._pending_selection_id if self._pending_selection_id is not None else selected_id
+
         self._is_updating_table = True
         self.table.setRowCount(0)
         for row_idx, (period_vocabulary_id, entry) in enumerate(sorted(vocabulary.items(), key=lambda item: item[0])):
             self.table.insertRow(row_idx)
 
+            visible_item = QTableWidgetItem()
+            visible_item.setFlags(
+                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable
+            )
+            visible_item.setCheckState(
+                Qt.CheckState.Checked if entry.is_visible else Qt.CheckState.Unchecked
+            )
+            self.table.setItem(row_idx, 0, visible_item)
+
             id_item = QTableWidgetItem(str(period_vocabulary_id))
             id_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            self.table.setItem(row_idx, 0, id_item)
+            self.table.setItem(row_idx, 1, id_item)
 
             name_item = QTableWidgetItem(entry.name)
             name_item.setFlags(
                 Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable
             )
-            self.table.setItem(row_idx, 1, name_item)
+            self.table.setItem(row_idx, 2, name_item)
 
             color_value = entry.color or "#00AA55"
             color_item = QTableWidgetItem(color_value.upper())
@@ -93,9 +105,9 @@ class PeriodsVocabularyDialog(QDialog):
             color = QColor(color_value)
             if color.isValid():
                 color_item.setBackground(color)
-            self.table.setItem(row_idx, 2, color_item)
+            self.table.setItem(row_idx, 3, color_item)
 
-            if self._pending_selection_id is not None and period_vocabulary_id == self._pending_selection_id:
+            if target_selection_id is not None and period_vocabulary_id == target_selection_id:
                 self.table.selectRow(row_idx)
 
         self._pending_selection_id = None
@@ -131,14 +143,21 @@ class PeriodsVocabularyDialog(QDialog):
         self.accept()
 
     def _on_item_changed(self, item: QTableWidgetItem):
-        if self._is_updating_table or item.column() != 1:
+        if self._is_updating_table or item.column() not in (0, 2):
             return
 
-        period_vocabulary_id_item = self.table.item(item.row(), 0)
+        period_vocabulary_id_item = self.table.item(item.row(), 1)
         if not period_vocabulary_id_item:
             return
 
         period_vocabulary_id = int(period_vocabulary_id_item.text())
+        if item.column() == 0:
+            self._session_manager.set_period_vocabulary_visibility(
+                period_vocabulary_id,
+                item.checkState() == Qt.CheckState.Checked,
+            )
+            return
+
         new_name = item.text().strip()
         try:
             self._session_manager.set_period_vocabulary_name(period_vocabulary_id, new_name)
@@ -150,10 +169,10 @@ class PeriodsVocabularyDialog(QDialog):
             self._is_updating_table = False
 
     def _on_cell_double_clicked(self, row: int, column: int):
-        if column != 2:
+        if column != 3:
             return
-        id_item = self.table.item(row, 0)
-        color_item = self.table.item(row, 2)
+        id_item = self.table.item(row, 1)
+        color_item = self.table.item(row, 3)
         if not id_item or not color_item:
             return
         period_vocabulary_id = int(id_item.text())
@@ -169,7 +188,7 @@ class PeriodsVocabularyDialog(QDialog):
             return None
 
         row = selected_ranges[0].topRow()
-        id_item = self.table.item(row, 0)
+        id_item = self.table.item(row, 1)
         if not id_item:
             return None
         return int(id_item.text())

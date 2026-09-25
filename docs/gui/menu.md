@@ -110,8 +110,9 @@ to show or hide the whole right panel.
 
 ### Show table
 
-Opens the events vocabulary dialog: event IDs, names, colors, and counts in the current sweep / across sweeps.
-You can add or remove vocabulary entries, rename names in place, and pick colors.
+Opens the events vocabulary dialog: visibility, event IDs, names, colors, and counts in the current sweep /
+across sweeps. You can show or hide individual event types, add or remove vocabulary entries, rename names
+in place, and pick colors.
 
 ### Add
 
@@ -135,8 +136,8 @@ Two-click range that deletes events inside the range.
 
 ### Show table
 
-Opens the periods vocabulary dialog: period IDs, names, and colors. Same editing patterns as events
-(add/remove, rename, color pick).
+Opens the periods vocabulary dialog: visibility, period IDs, names, and colors. You can show or hide
+individual period types and use the same editing patterns as events (add/remove, rename, color pick).
 
 ### Add period
 
