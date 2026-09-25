@@ -22,8 +22,6 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QMessageBox,
     QColorDialog,
-    QToolButton,
-    QFrame,
     QAbstractItemView, QLineEdit,
     QDialog,
     QFileDialog,
@@ -50,7 +48,6 @@ from ephyr.core.global_storage import GuiMode
 from ephyr.core.ephyr_session import ChannelsLayout, GroupLayout, ChannelGroup
 from ephyr.core.header import Header
 from ephyr.gui.dialogs.header_units_management_dialog import HeaderUnitsManagementDialog
-from ephyr.gui._utils import milliseconds_to_readable, sample_rate_to_readable
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 from ephyr.gui.widgets import (
     FocusWheelComboBox as QComboBox,
@@ -767,7 +764,7 @@ class GroupsLayoutDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Groups layout")
         self.resize(560, 420)
-        self._rows: List[Tuple[QSpinBox, QDoubleSpinBox, QSpinBox, QDoubleSpinBox]] = []
+        self._rows: List[Tuple[QSpinBox, QSpinBox, QSpinBox, QSpinBox]] = []
 
         root = QVBoxLayout(self)
         caption = QLabel(
@@ -792,12 +789,12 @@ class GroupsLayoutDialog(QDialog):
             grid.addWidget(QLabel(group.name or f"Group {row_idx}"), row_idx, 0)
             row_spin = QSpinBox(); row_spin.setRange(0, 999)
             row_spin.setValue(int(group.group_layout.layout_row_idx))
-            height_spin = QDoubleSpinBox(); height_spin.setRange(0.1, 1000.0); height_spin.setSingleStep(0.5)
-            height_spin.setValue(float(group.group_layout.height_ratio))
+            height_spin = QSpinBox(); height_spin.setRange(1, 1000)
+            height_spin.setValue(group.group_layout.height_ratio)
             col_spin = QSpinBox(); col_spin.setRange(0, 999)
             col_spin.setValue(int(group.group_layout.layout_column_idx))
-            width_spin = QDoubleSpinBox(); width_spin.setRange(0.1, 1000.0); width_spin.setSingleStep(0.5)
-            width_spin.setValue(float(group.group_layout.width_ratio))
+            width_spin = QSpinBox(); width_spin.setRange(1, 1000)
+            width_spin.setValue(group.group_layout.width_ratio)
             grid.addWidget(row_spin, row_idx, 1)
             grid.addWidget(height_spin, row_idx, 2)
             grid.addWidget(col_spin, row_idx, 3)
@@ -824,9 +821,9 @@ class GroupsLayoutDialog(QDialog):
     def _reset(self):
         for row_spin, height_spin, col_spin, width_spin in self._rows:
             row_spin.setValue(0)
-            height_spin.setValue(1.0)
+            height_spin.setValue(1)
             col_spin.setValue(0)
-            width_spin.setValue(1.0)
+            width_spin.setValue(1)
 
     def get_group_layouts(self) -> List[GroupLayout]:
         return [
@@ -869,11 +866,10 @@ class ClickableImageLabel(QLabel):
         dialog.exec()
 
 
-class SignalSettingsPanel(QWidget):
+class ChannelManagementPanel(QWidget):
     def __init__(self, session_manager: QtEphyrSessionManagerWrapper, parent=None):
         super().__init__(parent)
         self._session_manager = session_manager
-        self._updating = False
         self._group_list_widgets: Dict[int, QListWidget] = {}
         self._group_move_checkboxes: Dict[Tuple[int, int], QCheckBox] = {}
         self._group_channel_labels: Dict[Tuple[int, int], QLabel] = {}
@@ -887,89 +883,28 @@ class SignalSettingsPanel(QWidget):
         self.setup_ui()
         self.connect_signals()
 
-    def _add_collapsible_section(self, parent_layout: QVBoxLayout, title: str):
-        header_btn = QToolButton()
-        header_btn.setText(title)
-        header_btn.setCheckable(True)
-        header_btn.setChecked(True)
-        header_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        header_btn.setArrowType(Qt.ArrowType.DownArrow)
-        header_btn.setStyleSheet("QToolButton { font-weight: bold; border: none; text-align: left; }")
-
-        content = QFrame()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(8, 4, 0, 4)
-        content_layout.setSpacing(8)
-
-        def on_toggle(checked: bool):
-            content.setVisible(checked)
-            header_btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
-
-        header_btn.toggled.connect(on_toggle)
-        parent_layout.addWidget(header_btn)
-        parent_layout.addWidget(content)
-        return content_layout
-
     def setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(8)
 
-        time_layout = self._add_collapsible_section(layout, "Time Settings")
-        self.start_point_spinbox = QSpinBox()
-        self.start_point_spinbox.setRange(0, settings.MAX_START_POINT)
-        self.start_point_spinbox.setSingleStep(1000)
-        self.current_sweep_spinbox = QSpinBox()
-        self.current_sweep_spinbox.setRange(1, 1)
-        self.current_sweep_spinbox.setSingleStep(1)
-        self.current_sweep_spinbox.setSuffix(" sweep")
-        self.duration_spinbox = QSpinBox()
-        self.duration_spinbox.setRange(settings.MIN_DURATION, settings.MAX_DURATION)
-        self.duration_spinbox.setSingleStep(100)
-        self.duration_spinbox.setSuffix(" ms")
-        self.time_step_spinbox = QSpinBox()
-        self.time_step_spinbox.setRange(settings.MIN_TIME_STEP, settings.MAX_TIME_STEP)
-        self.time_step_spinbox.setSingleStep(100)
-        self.time_step_spinbox.setSuffix(" ms")
-        self.autoscroll_step_interval_spinbox = QSpinBox()
-        self.autoscroll_step_interval_spinbox.setRange(10, settings.MAX_TIME_STEP)
-        self.autoscroll_step_interval_spinbox.setSingleStep(50)
-        self.autoscroll_step_interval_spinbox.setSuffix(" ms")
+        title = QLabel("Channel Management")
+        title.setStyleSheet("font-weight: bold;")
+        layout.addWidget(title)
+
         self.number_of_dots_spinbox = QSpinBox()
         self.number_of_dots_spinbox.setRange(
             settings.MIN_NUMBER_OF_DOTS_TO_DISPLAY,
             settings.MAX_NUMBER_OF_DOTS_TO_DISPLAY,
         )
         self.number_of_dots_spinbox.setSingleStep(100)
-        self.duration_label = QLabel("Duration to show:")
-        self.time_step_label = QLabel("Auto-scroll time step:")
         self.number_of_dots_label = QLabel("Number of dots to display:")
-        self.sweep_info_label = QLabel("")
-        self.sweep_info_label.setStyleSheet("color: gray; font-size: 9pt;")
-        self.sweep_info_label.setWordWrap(True)
-        rows = [
-            ("Current sweep:", self.current_sweep_spinbox),
-            ("Start point index:", self.start_point_spinbox),
-            (self.duration_label, self.duration_spinbox),
-            (self.time_step_label, self.time_step_spinbox),
-            ("Auto-scroll interval:", self.autoscroll_step_interval_spinbox),
-        ]
-        for label, widget in rows:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(label) if isinstance(label, str) else label)
-            row.addWidget(widget)
-            row.addStretch(1)
-            time_layout.addLayout(row)
-            if widget is self.current_sweep_spinbox:
-                time_layout.addWidget(self.sweep_info_label)
-
-        self.channels_layout = self._add_collapsible_section(layout, "Channel Management")
 
         dots_row = QHBoxLayout()
         dots_row.addWidget(self.number_of_dots_label)
         dots_row.addWidget(self.number_of_dots_spinbox)
         dots_row.addStretch(1)
-        self.channels_layout.addLayout(dots_row)
+        layout.addLayout(dots_row)
 
         self.mapping_group = QGroupBox("Visual attachment")
         mapping_layout = QVBoxLayout(self.mapping_group)
@@ -992,13 +927,13 @@ class SignalSettingsPanel(QWidget):
         self.mapping_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.mapping_image_label.setMinimumWidth(settings.VISUAL_ATTACHMENT_DEFAULT_WIDTH)
         mapping_layout.addWidget(self.mapping_image_label)
-        self.channels_layout.addWidget(self.mapping_group)
+        layout.addWidget(self.mapping_group)
 
         instructions = QLabel("Drag&drop tabs to reorder groups. Tick channels, then Move checked to target group. "
                               "Channel order and enabling are edited in Layout.")
         instructions.setWordWrap(True)
         instructions.setStyleSheet("color: gray; font-size: 9pt;")
-        self.channels_layout.addWidget(instructions)
+        layout.addWidget(instructions)
         btn_controls_row = QHBoxLayout()
         self.create_group_btn = QPushButton("Add channels group")
         self.groups_layout_btn = QPushButton("Groups layout")
@@ -1006,11 +941,11 @@ class SignalSettingsPanel(QWidget):
         btn_controls_row.addWidget(self.create_group_btn)
         btn_controls_row.addWidget(self.groups_layout_btn)
         btn_controls_row.addWidget(self.set_units_btn)
-        self.channels_layout.addLayout(btn_controls_row)
+        layout.addLayout(btn_controls_row)
         self.groups_tabs = QTabWidget()
         self.groups_tabs.setTabsClosable(True)
         self.groups_tabs.setMovable(True)
-        self.channels_layout.addWidget(self.groups_tabs)
+        layout.addWidget(self.groups_tabs)
         layout.addStretch(1)
 
         # Expert-only fields are hidden until apply_gui_mode() enables them.
@@ -1023,11 +958,6 @@ class SignalSettingsPanel(QWidget):
         self.mapping_group.setVisible(is_expert)
 
     def connect_signals(self):
-        self.current_sweep_spinbox.valueChanged.connect(lambda value: self._session_manager.set_current_sweep_idx(value - 1))
-        self.start_point_spinbox.valueChanged.connect(self._session_manager.set_start_point)
-        self.duration_spinbox.valueChanged.connect(self._on_duration_changed)
-        self.time_step_spinbox.valueChanged.connect(self._session_manager.set_time_step_ms)
-        self.autoscroll_step_interval_spinbox.valueChanged.connect(self._session_manager.set_autoscroll_step_interval_ms)
         self.number_of_dots_spinbox.valueChanged.connect(self._session_manager.set_number_of_dots_to_display)
         self.create_group_btn.clicked.connect(lambda: self._session_manager.add_channel_group("Group"))
         self.groups_layout_btn.clicked.connect(self.on_groups_layout_clicked)
@@ -1040,21 +970,16 @@ class SignalSettingsPanel(QWidget):
 
         self._session_manager.session_loaded.connect(self.on_session_loaded)
         self._session_manager.channels_groups_changed.connect(self._on_channels_groups_changed)
-        self._session_manager.start_point_changed.connect(self._sync_time_controls)
-        self._session_manager.duration_ms_changed.connect(self._sync_time_controls)
-        self._session_manager.current_sweep_idx_changed.connect(self._sync_time_controls)
-        self._session_manager.time_step_ms_changed.connect(self._sync_time_controls)
-        self._session_manager.autoscroll_step_interval_ms_changed.connect(self._sync_time_controls)
-        self._session_manager.number_of_dots_to_display_changed.connect(self._sync_time_controls)
+        self._session_manager.number_of_dots_to_display_changed.connect(self._sync_number_of_dots)
         self._session_manager.filters_changed.connect(self.on_filters_changed)
         self._session_manager.visual_attachment_changed.connect(self.on_visual_attachment_changed)
         self._session_manager.header_units_changed.connect(lambda _units: self.rebuild_groups_ui())
 
     def on_session_loaded(self):
-        self._sync_time_controls()
         gui_setup = self._session_manager.gui_setup
         if not gui_setup:
             return
+        self._sync_number_of_dots()
         updated_groups = [g.model_copy(deep=True) for g in gui_setup.channels_groups]
         changed = False
         for group in updated_groups:
@@ -1067,62 +992,13 @@ class SignalSettingsPanel(QWidget):
         self._update_mapping_display(gui_setup.visual_attachment)
         self.rebuild_groups_ui()
 
-    def _on_duration_changed(self, duration_ms: int):
-        """Keep the time-window center fixed when duration changes in Time settings."""
-        if self._updating:
-            return
-        sm = self._session_manager
-        gui_setup = sm.gui_setup
-        header = sm.header
-        if not gui_setup or not header or float(header.sample_rate) <= 0:
-            sm.set_duration_ms(duration_ms)
-            return
-
-        old_duration_ms = int(gui_setup.duration_ms)
-        old_start = int(gui_setup.start_point)
-        sample_rate = float(header.sample_rate)
-        center_sample = old_start + int((old_duration_ms / 2000.0) * sample_rate)
-
-        sm.set_duration_ms(duration_ms)
-        new_duration_ms = int(sm.gui_setup.duration_ms)
-        half_visible = int((new_duration_ms / 2000.0) * sample_rate)
-        sm.set_start_point(center_sample - half_visible)
-
-    def _sync_time_controls(self):
+    def _sync_number_of_dots(self, *_args):
         gui_setup = self._session_manager.gui_setup
         if not gui_setup:
             return
-        self._updating = True
-        current_sweep_idx = int(gui_setup.current_sweep_idx)
-        sweeps_num = int(self._session_manager.header.number_of_sweeps) if self._session_manager.header else 1
-        self.current_sweep_spinbox.setRange(1, max(1, sweeps_num))
-        self.current_sweep_spinbox.setValue(min(max(1, current_sweep_idx + 1), max(1, sweeps_num)))
-        self.start_point_spinbox.setValue(gui_setup.start_point)
-        self.duration_spinbox.setValue(gui_setup.duration_ms)
-        self.time_step_spinbox.setValue(gui_setup.time_step_ms)
-        self.autoscroll_step_interval_spinbox.setValue(gui_setup.autoscroll_step_interval_ms)
+        self.number_of_dots_spinbox.blockSignals(True)
         self.number_of_dots_spinbox.setValue(gui_setup.number_of_dots_to_display)
-        self.duration_label.setText(f"Duration window {milliseconds_to_readable(gui_setup.duration_ms)}")
-        self.time_step_label.setText(f"Auto-scroll time step {milliseconds_to_readable(gui_setup.time_step_ms)}")
-        self._update_sweep_info_label(current_sweep_idx)
-        self._updating = False
-
-    def _update_sweep_info_label(self, current_sweep_idx: int):
-        header = self._session_manager.header
-        if not header or float(header.sample_rate) <= 0:
-            self.sweep_info_label.setText("")
-            return
-        points_per_sweep = list(header.number_of_points_per_sweep)
-        if not points_per_sweep:
-            self.sweep_info_label.setText("")
-            return
-        sweep_idx = max(0, min(current_sweep_idx, len(points_per_sweep) - 1))
-        sweep_duration_ms = (header.sample_interval_microseconds / 10 ** 3) * points_per_sweep[sweep_idx]
-        sample_rate_text = sample_rate_to_readable(float(header.sample_rate))
-        duration_text = milliseconds_to_readable(int(round(sweep_duration_ms)))
-        self.sweep_info_label.setText(
-            f"Sample rate {sample_rate_text}  Sweep duration {duration_text}"
-        )
+        self.number_of_dots_spinbox.blockSignals(False)
 
     def on_filters_changed(self):
         # Do not rebuild filter form here. This signal can be emitted from

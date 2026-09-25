@@ -570,9 +570,10 @@ class QtEphyrSessionManagerWrapper(QObject):
 
     @staticmethod
     def _reset_group_channels_layout(group: ChannelGroup):
-        """Drop any custom channel layout so it can never index out of range."""
+        """Reset layout and visible rows after a group's channel membership changes."""
         group.channels_layout.enable_custom_layout = False
         group.channels_layout.layout_table = None
+        group.channels_layout.rows_num_to_show = settings.DEFAULT_VISIBLE_CHANNELS_NUM
         group.clamp_layout()
 
     @user_session_modification

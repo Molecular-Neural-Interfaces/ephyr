@@ -56,7 +56,8 @@ from ephyr.gui.dialogs.hotkeys_dialog import HotkeysDialog
 from ephyr.gui.panels.information_panel import InformationPanel
 from ephyr.gui.panels.analysis_panel import AnalysisPanel
 from ephyr.gui.panels.logs_panel import LogsPanel
-from ephyr.gui.panels.signal_settings_panel import SignalSettingsPanel
+from ephyr.gui.panels.channel_management_panel import ChannelManagementPanel
+from ephyr.gui.panels.time_settings_panel import TimeSettingsPanel
 from ephyr.gui.panels.signal_panel import SignalPanel
 from ephyr.gui.panels.start_screen_panel import StartScreenPanel
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
@@ -106,7 +107,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.logs_panel = LogsPanel()
         self.info_panel = InformationPanel(self.session_manager)
         self.analysis_panel = AnalysisPanel(self.session_manager)
-        self.signal_settings_panel = SignalSettingsPanel(self.session_manager)
+        self.time_settings_panel = TimeSettingsPanel(self.session_manager)
+        self.channel_management_panel = ChannelManagementPanel(self.session_manager)
 
         # Central contents
         central = QWidget(self)
@@ -190,7 +192,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.gui_mode_combo.setCurrentIndex(self.gui_mode_combo.findData(current_mode))
         gui_mode_layout.addWidget(self.gui_mode_combo, 1)
         self.right_panel_layout.addWidget(gui_mode_row)
-        self.signal_settings_panel.apply_gui_mode(current_mode)
+        self.channel_management_panel.apply_gui_mode(current_mode)
 
         # Add a stretch to push widgets to the top when there's empty space
         self.right_panel_layout.addStretch(1)
@@ -280,15 +282,17 @@ class MainWindow(QMainWindow, QWidgetMixin):
             view_menu.addAction(action)
 
         view_menu.addSection("Tools")
-        self.view_signal_settings_panel = QAction("Electrophys trace settings", self, checkable=True, checked=False)
-        self.view_info_panel = QAction("Information", self, checkable=True, checked=False)
-        self.view_logs_panel = QAction("Logs", self, checkable=True, checked=False)
+        self.view_time_settings_panel = QAction("Time settings", self, checkable=True, checked=False)
+        self.view_channel_management_panel = QAction("Channel management", self, checkable=True, checked=False)
+        self.view_info_panel = QAction("Experiment description", self, checkable=True, checked=False)
+        self.view_logs_panel = QAction("Application logs", self, checkable=True, checked=False)
         self.view_analysis_panel = QAction("Add-ons", self, checkable=True, checked=False)
         for action in (
-                self.view_signal_settings_panel,
+                self.view_time_settings_panel,
+                self.view_channel_management_panel,
+                self.view_analysis_panel,
                 self.view_info_panel,
                 self.view_logs_panel,
-                self.view_analysis_panel,
         ):
             view_menu.addAction(action)
 
@@ -357,7 +361,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.view_channel_names.triggered.connect(self.on_view_channel_names)
         self.view_events.triggered.connect(self.on_view_events)
         self.view_periods.triggered.connect(self.on_view_periods)
-        self.view_signal_settings_panel.triggered.connect(self.on_view_signal_settings_panel)
+        self.view_time_settings_panel.triggered.connect(self.on_view_time_settings_panel)
+        self.view_channel_management_panel.triggered.connect(self.on_view_channel_management_panel)
         self.view_info_panel.triggered.connect(self.on_view_info_panel)
         self.view_logs_panel.triggered.connect(self.on_view_logs_panel)
         self.view_analysis_panel.triggered.connect(self.on_view_analysis_panel)
@@ -461,7 +466,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         if mode is None:
             return
         self.global_storage_manager.set_gui_mode(mode)
-        self.signal_settings_panel.apply_gui_mode(mode)
+        self.channel_management_panel.apply_gui_mode(mode)
 
     def toggle_right_panel(self):
         """Toggle the visibility of the right panel"""
@@ -512,6 +517,14 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         if update_session:
             self.session_manager.set_right_panel_widgets(self.right_panel_widgets)
+
+    def _restore_right_panel_widgets(self):
+        gui_setup = self.session_manager.gui_setup
+        desired_widgets = list(gui_setup.right_panel_widgets) if gui_setup else []
+        for current_widget in copy(self.right_panel_widgets):
+            self.remove_widget_from_right_panel(current_widget, update_session=False)
+        for widget_type in desired_widgets:
+            self.add_widget_to_right_panel(widget_type, update_session=False)
 
     # ---------- Callbacks menu ----------
     def __confirm_discard_unsaved_changes(self, question: str) -> bool:
@@ -776,6 +789,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
                 )
 
                 self.session_manager.replace_gui_setup(imported_setup)
+                self._restore_right_panel_widgets()
                 self.__recalculate_and_redraw_necessary_signals(recalculate_data=True)
                 self.__set_status("Imported GUI settings successfully")
         else:
@@ -841,11 +855,17 @@ class MainWindow(QMainWindow, QWidgetMixin):
         if self.session_manager.session_is_active:
             self.session_manager.set_periods_shown(checked)
 
-    def on_view_signal_settings_panel(self, checked: bool, *args, **kwargs):
+    def on_view_time_settings_panel(self, checked: bool, *args, **kwargs):
         if checked:
-            self.add_widget_to_right_panel(RightPanelWidgetEnum.SIGNAL_SETTINGS)
+            self.add_widget_to_right_panel(RightPanelWidgetEnum.TIME_SETTINGS)
         else:
-            self.remove_widget_from_right_panel(RightPanelWidgetEnum.SIGNAL_SETTINGS)
+            self.remove_widget_from_right_panel(RightPanelWidgetEnum.TIME_SETTINGS)
+
+    def on_view_channel_management_panel(self, checked: bool, *args, **kwargs):
+        if checked:
+            self.add_widget_to_right_panel(RightPanelWidgetEnum.CHANNEL_MANAGEMENT)
+        else:
+            self.remove_widget_from_right_panel(RightPanelWidgetEnum.CHANNEL_MANAGEMENT)
 
     def on_view_info_panel(self, checked: bool, *args, **kwargs):
         if checked:
@@ -1054,11 +1074,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.__update_menu()
         self.__redraw_header()
 
-        if self.session_manager.user_session.gui_setup.right_panel_widgets:
-            for cur_right_panel_widget in copy(self.right_panel_widgets):
-                self.remove_widget_from_right_panel(cur_right_panel_widget, update_session=False)
-            for right_panel_widget in self.session_manager.user_session.gui_setup.right_panel_widgets:
-                self.add_widget_to_right_panel(right_panel_widget, update_session=False)
+        self._restore_right_panel_widgets()
 
 
     def __update_recent_dirs(self):
@@ -1124,8 +1140,10 @@ class MainWindow(QMainWindow, QWidgetMixin):
                 return None
 
     def __get_panel_by_type(self, widget_type: RightPanelWidgetEnum):
-        if widget_type == RightPanelWidgetEnum.SIGNAL_SETTINGS:
-            return self.signal_settings_panel
+        if widget_type == RightPanelWidgetEnum.TIME_SETTINGS:
+            return self.time_settings_panel
+        elif widget_type == RightPanelWidgetEnum.CHANNEL_MANAGEMENT:
+            return self.channel_management_panel
         elif widget_type == RightPanelWidgetEnum.LOGS:
             return self.logs_panel
         elif widget_type == RightPanelWidgetEnum.INFORMATION:
@@ -1136,8 +1154,10 @@ class MainWindow(QMainWindow, QWidgetMixin):
             raise ValueError("Unknown widget_type")
 
     def __set_panel_checked_by_type(self, widget_type: RightPanelWidgetEnum, checked: bool):
-        if widget_type == RightPanelWidgetEnum.SIGNAL_SETTINGS:
-            self.view_signal_settings_panel.setChecked(checked)
+        if widget_type == RightPanelWidgetEnum.TIME_SETTINGS:
+            self.view_time_settings_panel.setChecked(checked)
+        elif widget_type == RightPanelWidgetEnum.CHANNEL_MANAGEMENT:
+            self.view_channel_management_panel.setChecked(checked)
         elif widget_type == RightPanelWidgetEnum.LOGS:
             self.view_logs_panel.setChecked(checked)
         elif widget_type == RightPanelWidgetEnum.INFORMATION:

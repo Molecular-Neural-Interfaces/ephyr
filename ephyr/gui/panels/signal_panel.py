@@ -22,9 +22,10 @@ from ephyr.logger import ephyr_logger
 
 
 class TopNavigatorWidget(QWidget):
-    """Widget for displaying event names with navigation arrows"""
+    """Widget for displaying event and period names with navigation arrows."""
 
     event_navigation_requested = pyqtSignal(int)  # Emits new start_point
+    period_navigation_requested = pyqtSignal(int, float)  # Emits sweep_idx and time_ms
 
     def __init__(self, left_margin, right_margin, parent=None):
         super().__init__(parent)
@@ -51,7 +52,7 @@ class TopNavigatorWidget(QWidget):
         self._axis_offset_px = 0
 
         # For hover tracking
-        self._hovered_arrow: Optional[Tuple[int, str]] = None  # (event_index, 'left'/'right')
+        self._hovered_arrow: Optional[Tuple[str, int, str]] = None
         self.setMouseTracking(True)
 
         self._font = QFont()
@@ -125,7 +126,7 @@ class TopNavigatorWidget(QWidget):
             color = QColor("#00AA55")
         return color
 
-    def _hover_for_position(self, pos: QPoint) -> Optional[Tuple[int, str]]:
+    def _hover_for_position(self, pos: QPoint) -> Optional[Tuple[str, int, str]]:
         axis_start_x = self._left_margin + self._axis_offset_px
         start_time_ms = self._start_time_ms
         axis_width = self.width() - self._right_margin - axis_start_x
@@ -146,7 +147,7 @@ class TopNavigatorWidget(QWidget):
                 arrow_size,
             )
             if left_arrow_rect.contains(pos):
-                return self._all_events.index(event), 'left'
+                return "event", self._all_events.index(event), "left"
 
             right_arrow_rect = QRect(
                 int(x_pos + text_width // 2 + 5),
@@ -155,7 +156,40 @@ class TopNavigatorWidget(QWidget):
                 arrow_size,
             )
             if right_arrow_rect.contains(pos):
-                return self._all_events.index(event), 'right'
+                return "event", self._all_events.index(event), "right"
+
+        for period in self._visible_periods:
+            entry = self._periods_vocabulary.get(period.period_name_id)
+            name = entry.name if entry else ""
+            if not name:
+                continue
+            text_width = self._font_metrics.horizontalAdvance(name)
+            period_idx = self._all_periods.index(period)
+            boundaries = []
+            if period.start_sweep_idx == self._current_sweep_idx:
+                boundaries.append((period.start_time_ms, "start", "right"))
+            if period.end_sweep_idx == self._current_sweep_idx:
+                boundaries.append((period.end_time_ms, "end", "left"))
+            for time_ms, boundary, direction in boundaries:
+                x = axis_start_x + ((time_ms - start_time_ms) / self._duration_ms) * axis_width
+                x_pos = int(x)
+                arrow_size = 10
+                if direction == "left":
+                    arrow_rect = QRect(
+                        int(x_pos - text_width // 2 - arrow_size - 5),
+                        15 - arrow_size // 2,
+                        arrow_size,
+                        arrow_size,
+                    )
+                else:
+                    arrow_rect = QRect(
+                        int(x_pos + text_width // 2 + 5),
+                        15 - arrow_size // 2,
+                        arrow_size,
+                        arrow_size,
+                    )
+                if arrow_rect.contains(pos):
+                    return "period", period_idx, boundary
 
         return None
 
@@ -206,15 +240,15 @@ class TopNavigatorWidget(QWidget):
             left_arrow_rect = QRect(int(x_pos - text_width // 2 - arrow_size - 5), arrow_y - arrow_size // 2,
                                     arrow_size, arrow_size)
             self._draw_arrow(painter, left_arrow_rect, 'left',
-                             (event_idx, 'left') == self._hovered_arrow)
+                             ("event", event_idx, "left") == self._hovered_arrow)
 
             # Right arrow
             right_arrow_rect = QRect(int(x_pos + text_width // 2 + 5), arrow_y - arrow_size // 2,
                                      arrow_size, arrow_size)
             self._draw_arrow(painter, right_arrow_rect, 'right',
-                             (event_idx, 'right') == self._hovered_arrow)
+                             ("event", event_idx, "right") == self._hovered_arrow)
 
-        # Draw period labels (start/end)
+        # Draw period boundary labels and arrows to the opposite boundary.
         if self._visible_periods:
             for period in self._visible_periods:
                 entry = self._periods_vocabulary.get(period.period_name_id)
@@ -223,19 +257,43 @@ class TopNavigatorWidget(QWidget):
                     continue
 
                 painter.setPen(self._period_color(period))
-                for time_ms, suffix in (
-                        (period.start_time_ms, "(s)"),
-                        (period.end_time_ms, "(e)"),
-                ):
+                period_idx = self._all_periods.index(period)
+                boundaries = []
+                if period.start_sweep_idx == self._current_sweep_idx:
+                    boundaries.append((period.start_time_ms, "start", "right"))
+                if period.end_sweep_idx == self._current_sweep_idx:
+                    boundaries.append((period.end_time_ms, "end", "left"))
+                for time_ms, boundary, direction in boundaries:
                     if not (start_time_ms <= time_ms <= start_time_ms + self._duration_ms):
                         continue
 
-                    label = f"{name}{suffix}"
-                    text_width = self._font_metrics.horizontalAdvance(label)
+                    painter.setPen(self._period_color(period))
+                    text_width = self._font_metrics.horizontalAdvance(name)
                     x = axis_start_x + ((time_ms - start_time_ms) / self._duration_ms) * axis_width
                     x_pos = int(x)
                     text_rect = QRect(int(x_pos - text_width // 2), 5, text_width, 20)
-                    painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, label)
+                    painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, name)
+
+                    if direction == "left":
+                        arrow_rect = QRect(
+                            int(x_pos - text_width // 2 - arrow_size - 5),
+                            arrow_y - arrow_size // 2,
+                            arrow_size,
+                            arrow_size,
+                        )
+                    else:
+                        arrow_rect = QRect(
+                            int(x_pos + text_width // 2 + 5),
+                            arrow_y - arrow_size // 2,
+                            arrow_size,
+                            arrow_size,
+                        )
+                    self._draw_arrow(
+                        painter,
+                        arrow_rect,
+                        direction,
+                        ("period", period_idx, boundary) == self._hovered_arrow,
+                    )
 
     def _draw_arrow(self, painter: QPainter, rect: QRect, direction: str, hovered: bool):
         """Draw an arrow in the given rectangle"""
@@ -272,8 +330,20 @@ class TopNavigatorWidget(QWidget):
     def mousePressEvent(self, event):
         """Handle arrow clicks for navigation"""
         if event.button() == Qt.MouseButton.LeftButton and self._hovered_arrow:
-            event_idx, direction = self._hovered_arrow
-            self._navigate_to_neighbor_event(event_idx, direction)
+            marker_type, marker_idx, boundary_or_direction = self._hovered_arrow
+            if marker_type == "event":
+                self._navigate_to_neighbor_event(marker_idx, boundary_or_direction)
+            else:
+                self._navigate_to_opposite_period_boundary(marker_idx, boundary_or_direction)
+
+    def _navigate_to_opposite_period_boundary(self, period_idx: int, current_boundary: str):
+        if not (0 <= period_idx < len(self._all_periods)):
+            return
+        period = self._all_periods[period_idx]
+        if current_boundary == "start":
+            self.period_navigation_requested.emit(period.end_sweep_idx, period.end_time_ms)
+        else:
+            self.period_navigation_requested.emit(period.start_sweep_idx, period.start_time_ms)
 
     def _navigate_to_neighbor_event(self, current_event_idx: int, direction: str):
         """Calculate and emit new start_point to center neighbor event"""
@@ -552,8 +622,8 @@ class SignalWidget(QWidget):
                 group.is_auxiliary,
                 gl.layout_row_idx,
                 gl.layout_column_idx,
-                round(float(gl.height_ratio), 4),
-                round(float(gl.width_ratio), 4),
+                gl.height_ratio,
+                gl.width_ratio,
                 tuple(group.channel_indexes),
                 tuple(sorted(group.enabled_indexes)),
                 layout.enable_custom_layout,
@@ -611,8 +681,8 @@ class SignalWidget(QWidget):
         gap = self._GROUP_GAP
         num_rows = len(rows)
         available_height = max(0, self._draw_area_height - gap * num_rows)
-        row_ratios = [max(1e-6, max(float(g.group_layout.height_ratio) for _i, g in row)) for row in rows]
-        total_ratio = sum(row_ratios) or 1.0
+        row_ratios = [max(1, max(g.group_layout.height_ratio for _i, g in row)) for row in rows]
+        total_ratio = sum(row_ratios) or 1
 
         y_cursor = 0
         for ri, row in enumerate(rows):
@@ -620,12 +690,12 @@ class SignalWidget(QWidget):
             row_h = int(available_height * row_ratios[ri] / total_ratio)
             if ri == num_rows - 1:
                 row_h = max(0, self._draw_area_height - y_cursor)
-            total_w_ratio = sum(max(1e-6, float(g.group_layout.width_ratio)) for _i, g in row) or 1.0
+            total_w_ratio = sum(max(1, g.group_layout.width_ratio) for _i, g in row) or 1
             num_cols = len(row)
             available_width = max(0, self._axis_width - gap * (num_cols - 1))
             x_cursor = 0
             for ci, (list_idx, group) in enumerate(row):
-                w = int(available_width * max(1e-6, float(group.group_layout.width_ratio)) / total_w_ratio)
+                w = int(available_width * max(1, group.group_layout.width_ratio) / total_w_ratio)
                 if ci == num_cols - 1:
                     w = max(0, self._axis_width - x_cursor)
                 group_rect = QRect(x_cursor, y_cursor, max(0, w), max(0, row_h))
@@ -1625,6 +1695,9 @@ class SignalPanel(QWidget):
         self.top_navigator_widget.event_navigation_requested.connect(
             self._session_manager.set_start_point
         )
+        self.top_navigator_widget.period_navigation_requested.connect(
+            self._navigate_to_period_boundary
+        )
 
         # Bottom time axis and horizontal scrollbar
         bottom_layout = QHBoxLayout()
@@ -1655,6 +1728,16 @@ class SignalPanel(QWidget):
         bottom_layout.addWidget(self.btn_double_right)
 
         main_layout.addLayout(bottom_layout)
+
+    def _navigate_to_period_boundary(self, sweep_idx: int, time_ms: float):
+        self._session_manager.set_current_sweep_idx(sweep_idx)
+        gui_setup = self._session_manager.gui_setup
+        header = self._session_manager.header
+        if not gui_setup or not header or header.sample_rate <= 0:
+            return
+        target_sample = int((time_ms / 1000.0) * header.sample_rate)
+        half_window = int((gui_setup.duration_ms / 2000.0) * header.sample_rate)
+        self._session_manager.set_start_point(target_sample - half_window)
 
     def connect_signals(self):
         """Connect all signals to their handlers"""
@@ -1893,6 +1976,17 @@ class SignalPanel(QWidget):
         visible_periods = []
         if gui_setup and gui_setup.periods_are_shown:
             visible_periods = self._get_periods_for_current_window(gui_setup)
+        navigator_periods = [
+            period
+            for period in all_periods
+            if (
+                period.start_sweep_idx == gui_setup.current_sweep_idx
+                and self._start_time_ms <= period.start_time_ms <= self._end_time_ms
+            ) or (
+                period.end_sweep_idx == gui_setup.current_sweep_idx
+                and self._start_time_ms <= period.end_time_ms <= self._end_time_ms
+            )
+        ]
 
         axis_offset_px = 0
         navigator_key = (
@@ -1907,7 +2001,7 @@ class SignalPanel(QWidget):
             tuple(sorted(self._session_manager.periods_vocabulary.items())),
             tuple((e.event_name_id, e.time_ms, bool(e.is_bad)) for e in visible_events),
             tuple((p.period_name_id, p.start_sweep_idx, p.end_sweep_idx, p.start_time_ms, p.end_time_ms)
-                  for p in visible_periods),
+                  for p in navigator_periods),
         )
         if navigator_key != self._last_top_navigator_key:
             self.top_navigator_widget.update_events(
@@ -1915,7 +2009,7 @@ class SignalPanel(QWidget):
                 visible_events=visible_events,
                 events_vocabulary=self._session_manager.events_vocabulary,
                 all_periods=all_periods,
-                visible_periods=visible_periods,
+                visible_periods=navigator_periods,
                 periods_vocabulary=self._session_manager.periods_vocabulary,
                 sweep_idx=gui_setup.current_sweep_idx,
                 start_point=gui_setup.start_point,

@@ -26,17 +26,21 @@ from ephyr.converter.ephyr_io import EphyrIO
 
 
 class RightPanelWidgetEnum(Enum):
-    SIGNAL_SETTINGS = "signal_settings"
+    TIME_SETTINGS = "time_settings"
+    CHANNEL_MANAGEMENT = "channel_management"
     INFORMATION = "information"
     LOGS = "logs"
     ANALYSIS = "analysis"
+    # Legacy
+    SIGNAL_SETTINGS = "signal_settings"
 
     @staticmethod
     def widgets_order():
         return [
-            RightPanelWidgetEnum.SIGNAL_SETTINGS,
-            RightPanelWidgetEnum.INFORMATION,
+            RightPanelWidgetEnum.TIME_SETTINGS,
+            RightPanelWidgetEnum.CHANNEL_MANAGEMENT,
             RightPanelWidgetEnum.ANALYSIS,
+            RightPanelWidgetEnum.INFORMATION,
             RightPanelWidgetEnum.LOGS,
         ]
 
@@ -70,8 +74,19 @@ class GroupLayout(BaseModel):
     """Placement of a channel group relative to the other groups on screen."""
     layout_row_idx: int = 0
     layout_column_idx: int = 0
-    height_ratio: float = 1.0
-    width_ratio: float = 1.0
+    height_ratio: int = 1
+    width_ratio: int = 1
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_float_ratios(cls, value):
+        if not isinstance(value, dict):
+            return value
+        migrated = dict(value)
+        for field_name in ("height_ratio", "width_ratio"):
+            if field_name in migrated:
+                migrated[field_name] = max(1, int(float(migrated[field_name]) + 0.5))
+        return migrated
 
 
 class ChannelsLayout(BaseModel):
@@ -200,6 +215,27 @@ class GuiSetup(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_right_panel_widgets(cls, value):
+        if not isinstance(value, dict) or "right_panel_widgets" not in value:
+            return value
+
+        migrated = dict(value)
+        normalized = []
+        for widget in value.get("right_panel_widgets") or []:
+            raw_value = widget.value if isinstance(widget, RightPanelWidgetEnum) else widget
+            replacements = (
+                [RightPanelWidgetEnum.TIME_SETTINGS.value, RightPanelWidgetEnum.CHANNEL_MANAGEMENT.value]
+                if raw_value == RightPanelWidgetEnum.SIGNAL_SETTINGS.value
+                else [raw_value]
+            )
+            for replacement in replacements:
+                if replacement not in normalized:
+                    normalized.append(replacement)
+        migrated["right_panel_widgets"] = normalized
+        return migrated
 
     def all_non_auxiliary_channel_indexes(self) -> List[int]:
         result: List[int] = []
