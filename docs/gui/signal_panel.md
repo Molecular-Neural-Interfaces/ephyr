@@ -44,7 +44,8 @@ Below the traces:
 
 1. **Event / period navigator** — a strip of labels for events and period starts/ends in the current view.
    Arrow controls jump to the previous or next occurrence of the same event name within the sweep and
-   recenters the time window.
+   recenters the time window. A period start has a right arrow that jumps to its end; a period end has a
+   left arrow that jumps to its start, including periods whose boundaries are in different sweeps.
 2. **Time controls** — `<<` `<` scrollbar `>` `>>`:
    - Scrollbar sets the window start sample
    - `<` / `>` step by the configured time step

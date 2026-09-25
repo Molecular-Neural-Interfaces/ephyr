@@ -53,9 +53,9 @@ class EventsVocabularyDialog(QDialog):
         layout.addWidget(self.table)
 
         buttons_layout = QHBoxLayout()
-        self.btn_add = QPushButton("Add")
+        self.btn_add = QPushButton("New event name")
         self.btn_remove = QPushButton("Remove")
-        self.btn_select = QPushButton("Select")
+        self.btn_select = QPushButton("Add")
         buttons_layout.addWidget(self.btn_add)
         buttons_layout.addWidget(self.btn_remove)
         buttons_layout.addWidget(self.btn_select)

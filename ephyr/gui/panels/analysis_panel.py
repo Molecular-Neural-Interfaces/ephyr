@@ -45,6 +45,7 @@ class AnalysisPanel(QWidget):
         root.setSpacing(8)
 
         title = QLabel("Add-ons")
+        title.setStyleSheet("font-weight: bold;")
         root.addWidget(title)
 
         self._search_input = QLineEdit(self)

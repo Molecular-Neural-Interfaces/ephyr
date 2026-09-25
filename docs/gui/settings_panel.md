@@ -14,7 +14,7 @@ remain available in both modes.
 
 ## Time settings
 
-Part of **Electrophys trace settings** (View → Tools → Electrophys trace settings). Available in
+An independent right-panel section enabled with **View → Tools → Time settings**. It is available in
 Beginner and Expert modes.
 
 | Control | Purpose |
@@ -29,8 +29,9 @@ These values are stored in the session’s `gui_setup` and drive the signal pane
 
 ## Channel Management
 
-Also under **Electrophys trace settings**. Use this section to organize electrodes into groups, apply
-filters, set units, and control how groups and channels are laid out on screen.
+An independent right-panel section enabled with **View → Tools → Channel management**. Use it to
+organize electrodes into groups, apply filters, set units, and control how groups and channels are
+laid out on screen.
 
 ### Global controls
 
@@ -113,7 +114,7 @@ The **Layout settings** dialog configures a custom grid for the group:
 
 ## Experiment description
 
-Shown when **View → Tools → Information** is enabled.
+Shown when **View → Tools → Experiment description** is enabled.
 
 A single free-text editor stores notes for the experiment/session (`experiment_description` in the
 session JSON). Use it for protocols, animal IDs, or any free-form context you want next to the labels.
@@ -128,7 +129,7 @@ button for Runnable add-ons. See [Add-ons Usage](../add_ons/usage.md) for instal
 
 ## Application Logs
 
-Shown when **View → Tools → Logs** is enabled.
+Shown when **View → Tools → Application logs** is enabled.
 
 | Control | Purpose |
 |---------|---------|

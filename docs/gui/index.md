@@ -29,5 +29,6 @@ Inside the signal panel you will typically work with:
 
 ## Settings panel highlights
 
-The right panel starts with **GUI mode** (Beginner / Expert). Additional sections are toggled from
-**View → Tools**: Electrophys trace settings, Information, Add-ons, and Logs.
+The right panel starts with **GUI mode** (Beginner / Expert). Additional sections are toggled independently
+from **View → Tools**: Time settings, Channel management, Add-ons, Experiment description, and
+Application logs.

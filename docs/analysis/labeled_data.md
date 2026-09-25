@@ -162,8 +162,8 @@ Helpers: `effective_grid()`, `grid_dims()`, `visible_window()`, `visible_cells()
 |-------|------|---------|
 | `layout_row_idx` | `int` | Row of the group on the panel |
 | `layout_column_idx` | `int` | Column of the group on the panel |
-| `height_ratio` | `float` | Share of the row height |
-| `width_ratio` | `float` | Share of the row width |
+| `height_ratio` | `int` | Relative share of the row height |
+| `width_ratio` | `int` | Relative share of the row width |
 
 ### `ChannelSetup`
 

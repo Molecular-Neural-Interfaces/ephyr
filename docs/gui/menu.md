@@ -98,10 +98,11 @@ Checkable items that show or hide sections of the right-hand settings panel:
 
 | Item | Panel section |
 |------|----------------|
-| **Electrophys trace settings** | Time settings and Channel Management |
-| **Information** | Experiment description |
-| **Logs** | Application Logs |
+| **Time settings** | Sweep and visible time-window controls |
+| **Channel management** | Channel groups, layouts, filters, units, and visual attachment |
 | **Add-ons** | Searchable add-on list with View / Transform / Run |
+| **Experiment description** | Free-text experiment/session notes |
+| **Application logs** | Live application log and level filter |
 
 If no tool sections are visible, the right panel may hide automatically. Use **Panel** in the header bar
 to show or hide the whole right panel.
