@@ -159,6 +159,20 @@ class SetPeriodVocabularyColorCommand(ModifyPeriodsCommand):
         session.set_period_vocabulary_color(self._period_vocabulary_id, self._color)
 
 
+class SetPeriodVocabularyVisibilityCommand(ModifyPeriodsCommand):
+    description = "change period vocabulary visibility"
+    should_emit_periods_changed = True
+    should_emit_vocabulary_changed = True
+
+    def __init__(self, period_vocabulary_id: int, is_visible: bool):
+        super().__init__()
+        self._period_vocabulary_id = period_vocabulary_id
+        self._is_visible = is_visible
+
+    def _apply_change(self, session: UserSession) -> None:
+        session.set_period_vocabulary_visibility(self._period_vocabulary_id, self._is_visible)
+
+
 class RemovePeriodVocabularyCommand(ModifyPeriodsCommand):
     description = "remove period vocabulary"
     should_emit_periods_changed = True

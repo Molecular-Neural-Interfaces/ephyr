@@ -184,6 +184,20 @@ class SetEventVocabularyColorCommand(ModifyEventsCommand):
         session.set_event_vocabulary_color(self._event_vocabulary_id, self._color)
 
 
+class SetEventVocabularyVisibilityCommand(ModifyEventsCommand):
+    description = "change event vocabulary visibility"
+    should_emit_events_changed = True
+    should_emit_vocabulary_changed = True
+
+    def __init__(self, event_vocabulary_id: int, is_visible: bool):
+        super().__init__()
+        self._event_vocabulary_id = event_vocabulary_id
+        self._is_visible = is_visible
+
+    def _apply_change(self, session: UserSession) -> None:
+        session.set_event_vocabulary_visibility(self._event_vocabulary_id, self._is_visible)
+
+
 class RemoveEventVocabularyCommand(ModifyEventsCommand):
     description = "remove event vocabulary"
     should_emit_events_changed = True

@@ -21,7 +21,9 @@ On top of the traces you can place:
 - **Periods** — labeled intervals (optionally spanning sweeps). Use the Periods menu to manage vocabulary
   and to add intervals with two clicks.
 
-Visibility of traces, channel names, events, and periods is controlled from **View** and stored in the session.
+Global visibility of traces, channel names, events, and periods is controlled from **View**. Individual event
+and period types can also be hidden in their vocabulary dialogs. Markers remain visible over disabled channel
+cells. These settings are stored in the session.
 
 ## Add-on overlays
 

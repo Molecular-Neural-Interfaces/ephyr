@@ -180,8 +180,8 @@ Helpers: `effective_grid()`, `grid_dims()`, `visible_window()`, `visible_cells()
 |-----------|--------|
 | `Event` | `event_name_id: int`, `sweep_idx: int`, `time_ms: float`, `is_bad: bool` |
 | `Period` | `period_name_id: int`, `start_sweep_idx: int`, `start_time_ms: float`, `end_sweep_idx: int`, `end_time_ms: float` |
-| `EventVocabularyEntry` | `name: str`, `color: str` |
-| `PeriodVocabularyEntry` | `name: str`, `color: str` |
+| `EventVocabularyEntry` | `name: str`, `color: str`, `is_visible: bool` |
+| `PeriodVocabularyEntry` | `name: str`, `color: str`, `is_visible: bool` |
 | `EventTableRow` | `name: str`, `sweep_idx: int`, `time_ms: float`, `is_bad: bool`, `periods: List[str]` |
 
 ### `AddOnSetup`

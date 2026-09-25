@@ -26,13 +26,14 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QFileDialog,
     QApplication, QStatusBar, QSizePolicy, QMessageBox, QProgressDialog,
-    QFrame, QScrollArea, QStackedWidget, QComboBox,
+    QFrame, QScrollArea, QStackedWidget,
 )
 
 from ephyr import settings
 from ephyr import version
 from ephyr.gui.mixins.qwidget_mixin import QWidgetMixin
 from ephyr.gui._utils import capture_widget_to_file
+from ephyr.gui.widgets import FocusWheelComboBox as QComboBox
 from ephyr.core.ephyr_session import EphyrSessionManager, RightPanelWidgetEnum, UserSession
 from ephyr.core.global_storage import GlobalStorageManager, GuiMode
 from ephyr.converter.ephyr_io import EphyrIO

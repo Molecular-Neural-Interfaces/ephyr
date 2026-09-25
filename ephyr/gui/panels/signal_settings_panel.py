@@ -14,14 +14,11 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
-    QSpinBox,
-    QDoubleSpinBox,
     QListWidget,
     QListWidgetItem,
     QCheckBox,
     QGroupBox,
     QPushButton,
-    QComboBox,
     QFormLayout,
     QMessageBox,
     QColorDialog,
@@ -55,6 +52,11 @@ from ephyr.core.header import Header
 from ephyr.gui.dialogs.header_units_management_dialog import HeaderUnitsManagementDialog
 from ephyr.gui._utils import milliseconds_to_readable, sample_rate_to_readable
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
+from ephyr.gui.widgets import (
+    FocusWheelComboBox as QComboBox,
+    FocusWheelDoubleSpinBox as QDoubleSpinBox,
+    FocusWheelSpinBox as QSpinBox,
+)
 from ephyr.logger import ephyr_logger
 from ephyr.core.conversions.filters import (
     ensure_filters_list,
