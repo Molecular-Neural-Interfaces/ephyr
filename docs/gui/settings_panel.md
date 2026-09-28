@@ -20,7 +20,7 @@ Beginner and Expert modes.
 | Control | Purpose |
 |---------|---------|
 | **Current sweep** | Selects which sweep is displayed (1-based in the UI). Sample rate and sweep duration are shown underneath. |
-| **Start point index** | Sample index where the visible time window starts. |
+| **Start point** | Start of the visible window in milliseconds, with a `[h m s ms]` readout like duration. Stored as a sample index (`start_point`); the displayed value is `floor(index * 1000 / sample_rate)`. |
 | **Duration to show** | Length of the visible window in milliseconds. Changing duration keeps the window center fixed when possible. |
 | **Auto-scroll time step** | Step size (ms) used by the `<` / `>` buttons and by auto-scroll. |
 | **Auto-scroll interval** | Timer interval (ms) between auto-scroll steps when `<<` / `>>` is active. |

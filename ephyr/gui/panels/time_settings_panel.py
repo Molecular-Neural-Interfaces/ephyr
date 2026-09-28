@@ -29,7 +29,8 @@ class TimeSettingsPanel(QWidget):
 
         self.start_point_spinbox = QSpinBox()
         self.start_point_spinbox.setRange(0, settings.MAX_START_POINT)
-        self.start_point_spinbox.setSingleStep(1000)
+        self.start_point_spinbox.setSingleStep(1)
+        self.start_point_spinbox.setSuffix(" ms")
 
         self.current_sweep_spinbox = QSpinBox()
         self.current_sweep_spinbox.setRange(1, 1)
@@ -51,6 +52,7 @@ class TimeSettingsPanel(QWidget):
         self.autoscroll_step_interval_spinbox.setSingleStep(50)
         self.autoscroll_step_interval_spinbox.setSuffix(" ms")
 
+        self.start_point_label = QLabel("Start point:")
         self.duration_label = QLabel("Duration to show:")
         self.time_step_label = QLabel("Auto-scroll time step:")
         self.sweep_info_label = QLabel("")
@@ -59,7 +61,7 @@ class TimeSettingsPanel(QWidget):
 
         rows = [
             ("Current sweep:", self.current_sweep_spinbox),
-            ("Start point index:", self.start_point_spinbox),
+            (self.start_point_label, self.start_point_spinbox),
             (self.duration_label, self.duration_spinbox),
             (self.time_step_label, self.time_step_spinbox),
             ("Auto-scroll interval:", self.autoscroll_step_interval_spinbox),
@@ -77,7 +79,7 @@ class TimeSettingsPanel(QWidget):
         self.current_sweep_spinbox.valueChanged.connect(
             lambda value: self._session_manager.set_current_sweep_idx(value - 1)
         )
-        self.start_point_spinbox.valueChanged.connect(self._session_manager.set_start_point)
+        self.start_point_spinbox.valueChanged.connect(self._on_start_point_ms_changed)
         self.duration_spinbox.valueChanged.connect(self._on_duration_changed)
         self.time_step_spinbox.valueChanged.connect(self._session_manager.set_time_step_ms)
         self.autoscroll_step_interval_spinbox.valueChanged.connect(
@@ -90,6 +92,43 @@ class TimeSettingsPanel(QWidget):
         self._session_manager.current_sweep_idx_changed.connect(self._sync_time_controls)
         self._session_manager.time_step_ms_changed.connect(self._sync_time_controls)
         self._session_manager.autoscroll_step_interval_ms_changed.connect(self._sync_time_controls)
+
+    def _sample_rate(self) -> float:
+        header = self._session_manager.header
+        if not header:
+            return 0.0
+        return float(header.sample_rate)
+
+    def _start_ms_from_idx(self, start_point: int) -> int:
+        sample_rate = self._sample_rate()
+        if sample_rate <= 0:
+            return 0
+        return int(int(start_point) * 1000.0 / sample_rate)
+
+    def _start_idx_from_ms(self, start_ms: int) -> int:
+        sample_rate = self._sample_rate()
+        if sample_rate <= 0:
+            return 0
+        return int(int(start_ms) * sample_rate / 1000.0)
+
+    def _max_start_point_ms(self) -> int:
+        gui_setup = self._session_manager.gui_setup
+        header = self._session_manager.header
+        sample_rate = self._sample_rate()
+        if not gui_setup or not header or sample_rate <= 0:
+            return settings.MAX_START_POINT
+        visible_points = int((int(gui_setup.duration_ms) / 1000.0) * sample_rate)
+        points_per_sweep = list(header.number_of_points_per_sweep)
+        if not points_per_sweep:
+            return 0
+        sweep_idx = max(0, min(int(gui_setup.current_sweep_idx), len(points_per_sweep) - 1))
+        max_start_idx = max(0, int(points_per_sweep[sweep_idx]) - max(0, visible_points))
+        return self._start_ms_from_idx(max_start_idx)
+
+    def _on_start_point_ms_changed(self, start_ms: int):
+        if self._updating:
+            return
+        self._session_manager.set_start_point(self._start_idx_from_ms(start_ms))
 
     def _on_duration_changed(self, duration_ms: int):
         """Keep the time-window center fixed when duration changes."""
@@ -131,7 +170,8 @@ class TimeSettingsPanel(QWidget):
         sweeps_num = int(self._session_manager.header.number_of_sweeps) if self._session_manager.header else 1
         self.current_sweep_spinbox.setRange(1, max(1, sweeps_num))
         self.current_sweep_spinbox.setValue(min(max(1, current_sweep_idx + 1), max(1, sweeps_num)))
-        self.start_point_spinbox.setValue(gui_setup.start_point)
+        self.start_point_spinbox.setRange(0, self._max_start_point_ms())
+        self.start_point_spinbox.setValue(self._start_ms_from_idx(gui_setup.start_point))
         self.duration_spinbox.setValue(gui_setup.duration_ms)
         self.time_step_spinbox.setValue(gui_setup.time_step_ms)
         self.autoscroll_step_interval_spinbox.setValue(gui_setup.autoscroll_step_interval_ms)
@@ -140,6 +180,8 @@ class TimeSettingsPanel(QWidget):
             control.blockSignals(False)
         self._updating = False
 
+        start_ms = self._start_ms_from_idx(gui_setup.start_point)
+        self.start_point_label.setText(f"Start point {milliseconds_to_readable(start_ms)}")
         self.duration_label.setText(f"Duration window {milliseconds_to_readable(gui_setup.duration_ms)}")
         self.time_step_label.setText(
             f"Auto-scroll time step {milliseconds_to_readable(gui_setup.time_step_ms)}"

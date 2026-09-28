@@ -860,7 +860,7 @@ class ChannelManagementPanel(QWidget):
             settings.MAX_NUMBER_OF_DOTS_TO_DISPLAY,
         )
         self.number_of_dots_spinbox.setSingleStep(100)
-        self.number_of_dots_label = QLabel("Number of dots to display:")
+        self.number_of_dots_label = QLabel("Number of points to display:")
 
         dots_row = QHBoxLayout()
         dots_row.addWidget(self.number_of_dots_label)
