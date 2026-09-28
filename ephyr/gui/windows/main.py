@@ -137,7 +137,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         self.btn_right_panel_toggle = QToolButton(header)
         # self.btn_right_panel_toggle.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMinButton))
-        self.btn_right_panel_toggle.setText("Show settings")
+        self.btn_right_panel_toggle.setText("Show tool panel")
 
         if settings.DEBUG:
             self.btn_debug = QToolButton(header)
@@ -473,7 +473,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         now_visible = not self.right_panel_scroll.isVisible()
         self.right_panel_scroll.setVisible(now_visible)
         self.btn_right_panel_toggle.setText(
-            "Hide settings" if now_visible else "Show settings"
+            "Hide tool panel" if now_visible else "Show tool panel"
         )
 
         # Adjust splitter sizes based on visibility

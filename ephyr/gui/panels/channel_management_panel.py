@@ -1216,7 +1216,7 @@ class ChannelManagementPanel(QWidget):
             box_layout.addWidget(channel_list)
 
             btn_row = QHBoxLayout()
-            reorder_btn = QPushButton("Layout")
+            reorder_btn = QPushButton("Channels layout")
             reorder_btn.clicked.connect(lambda _c=False, idx=group_idx: self._open_reorder_dialog(idx))
             btn_row.addWidget(reorder_btn)
             btn_row.addStretch(1)
