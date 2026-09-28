@@ -38,7 +38,6 @@ laid out on screen.
 | Control                       | Mode | Purpose |
 |-------------------------------|------|---------|
 | **Number of dots to display** | **Expert only** | Target number of plotted points after downsampling. Lower values improve performance; higher values show more detail. |
-| **Visual attachment**         | **Expert only** | Attach an image via URL or local file (stored in the session). Preview appears in the panel; double-click opens a larger view; you can open the link externally. |
 | **Add channels group**        | Both | Creates a new empty channel-group tab. |
 | **Groups layout**             | Both | Opens a dialog to place groups on a shared grid (row, column, height ratio, width ratio). |
 | **Set units**                 | Both | Opens header units management so you can change voltage units for selected channels. |
@@ -118,6 +117,10 @@ Shown when **View → Tools → Experiment description** is enabled.
 
 A single free-text editor stores notes for the experiment/session (`experiment_description` in the
 session JSON). Use it for protocols, animal IDs, or any free-form context you want next to the labels.
+
+Below the text field, Expert mode shows **Visual attachment**. It attaches an image via URL or local
+file, stores it in the session, shows a preview, opens a larger view on double-click, and can open an
+attached link externally.
 
 ## Add-ons
 

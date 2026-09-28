@@ -193,6 +193,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         gui_mode_layout.addWidget(self.gui_mode_combo, 1)
         self.right_panel_layout.addWidget(gui_mode_row)
         self.channel_management_panel.apply_gui_mode(current_mode)
+        self.info_panel.apply_gui_mode(current_mode)
 
         # Add a stretch to push widgets to the top when there's empty space
         self.right_panel_layout.addStretch(1)
@@ -467,6 +468,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
             return
         self.global_storage_manager.set_gui_mode(mode)
         self.channel_management_panel.apply_gui_mode(mode)
+        self.info_panel.apply_gui_mode(mode)
 
     def toggle_right_panel(self):
         """Toggle the visibility of the right panel"""

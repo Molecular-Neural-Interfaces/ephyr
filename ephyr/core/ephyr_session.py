@@ -38,9 +38,9 @@ class RightPanelWidgetEnum(Enum):
     def widgets_order():
         return [
             RightPanelWidgetEnum.TIME_SETTINGS,
+            RightPanelWidgetEnum.INFORMATION,
             RightPanelWidgetEnum.CHANNEL_MANAGEMENT,
             RightPanelWidgetEnum.ANALYSIS,
-            RightPanelWidgetEnum.INFORMATION,
             RightPanelWidgetEnum.LOGS,
         ]
 
