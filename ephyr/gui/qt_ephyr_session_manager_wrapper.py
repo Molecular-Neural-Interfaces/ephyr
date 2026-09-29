@@ -26,7 +26,7 @@ from ephyr.core.ephyr_session import (
     PeriodVocabularyEntry,
 )
 from ephyr.core.add_ons.base import BaseAddOn
-from ephyr.logger import ephyr_logger
+from ephyr.logger import ephyr_logger, set_log_experiment, set_log_session_name
 
 from ephyr.gui.commands.base import BaseCommand
 from ephyr.gui.commands.events import (
@@ -855,6 +855,7 @@ class QtEphyrSessionManagerWrapper(QObject):
     # Session management methods
     def new_user_session(self, session_filename: str):
         self._session_manager.new_user_session(session_filename)
+        self._sync_logging_context()
         self._clear_undo_redo_history()
         self.refresh_runtime_add_ons()
         self.session_loaded.emit()
@@ -869,7 +870,10 @@ class QtEphyrSessionManagerWrapper(QObject):
         self.session_loaded.emit()
 
     def switch_sessions(self, session_filename: str):
-        self._session_manager.switch_sessions(session_filename)
+        try:
+            self._session_manager.switch_sessions(session_filename)
+        finally:
+            self._sync_logging_context()
         self._clear_undo_redo_history()
         self.refresh_runtime_add_ons()
         self.session_loaded.emit()
@@ -881,8 +885,16 @@ class QtEphyrSessionManagerWrapper(QObject):
         self.session_saved.emit()
 
     def init_from_folder(self, ephyr_experiment_folder: Path):
-        self._session_manager.init_from_folder(ephyr_experiment_folder)
+        try:
+            self._session_manager.init_from_folder(ephyr_experiment_folder)
+        finally:
+            self._sync_logging_context()
         self._clear_undo_redo_history()
+
+    def _sync_logging_context(self) -> None:
+        session = self._session_manager.current_user_session
+        set_log_session_name(session.session_filename if session else None)
+        set_log_experiment(self._session_manager.ephyr_experiment_folder)
 
     def session_name_already_exists(self, session_name: str):
         return self._session_manager.session_name_already_exists(session_name)
