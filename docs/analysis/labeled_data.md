@@ -86,6 +86,7 @@ Loading API:
 | `data_memmaps` | `Tuple[Tuple[np.memmap, ...], ...]` | Raw int16 samples, indexed `[sweep_idx][channel_idx]` |
 | `from_int16_to_voltage_val(data, channel_idx)` | method | Scale raw samples to voltage using the channel's ranges and units |
 | `process_data_pipeline(...)` / `process_single_channel(...)` | methods | The same filtering / decimation pipeline the GUI draws with |
+| `process_data_pipeline_multi_sweep(...)` | method | Same pipeline for several sweeps at once, returns `Dict[sweep_idx, Dict[channel_idx, ndarray]]` |
 
 ### `UserSession`
 
@@ -116,6 +117,7 @@ Vocabulary helpers: `add_event_vocabulary`, `get_event_vocabulary_name`, `get_ev
 | `events_are_shown` | `bool` | Draw events |
 | `periods_are_shown` | `bool` | Draw periods |
 | `current_sweep_idx` | `int` | Sweep on screen |
+| `overlay_sweep_idxs` | `List[int]` | Sweeps drawn in gray behind the current one (empty = overlay off) |
 | `start_point` | `int` | First sample of the visible window |
 | `duration_ms` | `int` | Width of the visible window |
 | `time_step_ms` | `int` | Step used by navigation |

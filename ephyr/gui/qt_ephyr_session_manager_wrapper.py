@@ -85,6 +85,7 @@ class QtEphyrSessionManagerWrapper(QObject):
     autoscroll_step_interval_ms_changed = pyqtSignal(int)
     number_of_dots_to_display_changed = pyqtSignal(int)
     current_sweep_idx_changed = pyqtSignal(int)
+    overlay_sweep_idxs_changed = pyqtSignal(list)
 
     # Signals for strings
     experiment_description_changed = pyqtSignal(str)
@@ -393,6 +394,29 @@ class QtEphyrSessionManagerWrapper(QObject):
         self.set_start_point(self.gui_setup.start_point)
         self.set_duration_ms(self.gui_setup.duration_ms)
         self.current_sweep_idx_changed.emit(sweep_idx)
+
+    @property
+    def overlay_sweep_idxs(self) -> List[int]:
+        if self.gui_setup:
+            return list(self.gui_setup.overlay_sweep_idxs)
+        return []
+
+    @user_session_modification
+    def set_overlay_sweep_idxs(self, sweep_idxs: List[int]):
+        if not self.header:
+            return
+        sweeps_num = self.header.number_of_sweeps
+        normalized = sorted({
+            int(sweep_idx) for sweep_idx in (sweep_idxs or [])
+            if 0 <= int(sweep_idx) < sweeps_num
+        })[:settings.MAX_OVERLAY_SWEEPS]
+        if self.gui_setup.overlay_sweep_idxs == normalized:
+            return
+        self._session_manager.current_user_session.gui_setup.overlay_sweep_idxs = normalized
+        ephyr_logger().info(
+            f"Overlay sweeps set to {[idx + 1 for idx in normalized]}" if normalized else "Overlay sweeps disabled"
+        )
+        self.overlay_sweep_idxs_changed.emit(normalized)
 
     @user_session_modification
     def set_channels_groups(self, groups: List[ChannelGroup]):

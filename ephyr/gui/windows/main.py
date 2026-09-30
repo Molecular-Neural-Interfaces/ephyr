@@ -94,6 +94,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.session_manager: QtEphyrSessionManagerWrapper = session_manager
         self.global_storage_manager = global_storage_manager
         self._processed_channels_data_cache: Dict[int, np.ndarray[np.float64]] = {}
+        self._overlay_channels_data_cache: Dict[int, Dict[int, np.ndarray[np.float64]]] = {}
         self._filters_enabled_last = False
 
         # Menu bar and actions
@@ -393,6 +394,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.session_manager.channel_setup_changed.connect(self.on_channel_setup_changed)
         self.session_manager.header_units_changed.connect(self.on_header_units_changed)
         self.session_manager.current_sweep_idx_changed.connect(self.on_sweep_idx_changed)
+        self.session_manager.overlay_sweep_idxs_changed.connect(self.on_overlay_sweep_idxs_changed)
         self.session_manager.add_ons_changed.connect(self.on_add_ons_changed)
         self.session_manager.add_ons_run.connect(self.on_add_ons_run)
         self.session_manager.filters_changed.connect(self.on_filters_changed)
@@ -441,24 +443,40 @@ class MainWindow(QMainWindow, QWidgetMixin):
     def on_sweep_idx_changed(self):
         self.__recalculate_and_redraw_necessary_signals(recalculate_data=True, )
 
+    def on_overlay_sweep_idxs_changed(self):
+        self.__recalculate_and_redraw_necessary_signals(recalculate_data=True, )
+
     def __recalculate_and_redraw_necessary_signals(self, recalculate_data: bool = True, ):
         group_layouts = self.signal_panel.get_visible_groups_layout()
         channel_indexes = []
         for group in group_layouts:
             channel_indexes.extend(group.visible_enabled_channels())
         if recalculate_data:
-            self._processed_channels_data_cache = self.session_manager.experiment_data.process_data_pipeline(
-                params=self.session_manager.gui_setup,
-                sweep_idx=self.session_manager.gui_setup.current_sweep_idx,
+            gui_setup = self.session_manager.gui_setup
+            # The current sweep is drawn in black, so it never doubles as a gray overlay trace.
+            overlay_sweep_idxs = [
+                sweep_idx for sweep_idx in gui_setup.overlay_sweep_idxs
+                if sweep_idx != gui_setup.current_sweep_idx
+            ]
+            per_sweep_data = self.session_manager.experiment_data.process_data_pipeline_multi_sweep(
+                params=gui_setup,
+                sweep_indexes=[gui_setup.current_sweep_idx] + overlay_sweep_idxs,
                 channel_indexes=channel_indexes,
-                output_number_of_dots=self.session_manager.gui_setup.number_of_dots_to_display,
+                output_number_of_dots=gui_setup.number_of_dots_to_display,
                 transformation_add_ons=self.session_manager.get_transformation_add_ons(),
             )
+            self._processed_channels_data_cache = per_sweep_data.get(gui_setup.current_sweep_idx, {})
+            self._overlay_channels_data_cache = {
+                sweep_idx: per_sweep_data[sweep_idx]
+                for sweep_idx in overlay_sweep_idxs
+                if sweep_idx in per_sweep_data
+            }
 
         self.signal_panel.reset_data_and_redraw(
             self._processed_channels_data_cache,
             group_layouts=group_layouts,
             visible_channels=channel_indexes,
+            overlay_processed_data=self._overlay_channels_data_cache,
         )
 
     # ---------- Right Panel Management ----------
