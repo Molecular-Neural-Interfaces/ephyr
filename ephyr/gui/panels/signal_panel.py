@@ -423,6 +423,7 @@ class SignalWidget(QWidget):
         self._font_metrics = QFontMetrics(self._font)
 
         self._processed_data = {}
+        self._overlay_processed_data: Dict[int, Dict[int, np.ndarray]] = {}
         self._visible_channel_indexes = []
         self._channel_names = []
         self._voltage_scale = 0.0
@@ -484,6 +485,7 @@ class SignalWidget(QWidget):
             channel_names,
             voltage_scale,
             *,
+            overlay_processed_data: Optional[Dict[int, Dict[int, np.ndarray]]] = None,
             group_layouts: Optional[List[ChannelGroup]] = None,
             channels_setup: Optional[Dict[int, ChannelSetup]] = None,
             start_point: int,
@@ -504,6 +506,7 @@ class SignalWidget(QWidget):
     ):
         # SETUP VARIABLES
         self._processed_data = processed_data
+        self._overlay_processed_data = dict(overlay_processed_data or {})
         self._visible_channel_indexes = visible_channel_indexes
         self._voltage_scale = voltage_scale
         self._axis_start_point = max(0, start_point)
@@ -558,6 +561,8 @@ class SignalWidget(QWidget):
 
         self._draw_add_ons(ViewEntitiesZIndexEnum.MIDDLE_LINE.value, ViewEntitiesZIndexEnum.TRACES.value, painter)
         if self._traces_are_visible:
+            self._draw_overlay_sweeps(painter, voltage_scale)
+
             cur_draw_idx = 0
             for channel_idx, cell_rect, enabled, _count in self._cell_rects:
                 if not enabled:
@@ -968,6 +973,31 @@ class SignalWidget(QWidget):
             return color
         return QColor("#00AA55")
 
+    def _draw_overlay_sweeps(self, painter: QPainter, voltage_scale):
+        """Draw the non-current sweeps in gray, underneath the black current sweep."""
+        if not self._overlay_processed_data:
+            return
+        overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
+        for sweep_data in self._overlay_processed_data.values():
+            cur_draw_idx = 0
+            for channel_idx, cell_rect, enabled, _count in self._cell_rects:
+                if not enabled:
+                    continue
+                channel_data = sweep_data.get(channel_idx)
+                if channel_data is not None:
+                    self._draw_trace(
+                        painter,
+                        channel_data,
+                        cell_rect,
+                        voltage_scale,
+                        channel_idx,
+                        cur_draw_idx,
+                        color_override=overlay_color,
+                        pen_width=settings.OVERLAY_TRACE_WIDTH,
+                        buffer_namespace=2,
+                    )
+                cur_draw_idx += 1
+
     def _draw_auxiliary_groups(self, painter: QPainter, processed_data):
         for group_idx, group_rect in self._auxiliary_group_rects:
             if group_rect.height() <= 0:
@@ -977,6 +1007,25 @@ class SignalWidget(QWidget):
             painter.drawLine(group_rect.left(), int(center_y), group_rect.right(), int(center_y))
 
             channels = self._group_layouts[group_idx].visible_channels()
+            for sweep_data in self._overlay_processed_data.values():
+                for channel_idx in channels:
+                    channel_data = sweep_data.get(channel_idx)
+                    if channel_data is None or len(channel_data) < 2:
+                        continue
+                    setup = self._channels_setup.get(channel_idx)
+                    self._draw_auxiliary_trace(
+                        painter=painter,
+                        channel_data=channel_data,
+                        channel_idx=channel_idx,
+                        group_rect=group_rect,
+                        center_y=center_y,
+                        scale=float(getattr(setup, "scale", 1.0)),
+                        y_offset=float(getattr(setup, "y_offset", 0.0)),
+                        color_str=settings.OVERLAY_TRACE_COLOR,
+                        pen_width=settings.OVERLAY_TRACE_WIDTH,
+                        buffer_namespace=3,
+                    )
+
             for channel_idx in channels:
                 channel_data = processed_data.get(channel_idx)
                 if channel_data is None or len(channel_data) < 2:
@@ -1006,11 +1055,13 @@ class SignalWidget(QWidget):
         scale: float,
         y_offset: float,
         color_str: str,
+        pen_width: float = 1.2,
+        buffer_namespace: int = 1,
     ):
         color = QColor(color_str)
         if not color.isValid():
             color = self._SIGNAL_COLOR
-        painter.setPen(QPen(color, 1.2))
+        painter.setPen(QPen(color, pen_width))
 
         n_points = len(channel_data)
         left = group_rect.left()
@@ -1020,7 +1071,7 @@ class SignalWidget(QWidget):
         y_offsets = (channel_data + y_offset) * pixel_per_uv
         y_coords = center_y - y_offsets
 
-        line_buffer = self._get_line_buffer((1, channel_idx), n_points - 1)
+        line_buffer = self._get_line_buffer((buffer_namespace, channel_idx), n_points - 1)
         draw_count = 0
         for i in range(n_points - 1):
             y0 = float(y_coords[i])
@@ -1039,16 +1090,18 @@ class SignalWidget(QWidget):
         painter.drawLine(channel_rect.left(), zero_y, channel_rect.right(), zero_y)
 
     def _draw_trace(self, painter: QPainter, channel_data: np.ndarray, channel_rect: QRect,
-                    voltage_scale, channel_idx: int, cur_draw_idx: int):
+                    voltage_scale, channel_idx: int, cur_draw_idx: int,
+                    color_override: Optional[QColor] = None, pen_width: float = 1.5,
+                    buffer_namespace: int = 0):
         if channel_data is None or len(channel_data) < 2:
             return
 
         setup = self._channels_setup.get(channel_idx)
-        color = QColor(str(getattr(setup, "color", "#000000")))
+        color = color_override or QColor(str(getattr(setup, "color", "#000000")))
         if not color.isValid():
             color = self._SIGNAL_COLOR
         y_offset = float(getattr(setup, "y_offset", 0.0))
-        pen = QPen(color, 1.5)
+        pen = QPen(color, pen_width)
         painter.setPen(pen)
 
         n_points = len(channel_data)
@@ -1069,7 +1122,7 @@ class SignalWidget(QWidget):
         clip_top = clip_rect.top()
         clip_bottom = clip_rect.bottom()
 
-        line_buffer = self._get_line_buffer((0, cur_draw_idx), n_points - 1)
+        line_buffer = self._get_line_buffer((buffer_namespace, cur_draw_idx), n_points - 1)
         draw_count = 0
         for i in range(n_points - 1):
             y0 = float(y_coords[i])
@@ -1616,6 +1669,7 @@ class SignalPanel(QWidget):
 
         self._session_manager: QtEphyrSessionManagerWrapper = session_manager
         self._cached_processed_data: Dict[int, np.ndarray[np.float64]] = {}
+        self._cached_overlay_processed_data: Dict[int, Dict[int, np.ndarray[np.float64]]] = {}
 
         # Scale bar
         self._current_overlay_mode = OverlayModeEnum.NONE
@@ -1934,8 +1988,10 @@ class SignalPanel(QWidget):
             *,
             group_layouts: Optional[List[ChannelGroup]] = None,
             visible_channels: Optional[List[int]] = None,
+            overlay_processed_data: Optional[Dict[int, Dict[int, np.ndarray[np.float64]]]] = None,
     ):
         self._cached_processed_data = processed_data
+        self._cached_overlay_processed_data = dict(overlay_processed_data or {})
         self._cached_group_layouts_override = list(group_layouts) if group_layouts is not None else None
         self._cached_visible_channels_override = list(visible_channels) if visible_channels is not None else None
         self._redraw_data()
@@ -2043,6 +2099,7 @@ class SignalPanel(QWidget):
             visible_channels,
             self._session_manager.header.channel_info.name,
             settings.DEFAULT_SCALE,
+            overlay_processed_data=self._cached_overlay_processed_data,
             group_layouts=group_layouts,
             channels_setup=gui_setup.channels_setup,
             start_point=gui_setup.start_point,

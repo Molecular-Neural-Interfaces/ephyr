@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any, Callable, Tuple
 
 import numpy as np
 from PyQt6.QtCore import QByteArray, QBuffer, QIODevice, QPoint, QRect, QSize, Qt, QMimeData
@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ephyr import settings
 from ephyr.core.ephyr_session import ChannelGroup
 
 
@@ -373,6 +374,7 @@ class ScreenshotExportDialog(QDialog):
 
         digital_rects = list(getattr(sw, "_digital_channel_rects", []))
         processed_data = dict(getattr(sw, "_processed_data", {}))
+        overlay_processed_data = dict(getattr(sw, "_overlay_processed_data", {}))
         channels_setup = dict(getattr(sw, "_channels_setup", {}))
         traces_are_visible = bool(getattr(sw, "_traces_are_visible", True))
         group_layouts = list(getattr(sw, "_group_layouts", []))
@@ -393,6 +395,20 @@ class ScreenshotExportDialog(QDialog):
         if traces_are_visible:
             for _channel_idx, channel_rect in digital_rects:
                 sw._draw_middle_line(painter, channel_rect)
+            overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
+            for sweep_data in overlay_processed_data.values():
+                for channel_idx, channel_rect in digital_rects:
+                    cls._draw_trace_resampled(
+                        painter=painter,
+                        channel_data=sweep_data.get(channel_idx),
+                        channel_rect=channel_rect,
+                        channel_idx=channel_idx,
+                        channels_setup=channels_setup,
+                        default_color=signal_default_color,
+                        target_dots=target_svg_dots,
+                        color_override=overlay_color,
+                        pen_width=settings.OVERLAY_TRACE_WIDTH,
+                    )
             for draw_idx, (channel_idx, channel_rect) in enumerate(digital_rects):
                 channel_data = processed_data.get(channel_idx)
                 if channel_data is None:
@@ -415,6 +431,7 @@ class ScreenshotExportDialog(QDialog):
             grid_color=QColor(getattr(sw, "_GRID_COLOR", QColor(200, 200, 200))),
             default_color=signal_default_color,
             target_dots=target_svg_dots,
+            overlay_processed_data=overlay_processed_data,
         )
         if bool(getattr(sw, "_periods_are_visible", True)):
             sw._draw_periods(painter)
@@ -486,11 +503,13 @@ class ScreenshotExportDialog(QDialog):
         channels_setup: Dict[int, Any],
         default_color: QColor,
         target_dots: int,
+        color_override: Optional[QColor] = None,
+        pen_width: float = 1.2,
     ):
         if channel_data is None or len(channel_data) < 2:
             return
         setup = channels_setup.get(channel_idx)
-        color = QColor(str(getattr(setup, "color", "#000000")))
+        color = color_override or QColor(str(getattr(setup, "color", "#000000")))
         if not color.isValid():
             color = default_color
         scale = float(getattr(setup, "scale", 1.0) or 1.0)
@@ -507,7 +526,7 @@ class ScreenshotExportDialog(QDialog):
         top = channel_rect.top()
         bottom = channel_rect.bottom()
 
-        painter.setPen(QPen(color, 1.2))
+        painter.setPen(QPen(color, pen_width))
         prev_x = float(x_coords[0])
         prev_y = float(y_coords[0])
         for i in range(1, n):
@@ -530,7 +549,16 @@ class ScreenshotExportDialog(QDialog):
         grid_color: QColor,
         default_color: QColor,
         target_dots: int,
+        overlay_processed_data: Optional[Dict[int, Dict[int, np.ndarray]]] = None,
     ):
+        overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
+        # Overlay sweeps first so the current sweep stays on top.
+        draw_passes: List[Tuple[Dict[int, np.ndarray], Optional[QColor], float]] = [
+            (sweep_data, overlay_color, settings.OVERLAY_TRACE_WIDTH)
+            for sweep_data in (overlay_processed_data or {}).values()
+        ]
+        draw_passes.append((processed_data, None, 1.1))
+
         for group_idx, group_rect in aux_group_rects:
             if group_rect.height() <= 0:
                 continue
@@ -541,37 +569,38 @@ class ScreenshotExportDialog(QDialog):
             channels = []
             if 0 <= int(group_idx) < len(group_layouts):
                 channels = group_layouts[int(group_idx)].visible_channels()
-            for channel_idx in channels:
-                data = processed_data.get(channel_idx)
-                if data is None or len(data) < 2:
-                    continue
-                setup = channels_setup.get(channel_idx)
-                color = QColor(str(getattr(setup, "color", "#000000")))
-                if not color.isValid():
-                    color = default_color
-                scale = float(getattr(setup, "scale", 1.0) or 1.0)
-                y_offset = float(getattr(setup, "y_offset", 0.0))
-                data_rs = cls._resample_data_to_dots(data, target_dots)
-                n = len(data_rs)
-                if n < 2:
-                    continue
+            for data_by_channel, color_override, pen_width in draw_passes:
+                for channel_idx in channels:
+                    data = data_by_channel.get(channel_idx)
+                    if data is None or len(data) < 2:
+                        continue
+                    setup = channels_setup.get(channel_idx)
+                    color = color_override or QColor(str(getattr(setup, "color", "#000000")))
+                    if not color.isValid():
+                        color = default_color
+                    scale = float(getattr(setup, "scale", 1.0) or 1.0)
+                    y_offset = float(getattr(setup, "y_offset", 0.0))
+                    data_rs = cls._resample_data_to_dots(data, target_dots)
+                    n = len(data_rs)
+                    if n < 2:
+                        continue
 
-                x_coords = np.linspace(group_rect.left(), group_rect.right(), n, dtype=np.float64)
-                pixel_per_uv = group_rect.height() / max(scale, 1e-12)
-                y_coords = center_y - (data_rs + y_offset) * pixel_per_uv
-                top = group_rect.top()
-                bottom = group_rect.bottom()
+                    x_coords = np.linspace(group_rect.left(), group_rect.right(), n, dtype=np.float64)
+                    pixel_per_uv = group_rect.height() / max(scale, 1e-12)
+                    y_coords = center_y - (data_rs + y_offset) * pixel_per_uv
+                    top = group_rect.top()
+                    bottom = group_rect.bottom()
 
-                painter.setPen(QPen(color, 1.1))
-                prev_x = float(x_coords[0])
-                prev_y = float(y_coords[0])
-                for i in range(1, n):
-                    cur_x = float(x_coords[i])
-                    cur_y = float(y_coords[i])
-                    if top <= prev_y <= bottom and top <= cur_y <= bottom:
-                        painter.drawLine(int(prev_x), int(prev_y), int(cur_x), int(cur_y))
-                    prev_x = cur_x
-                    prev_y = cur_y
+                    painter.setPen(QPen(color, pen_width))
+                    prev_x = float(x_coords[0])
+                    prev_y = float(y_coords[0])
+                    for i in range(1, n):
+                        cur_x = float(x_coords[i])
+                        cur_y = float(y_coords[i])
+                        if top <= prev_y <= bottom and top <= cur_y <= bottom:
+                            painter.drawLine(int(prev_x), int(prev_y), int(cur_x), int(cur_y))
+                        prev_x = cur_x
+                        prev_y = cur_y
 
     @classmethod
     def _build_svg_bytes_from_pixmap(cls, pixmap: QPixmap) -> bytes:

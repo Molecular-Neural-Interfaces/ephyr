@@ -1,10 +1,11 @@
 # Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
 # SPDX-License-Identifier: GPL-3.0-only
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from ephyr import settings
 from ephyr.gui._utils import milliseconds_to_readable, sample_rate_to_readable
+from ephyr.gui.dialogs.overlay_sweeps_dialog import OverlaySweepsDialog
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 from ephyr.gui.widgets import FocusWheelSpinBox as QSpinBox
 
@@ -37,6 +38,8 @@ class TimeSettingsPanel(QWidget):
         self.current_sweep_spinbox.setSingleStep(1)
         self.current_sweep_spinbox.setSuffix(" sweep")
 
+        self.setup_overlay_button = QPushButton("Setup overlay")
+
         self.duration_spinbox = QSpinBox()
         self.duration_spinbox.setRange(settings.MIN_DURATION, settings.MAX_DURATION)
         self.duration_spinbox.setSingleStep(100)
@@ -59,6 +62,8 @@ class TimeSettingsPanel(QWidget):
         self.sweep_info_label.setStyleSheet("color: gray; font-size: 9pt;")
         self.sweep_info_label.setWordWrap(True)
 
+        layout.addWidget(self.sweep_info_label)
+
         rows = [
             ("Current sweep:", self.current_sweep_spinbox),
             (self.start_point_label, self.start_point_spinbox),
@@ -70,15 +75,16 @@ class TimeSettingsPanel(QWidget):
             row = QHBoxLayout()
             row.addWidget(QLabel(label) if isinstance(label, str) else label)
             row.addWidget(widget)
+            if widget is self.current_sweep_spinbox:
+                row.addWidget(self.setup_overlay_button)
             row.addStretch(1)
             layout.addLayout(row)
-            if widget is self.current_sweep_spinbox:
-                layout.addWidget(self.sweep_info_label)
 
     def connect_signals(self):
         self.current_sweep_spinbox.valueChanged.connect(
             lambda value: self._session_manager.set_current_sweep_idx(value - 1)
         )
+        self.setup_overlay_button.clicked.connect(self._on_setup_overlay_clicked)
         self.start_point_spinbox.valueChanged.connect(self._on_start_point_ms_changed)
         self.duration_spinbox.valueChanged.connect(self._on_duration_changed)
         self.time_step_spinbox.valueChanged.connect(self._session_manager.set_time_step_ms)
@@ -92,6 +98,12 @@ class TimeSettingsPanel(QWidget):
         self._session_manager.current_sweep_idx_changed.connect(self._sync_time_controls)
         self._session_manager.time_step_ms_changed.connect(self._sync_time_controls)
         self._session_manager.autoscroll_step_interval_ms_changed.connect(self._sync_time_controls)
+        self._session_manager.overlay_sweep_idxs_changed.connect(self._sync_overlay_button)
+
+    def _on_setup_overlay_clicked(self):
+        if not self._session_manager.gui_setup:
+            return
+        OverlaySweepsDialog(self._session_manager, self).exec()
 
     def _sample_rate(self) -> float:
         header = self._session_manager.header
@@ -168,6 +180,9 @@ class TimeSettingsPanel(QWidget):
 
         current_sweep_idx = int(gui_setup.current_sweep_idx)
         sweeps_num = int(self._session_manager.header.number_of_sweeps) if self._session_manager.header else 1
+        sweeps_are_switchable = sweeps_num > 1
+        self.current_sweep_spinbox.setEnabled(sweeps_are_switchable)
+        self.setup_overlay_button.setEnabled(sweeps_are_switchable)
         self.current_sweep_spinbox.setRange(1, max(1, sweeps_num))
         self.current_sweep_spinbox.setValue(min(max(1, current_sweep_idx + 1), max(1, sweeps_num)))
         self.start_point_spinbox.setRange(0, self._max_start_point_ms())
@@ -187,6 +202,13 @@ class TimeSettingsPanel(QWidget):
             f"Auto-scroll time step {milliseconds_to_readable(gui_setup.time_step_ms)}"
         )
         self._update_sweep_info_label(current_sweep_idx)
+        self._sync_overlay_button()
+
+    def _sync_overlay_button(self, *_args):
+        overlay_sweep_idxs = self._session_manager.overlay_sweep_idxs
+        self.setup_overlay_button.setText(
+            f"Setup overlay ({len(overlay_sweep_idxs)})" if overlay_sweep_idxs else "Setup overlay"
+        )
 
     def _update_sweep_info_label(self, current_sweep_idx: int):
         header = self._session_manager.header
