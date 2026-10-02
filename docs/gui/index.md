@@ -9,9 +9,9 @@ When an experiment session is open, the Ephyr window is organized as follows.
 | Region | Role |
 |--------|------|
 | **Menu** | Global actions: open experiments, manage sessions, toggle visibility, label events/periods, manage add-ons, and open Help. See [Menu](menu.md). |
-| **Header bar** | **Screenshot** exports the current signal view (PNG/SVG). **Panel** shows or hides the right-hand settings panel. The label shows the current experiment and session name. |
+| **Header bar** | **Screenshot** exports the current signal view (PNG/SVG). **Show session panel** / **Hide session panel** shows or hides the right-hand settings panel. The label shows the current experiment and session name. |
 | **Signal panel** (left) | Channel groups with traces, events, periods, optional add-on overlays, and time navigation. See [Signal Panel](signal_panel.md). |
-| **Settings panel** (right) | GUI mode, time and channel settings, experiment description, add-ons list, and application logs. See [Settings Panel](settings_panel.md). |
+| **Settings panel** (right) | Session panel (Beginner / Expert), timeline and channel settings, recording description, add-ons list, and application logs. See [Settings Panel](settings_panel.md). |
 | **Status bar** | Timestamped status messages from the application. |
 
 Before any experiment is loaded, the left area shows a start screen with a quick Open action and a short hotkey list.
@@ -29,6 +29,6 @@ Inside the signal panel you will typically work with:
 
 ## Settings panel highlights
 
-The right panel starts with **GUI mode** (Beginner / Expert). Additional sections are toggled independently
-from **View → Tools**: Time settings, Channel management, Add-ons, Experiment description, and
+The right panel starts with **Session panel** (Beginner / Expert). Additional sections are toggled independently
+from **View → Tools**: Timeline settings, Channel management, Add-ons, Recording description, and
 Application logs.

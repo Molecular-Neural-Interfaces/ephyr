@@ -22,7 +22,7 @@ you no longer need. Package sources are published in the
 
 ## Search and run from the side panel
 
-Show the Add-ons section with **View → Tools → Add-ons** (or ensure the right panel is visible via **Panel**).
+Show the Add-ons section with **View → Tools → Add-ons** (or ensure the right panel is visible via **Show session panel**).
 
 ![Add-ons side panel](../source/_static/add_ons/side_panel.png)
 

@@ -1,10 +1,10 @@
 # Settings Panel
 
 The right-hand settings panel holds tools that configure the view, describe the experiment, run add-ons,
-and inspect logs. Show or hide individual sections from **View → Tools**, or use the **Panel** button in
+and inspect logs. Show or hide individual sections from **View → Tools**, or use **Show session panel** in
 the header bar to hide the entire panel.
 
-## GUI mode
+## Session panel
 
 At the top of the panel, choose **Beginner mode** or **Expert mode**.
 
@@ -12,9 +12,9 @@ The choice is stored in Ephyr’s global user settings and applied whenever you 
 Expert mode reveals additional Channel Management controls (see below). All other menus and panels
 remain available in both modes.
 
-## Time settings
+## Timeline settings
 
-An independent right-panel section enabled with **View → Tools → Time settings**. It is available in
+An independent right-panel section enabled with **View → Tools → Timeline settings**. It is available in
 Beginner and Expert modes.
 
 | Control | Purpose |
@@ -22,8 +22,8 @@ Beginner and Expert modes.
 | **Current sweep** | Selects which sweep is displayed (1-based in the UI). Sample rate and sweep duration are shown underneath. |
 | **Start point** | Start of the visible window in milliseconds, with a `[h m s ms]` readout like duration. Stored as a sample index (`start_point`); the displayed value is `floor(index * 1000 / sample_rate)`. |
 | **Duration to show** | Length of the visible window in milliseconds. Changing duration keeps the window center fixed when possible. |
-| **Auto-scroll time step** | Step size (ms) used by the `<` / `>` buttons and by auto-scroll. |
-| **Auto-scroll interval** | Timer interval (ms) between auto-scroll steps when `<<` / `>>` is active. |
+| **Timebar step** | Step size (ms) used by the `<` / `>` buttons and by auto-scroll. |
+| **Auto-scroll frame delay** | Timer interval (ms) between auto-scroll steps when `<<` / `>>` is active. |
 
 These values are stored in the session’s `gui_setup` and drive the signal panel and navigator.
 
@@ -111,11 +111,11 @@ The **Layout settings** dialog configures a custom grid for the group:
 
 ![Layout settings dialog](../source/_static/gui/layout_settings.png)
 
-## Experiment description
+## Recording description
 
-Shown when **View → Tools → Experiment description** is enabled.
+Shown when **View → Tools → Recording description** is enabled.
 
-A single free-text editor stores notes for the experiment/session (`experiment_description` in the
+A single free-text editor stores notes for the recording/session (`experiment_description` in the
 session JSON). Use it for protocols, animal IDs, or any free-form context you want next to the labels.
 
 Below the text field, Expert mode shows **Visual attachment**. It attaches an image via URL or local

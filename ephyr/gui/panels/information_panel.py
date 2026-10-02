@@ -73,7 +73,7 @@ class InformationPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
 
         header_layout = QHBoxLayout()
-        title_label = QLabel("Experiment description")
+        title_label = QLabel("Recording description")
         title_label.setStyleSheet("font-weight: bold;")
         header_layout.addWidget(title_label)
         header_layout.addStretch()

@@ -85,7 +85,7 @@ with `from_int16_to_voltage_val` (see [Using Labeled Data](analysis/labeled_data
 User annotation and GUI state. Each session is a JSON file (for example `my_session.json`) that stores:
 
 - event and period vocabularies and placements
-- experiment description text
+- recording description text
 - GUI setup (visible window, channel groups, filters, add-on toggles, layer visibility such as traces /
   channel names / events / periods, and related view state)
 

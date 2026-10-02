@@ -12,7 +12,7 @@ page.
 | `EphyrSessionManager` | Entry point: load an experiment folder, switch sessions, access `experiment_data` and `user_session` |
 | `ExperimentData` | `header` plus `data_memmaps[sweep_idx][channel_idx]` and voltage conversion helpers |
 | `Header` | Sample rate, sweep/channel counts, channel names, units, ranges, and source provenance |
-| `UserSession` | Events, periods, vocabularies, experiment description, and `gui_setup` |
+| `UserSession` | Events, periods, vocabularies, recording description, and `gui_setup` |
 | `GuiSetup` | View state: current sweep/window, channel groups, filters, visibility flags, add-on toggles |
 | `events_table` | Convenience view of events with names and overlapping period names |
 
@@ -98,7 +98,7 @@ Loading API:
 | `events_vocabulary` | `Dict[int, EventVocabularyEntry]` | Event names and colors by id |
 | `periods` | `List[Period]` | Interval labels |
 | `periods_vocabulary` | `Dict[int, PeriodVocabularyEntry]` | Period names and colors by id |
-| `experiment_description` | `str` | Free-text notes for the experiment |
+| `experiment_description` | `str` | Free-text recording description |
 | `gui_setup` | `GuiSetup` | View state |
 | `events_table` | property | Events joined with their names and the periods they fall into |
 
@@ -120,8 +120,8 @@ Vocabulary helpers: `add_event_vocabulary`, `get_event_vocabulary_name`, `get_ev
 | `overlay_sweep_idxs` | `List[int]` | Sweeps drawn in gray behind the current one (empty = overlay off) |
 | `start_point` | `int` | First sample of the visible window |
 | `duration_ms` | `int` | Width of the visible window |
-| `time_step_ms` | `int` | Step used by navigation |
-| `autoscroll_step_interval_ms` | `int` | Autoscroll timer interval |
+| `time_step_ms` | `int` | Timebar step in milliseconds |
+| `autoscroll_step_interval_ms` | `int` | Auto-scroll frame delay in milliseconds |
 | `number_of_dots_to_display` | `int` | Target point count per trace (decimation) |
 | `channels_groups` | `List[ChannelGroup]` | Channel groups in display order |
 | `channels_setup` | `Dict[int, ChannelSetup]` | Per-channel style |
