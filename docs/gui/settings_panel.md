@@ -9,21 +9,21 @@ the header bar to hide the entire panel.
 At the top of the panel, choose **Beginner mode** or **Expert mode**.
 
 The choice is stored in Ephyr’s global user settings and applied whenever you open the app.
-Expert mode reveals additional Channel Management controls (see below). All other menus and panels
-remain available in both modes.
+Expert mode reveals additional Timeline settings and Channel Management controls (see below).
 
 ## Timeline settings
 
-An independent right-panel section enabled with **View → Tools → Timeline settings**. It is available in
-Beginner and Expert modes.
+An independent right-panel section enabled with **View → Tools → Timeline settings**.
 
-| Control | Purpose |
-|---------|---------|
-| **Current sweep** | Selects which sweep is displayed (1-based in the UI). Sample rate and sweep duration are shown underneath. |
-| **Start point** | Start of the visible window in milliseconds, with a `[h m s ms]` readout like duration. Stored as a sample index (`start_point`); the displayed value is `floor(index * 1000 / sample_rate)`. |
-| **Duration to show** | Length of the visible window in milliseconds. Changing duration keeps the window center fixed when possible. |
-| **Timebar step** | Step size (ms) used by the `<` / `>` buttons and by auto-scroll. |
-| **Auto-scroll frame delay** | Timer interval (ms) between auto-scroll steps when `<<` / `>>` is active. |
+| Control | Mode | Purpose |
+|---------|------|---------|
+| **Current sweep** | Both | Selects which sweep is displayed (1-based in the UI). Sample rate and sweep duration are shown underneath. |
+| **Start point** | **Expert only** | Start of the visible window in milliseconds, with a `[h m s ms]` readout like duration. Stored as a sample index (`start_point`); the displayed value is `floor(index * 1000 / sample_rate)`. |
+| **Duration to show** | Both | Length of the visible window in milliseconds. Changing duration keeps the window center fixed when possible. |
+| **Timebar step** | **Expert only** | Step size (ms) used by the `<` / `>` buttons and by auto-scroll. |
+| **Auto-scroll frame delay** | **Expert only** | How often the view advances while `<<` / `>>` is active, in milliseconds. New sessions default to 1000 ms. |
+
+In **Beginner mode** the timebar step is not shown. Ephyr keeps it at half of **Duration to show** and updates it whenever that window changes. The frame delay stays at its stored value (1000 ms by default).
 
 These values are stored in the session’s `gui_setup` and drive the signal panel and navigator.
 
@@ -38,9 +38,9 @@ laid out on screen.
 | Control                       | Mode | Purpose |
 |-------------------------------|------|---------|
 | **Number of dots to display** | **Expert only** | Target number of plotted points after downsampling. Lower values improve performance; higher values show more detail. |
-| **Add channels group**        | Both | Creates a new empty channel-group tab. |
-| **Groups layout**             | Both | Opens a dialog to place groups on a shared grid (row, column, height ratio, width ratio). |
-| **Set units**                 | Both | Opens header units management so you can change voltage units for selected channels. |
+| **Add channels group**        | **Expert only** | Creates a new empty channel-group tab. Disabled in Beginner mode. |
+| **Groups layout**             | **Expert only** | Opens a dialog to place groups on a shared grid (row, column, height ratio, width ratio). Disabled in Beginner mode. |
+| **Set units**                 | **Expert only** | Opens header units management so you can change voltage units for selected channels. Disabled in Beginner mode. |
 
 ![Groups layout dialog](../source/_static/gui/groups_layout.png)
 
@@ -61,16 +61,16 @@ Each channel group has its own tab (tabs can be reordered; empty groups can be c
 | **Name** | Title of the group.                                                                                                                                                                                                                      |
 | **View** | Show or hide this group on the signal panel.                                                                                                                                                                                             |
 | **Cut traces** | Clip drawn traces to each channel cell’s bounds.                                                                                                                                                                                         |
-| **Auxiliary channels** | Marks the group as auxiliary. Auxiliary groups expose per-channel scale, Y offset, and color, and do not use the same “number to show” windowing as regular groups. Disabling a channel in an aux group can reset its style to defaults. |
+| **Auxiliary channels** | **Expert only.** Marks the group as auxiliary. Auxiliary groups expose per-channel scale, Y offset, and color, and do not use the same “number to show” windowing as regular groups. Disabling a channel in an aux group can reset its style to defaults. |
 | **Group filters** | Choose a filter type (Butterworth low/high/band-pass, Chebyshev band-pass, Notch), set parameters (cutoff, order, ripple, Q, and so on), and enable or disable each filter. **Disable all** turns every filter off for the group.        |
-| **Common Scale / Y offset / Color** | Applied to all channels in non-auxiliary groups.                                                                                                                                                                                         |
-| **Channel list** | Checkbox that marks the channel for moving, channel index and name (disabled channels are greyed out and marked `(disabled)`), free-text **Info** field. Auxiliary rows also show per-channel Scale / Y / Color. Rows cannot be selected: use the checkboxes. |
-| **Layout** | Opens the channel layout dialog for this group (order, enabling, and optional grid).                                                                                                                                                     |
+| **Common Scale / Y offset / Color** | Scale and color apply to all channels in non-auxiliary groups. **Y offset** is **Expert only**.                                                                                                                                                                                         |
+| **Channel list** | Checkbox that marks the channel for moving, channel index and name (disabled channels are greyed out and marked `(disabled)`), free-text **Info** field. Auxiliary rows also show per-channel Scale / Y / Color; **Y** is **Expert only**. Rows cannot be selected: use the checkboxes. |
+| **Channels layout** | Opens the channel layout dialog for this group (order, enabling, and optional grid). Disabled in Beginner mode.                                                                                                                                                     |
 | **Move checked to** | Moves the checked channels to another group.                                                                                                                                                                                             |
 
 ### Channel layout
 
-Click **Layout** on a group to open **Channels layout**:
+Click **Channels layout** on a group to open **Channels layout**. The button is disabled in Beginner mode.
 
 - Reorder channels by drag-and-drop, up/down buttons, or a manual index list such as `1,10,12,14-18,20`.
 - Tick the **Enabled** checkbox of a channel to draw it on the signal panel; untick to hide it.

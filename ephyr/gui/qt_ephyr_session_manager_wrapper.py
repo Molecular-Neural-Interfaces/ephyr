@@ -369,9 +369,23 @@ class QtEphyrSessionManagerWrapper(QObject):
         
         return False
 
-    @user_session_modification
     def set_time_step_ms(self, time_step_ms: int):
-        self._session_manager.current_user_session.gui_setup.time_step_ms = time_step_ms
+        self._write_time_step_ms(time_step_ms, mark_modified=True)
+
+    def set_beginner_time_step_ms(self, time_step_ms: int):
+        """Apply the Beginner-mode timebar step without marking the session unsaved."""
+        self._write_time_step_ms(time_step_ms, mark_modified=False)
+
+    def _write_time_step_ms(self, time_step_ms: int, mark_modified: bool):
+        session = self._session_manager.current_user_session
+        if session is None:
+            return
+        time_step_ms = max(settings.MIN_TIME_STEP, int(time_step_ms))
+        if int(session.gui_setup.time_step_ms) == time_step_ms:
+            return
+        if mark_modified:
+            session.changes_saved = False
+        session.gui_setup.time_step_ms = time_step_ms
         self.time_step_ms_changed.emit(time_step_ms)
 
     @user_session_modification
