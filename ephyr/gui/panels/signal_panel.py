@@ -1825,6 +1825,7 @@ class SignalPanel(QWidget):
 
         # Horizontal scrollbar
         self.time_scrollbar = QScrollBar(Qt.Orientation.Horizontal)
+        self.time_scrollbar.installEventFilter(self)
         self._apply_scrollbar_style(self.time_scrollbar)
         bottom_layout.addWidget(self.time_scrollbar, 1)
 
@@ -2040,6 +2041,21 @@ class SignalPanel(QWidget):
                 if event.button() == Qt.MouseButton.LeftButton and self._is_signal_drag_active:
                     self._stop_signal_drag()
                     return True
+
+        if (hasattr(self, 'time_scrollbar')
+                and watched is self.time_scrollbar
+                and event.type() == QEvent.Type.Wheel
+                and isinstance(event, QWheelEvent)):
+            delta = event.angleDelta().y() or event.angleDelta().x()
+            if delta > 0:
+                self.on_single_right_click()
+            elif delta < 0:
+                self.on_single_left_click()
+            else:
+                return super().eventFilter(watched, event)
+            event.accept()
+            return True
+
         return super().eventFilter(watched, event)
 
     def reset_data_and_redraw(
