@@ -12,7 +12,7 @@ def get_hotkey_descriptions() -> List[str]:
     return [
         f"{ctrl_key} + S: save current session",
         f"{ctrl_key} + scroll: zoom in/out",
-        "M: measurement bar",
-        "V: view selected area",
+        "M: scalebar",
+        "V: zoom to area",
         "Esc: disable",
     ]

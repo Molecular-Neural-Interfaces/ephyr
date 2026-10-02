@@ -62,6 +62,6 @@ you can pan the visible window of electrodes within that group.
 
 | Mode | How to start                                | What it does |
 |------|---------------------------------------------|--------------|
-| Measurement bar | Press **M** (cycles: follow → freeze → off) | Crosshair with time and voltage scale bars |
-| Full-view select | Press **V**                                 | Two clicks define a rectangle; opens a dialog with the selected area |
+| Scalebar | Header bar toggles on/off. **M** cycles follow → freeze → off | Time and voltage scale bars at the cursor |
+| Zoom to area | Header bar or **V** | Two clicks define a rectangle; the cursor label is **Select area**. Opens a dialog with the selected area |
 | Event / period modes | Events and Periods menus                    | Crosshair overlay for placing or editing labels; **Esc** or right-click cancels |

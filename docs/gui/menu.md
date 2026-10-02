@@ -69,6 +69,10 @@ Closing the window uses the same unsaved-changes check.
 
 ## Edit
 
+### Copy image
+
+Exports the current signal view as PNG or SVG, the same action as **Copy image** in the header bar.
+
 ### Undo
 
 Reverses the last undoable labeling command (for example adding or removing events/periods or vocabulary changes).
@@ -180,6 +184,6 @@ Lists the built-in keyboard shortcuts:
 |----------|--------|
 | **Ctrl/Cmd + S** | Save current session |
 | **Ctrl/Cmd + scroll** | Zoom the visible time window in or out |
-| **M** | Cycle the measurement (time/voltage) bar |
-| **V** | Select an area for full-view inspection |
+| **M** | Cycle the scalebar (time/voltage) |
+| **V** | Select an area (**Select area**) |
 | **Esc** | Cancel the current interactive overlay mode |
