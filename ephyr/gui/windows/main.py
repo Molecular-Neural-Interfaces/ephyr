@@ -129,7 +129,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         header.setLayout(header_layout)
 
         self.status_label = QLabel("")
-        self.current_session_label = QLabel("No session loaded", header)
+        self.current_session_label = QLabel("No session loaded")
         self.current_session_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
@@ -149,7 +149,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         header_layout.addWidget(self.btn_screenshot)
         header_layout.addWidget(self.btn_right_panel_toggle)
-        header_layout.addWidget(self.current_session_label, 1)
+        header_layout.addStretch(1)
 
         # Ensure header does not expand vertically
         header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
@@ -225,7 +225,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
         # Status bar
         status_bar = QStatusBar()
         self.setStatusBar(status_bar)
-        status_bar.addWidget(self.status_label)
+        status_bar.addWidget(self.status_label, 1)
+        status_bar.addPermanentWidget(self.current_session_label)
         self.__update_main_content_panel()
 
     def build_menus(self):
@@ -1117,7 +1118,6 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         self._restore_right_panel_widgets()
 
-
     def __update_recent_dirs(self):
         self.menu_open_recent.clear()
         for recent in self.global_storage_manager.recent_experiments:
@@ -1139,10 +1139,12 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.view_periods.setChecked(self.session_manager.gui_setup.periods_are_shown)
 
     def __redraw_header(self):
-        session_filename = self.session_manager.ephyr_experiment_folder.name
-        if self.session_manager.user_session is not None:
-            session_filename += ":" + self.session_manager.user_session.session_filename
-        self.current_session_label.setText(session_filename)
+        experiment_name = self.session_manager.ephyr_experiment_folder.name
+        user_session = self.session_manager.user_session
+        if user_session is None:
+            self.current_session_label.setText(experiment_name)
+            return
+        self.current_session_label.setText(f"{experiment_name}: {user_session.session_name}")
 
     @staticmethod
     def __sweep_points(header, sweep_idx: int) -> int:
