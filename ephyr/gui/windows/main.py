@@ -134,12 +134,18 @@ class MainWindow(QMainWindow, QWidgetMixin):
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
 
+        self.btn_scalebar = QToolButton(header)
+        self.btn_scalebar.setText("Scalebar")
+        self.btn_scalebar.setCheckable(True)
+
+        self.btn_zoom_to_area = QToolButton(header)
+        self.btn_zoom_to_area.setText("Zoom to area")
+        self.btn_zoom_to_area.setCheckable(True)
+
         self.btn_screenshot = QToolButton(header)
-        # self.btn_screenshot.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
-        self.btn_screenshot.setText("Screenshot")
+        self.btn_screenshot.setText("Copy image")
 
         self.btn_right_panel_toggle = QToolButton(header)
-        # self.btn_right_panel_toggle.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMinButton))
         self.btn_right_panel_toggle.setText("Show session panel")
 
         if settings.DEBUG:
@@ -147,6 +153,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
             self.btn_debug.setText("Debug")
             header_layout.addWidget(self.btn_debug)
 
+        header_layout.addWidget(self.btn_scalebar)
+        header_layout.addWidget(self.btn_zoom_to_area)
         header_layout.addWidget(self.btn_screenshot)
         header_layout.addWidget(self.btn_right_panel_toggle)
         header_layout.addStretch(1)
@@ -267,6 +275,9 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # Edit menu
         edit_menu = menubar.addMenu("Edit")
+        self.act_copy_image = QAction("Copy image", self)
+        edit_menu.addAction(self.act_copy_image)
+        edit_menu.addSeparator()
         self.undo_action = QAction("Undo", self)
         self.redo_action = QAction("Redo", self)
         edit_menu.addAction(self.undo_action)
@@ -348,10 +359,13 @@ class MainWindow(QMainWindow, QWidgetMixin):
             self.btn_debug.clicked.connect(self.on_debug)
 
         # Buttons
+        self.btn_scalebar.clicked.connect(self.on_scalebar)
+        self.btn_zoom_to_area.clicked.connect(self.on_zoom_to_area)
         self.btn_screenshot.clicked.connect(self.on_screenshot)
         self.btn_right_panel_toggle.clicked.connect(self.toggle_right_panel)
         self.gui_mode_combo.currentIndexChanged.connect(self.on_gui_mode_changed)
         self.start_screen_panel.open_requested.connect(self.on_open)
+        self.signal_panel.interaction_modes_changed.connect(self._sync_toolbar_modes)
 
         # Menus
         self.act_open.triggered.connect(self.on_open)
@@ -366,6 +380,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.act_exit.triggered.connect(self.on_exit)
         self.undo_action.triggered.connect(self.on_undo)
         self.redo_action.triggered.connect(self.on_redo)
+        self.act_copy_image.triggered.connect(self.on_screenshot)
         self.view_traces.triggered.connect(self.on_view_traces)
         self.view_channel_names.triggered.connect(self.on_view_channel_names)
         self.view_events.triggered.connect(self.on_view_events)
@@ -1052,6 +1067,20 @@ class MainWindow(QMainWindow, QWidgetMixin):
         capture_widget_to_file(self, self, "main_window_full")
         capture_widget_to_file(self, self.right_panel_container, "right_panel")
         self.__set_status("DEBUG DONE")
+
+    def on_scalebar(self):
+        self.signal_panel.toggle_scalebar()
+        self._sync_toolbar_modes()
+        self.signal_panel.setFocus()
+
+    def on_zoom_to_area(self):
+        self.signal_panel.toggle_zoom_to_area()
+        self._sync_toolbar_modes()
+        self.signal_panel.setFocus()
+
+    def _sync_toolbar_modes(self):
+        self.btn_scalebar.setChecked(self.signal_panel.scalebar_is_active())
+        self.btn_zoom_to_area.setChecked(self.signal_panel.zoom_to_area_is_active())
 
     def on_screenshot(self):
         if not self.session_manager.session_is_active or not self.session_manager.gui_setup:

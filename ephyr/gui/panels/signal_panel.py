@@ -1470,7 +1470,7 @@ class OverlayWidget(QWidget):
             OverlayModeEnum.EVENT_BAD_UNSET: "Unset bad event",
             OverlayModeEnum.EVENT_REMOVE: "Remove",
             OverlayModeEnum.PERIOD_ADD: "Add period",
-            OverlayModeEnum.FULL_VIEW_SELECT: "Full view area",
+            OverlayModeEnum.FULL_VIEW_SELECT: "Select area",
         }
         label = mode_labels.get(self._overlay_mode)
         if not label:
@@ -1718,6 +1718,7 @@ class GroupNavigatorWidget(QWidget):
 class SignalPanel(QWidget):
     """High-performance EEG signal visualization panel with scrolling and optimization"""
     channel_scroll_changed = pyqtSignal()
+    interaction_modes_changed = pyqtSignal()
 
     def __init__(self, session_manager, parent=None):
         super().__init__(parent)
@@ -2346,6 +2347,7 @@ class SignalPanel(QWidget):
     def _reset_measure_bar_state(self):
         self._measure_bar_state = MeasureBarStateEnum.HIDDEN
         self._frozen_measure_pos = None
+        self.interaction_modes_changed.emit()
 
     # ---- Events helper API ----
     def start_event_add_mode(self, event_name_id: int):
@@ -2418,6 +2420,7 @@ class SignalPanel(QWidget):
         self._current_overlay_mode = OverlayModeEnum.FULL_VIEW_SELECT
         self.setCursor(Qt.CursorShape.BlankCursor)
         self._update_overlay_widget()
+        self.interaction_modes_changed.emit()
 
     def _stop_full_view_select_mode(self):
         self._full_view_first_point = None
@@ -2425,6 +2428,65 @@ class SignalPanel(QWidget):
             self._current_overlay_mode = OverlayModeEnum.NONE
         self.unsetCursor()
         self._update_overlay_widget()
+        self.interaction_modes_changed.emit()
+
+    def scalebar_is_active(self) -> bool:
+        return self._measure_bar_state != MeasureBarStateEnum.HIDDEN
+
+    def zoom_to_area_is_active(self) -> bool:
+        return self._current_overlay_mode == OverlayModeEnum.FULL_VIEW_SELECT
+
+    def cycle_scalebar(self) -> bool:
+        """Cycle the scalebar the same way as the M key: follow, freeze, off."""
+        if self._current_overlay_mode not in (OverlayModeEnum.NONE, OverlayModeEnum.TIME_VOLTAGE_BAR):
+            return False
+        if self._measure_bar_state == MeasureBarStateEnum.HIDDEN:
+            return self._set_scalebar_following()
+        if self._measure_bar_state == MeasureBarStateEnum.FOLLOW_CURSOR:
+            self._measure_bar_state = MeasureBarStateEnum.FROZEN
+            self._frozen_measure_pos = QPoint(self._current_mouse_pos) if self._current_mouse_pos else None
+            self.unsetCursor()
+            self._update_overlay_widget()
+            self.interaction_modes_changed.emit()
+            return True
+        return self._set_scalebar_hidden()
+
+    def toggle_scalebar(self) -> bool:
+        """Turn the following scalebar on or off. The toolbar button does not freeze it."""
+        if self._current_overlay_mode not in (OverlayModeEnum.NONE, OverlayModeEnum.TIME_VOLTAGE_BAR):
+            return False
+        if self.scalebar_is_active():
+            return self._set_scalebar_hidden()
+        return self._set_scalebar_following()
+
+    def _set_scalebar_following(self) -> bool:
+        self._measure_bar_state = MeasureBarStateEnum.FOLLOW_CURSOR
+        self._current_overlay_mode = OverlayModeEnum.TIME_VOLTAGE_BAR
+        self._frozen_measure_pos = None
+        self.setCursor(Qt.CursorShape.BlankCursor)
+        self._update_overlay_widget()
+        self.interaction_modes_changed.emit()
+        return True
+
+    def _set_scalebar_hidden(self) -> bool:
+        self._measure_bar_state = MeasureBarStateEnum.HIDDEN
+        self._frozen_measure_pos = None
+        if self._current_overlay_mode == OverlayModeEnum.TIME_VOLTAGE_BAR:
+            self._current_overlay_mode = OverlayModeEnum.NONE
+        self.unsetCursor()
+        self._update_overlay_widget()
+        self.interaction_modes_changed.emit()
+        return True
+
+    def toggle_zoom_to_area(self) -> bool:
+        """Toggle area selection the same way as the V key."""
+        if self._current_overlay_mode == OverlayModeEnum.FULL_VIEW_SELECT:
+            self._stop_full_view_select_mode()
+            return True
+        if self._current_overlay_mode != OverlayModeEnum.NONE:
+            return False
+        self.start_full_view_select_mode()
+        return True
 
     def _is_point_inside_signal_area(self, pos: QPoint) -> bool:
         left = self._LEFT_MARGIN
@@ -2919,34 +2981,9 @@ class SignalPanel(QWidget):
                     event.accept()
                     return
             if key == Qt.Key.Key_M:
-                if self._current_overlay_mode not in (OverlayModeEnum.NONE, OverlayModeEnum.TIME_VOLTAGE_BAR):
-                    event.accept()
-                    return
-                if self._measure_bar_state == MeasureBarStateEnum.HIDDEN:
-                    self._measure_bar_state = MeasureBarStateEnum.FOLLOW_CURSOR
-                    self._current_overlay_mode = OverlayModeEnum.TIME_VOLTAGE_BAR
-                    self._frozen_measure_pos = None
-                elif self._measure_bar_state == MeasureBarStateEnum.FOLLOW_CURSOR:
-                    self._measure_bar_state = MeasureBarStateEnum.FROZEN
-                    self._frozen_measure_pos = QPoint(self._current_mouse_pos) if self._current_mouse_pos else None
-                else:
-                    self._measure_bar_state = MeasureBarStateEnum.HIDDEN
-                    self._frozen_measure_pos = None
-                    self._current_overlay_mode = OverlayModeEnum.NONE
-
-                if self._should_hide_cursor():
-                    self.setCursor(Qt.CursorShape.BlankCursor)
-                else:
-                    self.unsetCursor()
+                self.cycle_scalebar()
             elif key == Qt.Key.Key_V:
-                if self._current_overlay_mode == OverlayModeEnum.FULL_VIEW_SELECT:
-                    self._stop_full_view_select_mode()
-                    event.accept()
-                    return
-                if self._current_overlay_mode != OverlayModeEnum.NONE:
-                    event.accept()
-                    return
-                self.start_full_view_select_mode()
+                self.toggle_zoom_to_area()
 
             self._update_overlay_widget()
             event.accept()
