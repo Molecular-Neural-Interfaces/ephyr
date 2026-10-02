@@ -524,6 +524,13 @@ class UserSession(BaseModel):
             )
 
     @property
+    def session_name(self):
+        if self.session_filename.endswith(settings.SESSION_EXTENSION):
+            return self.session_filename[: -len(settings.SESSION_EXTENSION)]
+
+        return self.session_filename
+
+    @property
     def events_table(self, table_format: EventsTableFormat = EventsTableFormat.DICT):
         result = []
         for event in self.events:
