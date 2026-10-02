@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ephyr import settings
 from ephyr.gui._utils import milliseconds_to_readable
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 
@@ -115,14 +114,7 @@ class OverlaySweepsDialog(QDialog):
         selected_num = len(self._selected_sweep_idxs())
         all_checked = selected_num == self.sweeps_list.count() and selected_num > 0
         self.select_all_btn.setText("Deselect all" if all_checked else "Select all")
-        if selected_num > settings.MAX_OVERLAY_SWEEPS:
-            self.selection_label.setText(
-                f"{selected_num} selected, only the first {settings.MAX_OVERLAY_SWEEPS} will be used"
-            )
-            self.selection_label.setStyleSheet("color: #B00020;")
-        else:
-            self.selection_label.setText(f"{selected_num} selected")
-            self.selection_label.setStyleSheet("")
+        self.selection_label.setText(f"{selected_num} selected")
         self.enable_btn.setEnabled(selected_num > 0)
 
     def _on_select_all_clicked(self):

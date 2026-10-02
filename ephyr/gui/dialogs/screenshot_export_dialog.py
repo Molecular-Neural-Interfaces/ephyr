@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Callable, Tuple
 
 import numpy as np
-from PyQt6.QtCore import QByteArray, QBuffer, QIODevice, QPoint, QRect, QSize, Qt, QMimeData
-from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap, QRegion, QPen
+from PyQt6.QtCore import QByteArray, QBuffer, QIODevice, QPoint, QPointF, QRect, QSize, Qt, QMimeData
+from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap, QPolygonF, QRegion, QPen
 from PyQt6.QtSvg import QSvgGenerator
 from PyQt6.QtWidgets import (
     QApplication,
@@ -375,6 +375,8 @@ class ScreenshotExportDialog(QDialog):
         digital_rects = list(getattr(sw, "_digital_channel_rects", []))
         processed_data = dict(getattr(sw, "_processed_data", {}))
         overlay_processed_data = dict(getattr(sw, "_overlay_processed_data", {}))
+        channel_cut_traces = dict(getattr(sw, "_channel_cut_traces", {}))
+        channel_group_rects = dict(getattr(sw, "_channel_group_rects", {}))
         channels_setup = dict(getattr(sw, "_channels_setup", {}))
         traces_are_visible = bool(getattr(sw, "_traces_are_visible", True))
         group_layouts = list(getattr(sw, "_group_layouts", []))
@@ -392,6 +394,12 @@ class ScreenshotExportDialog(QDialog):
         painter.translate(left_margin, 0)
         painter.setClipping(False)
         sw._draw_group_titles(painter)
+        def clip_rect_for(channel_idx: int, channel_rect: QRect) -> QRect:
+            # Mirrors SignalWidget._draw_trace: only a cut group is clipped to its own cell.
+            if channel_cut_traces.get(channel_idx, False):
+                return channel_rect
+            return channel_group_rects.get(channel_idx, channel_rect)
+
         if traces_are_visible:
             for _channel_idx, channel_rect in digital_rects:
                 sw._draw_middle_line(painter, channel_rect)
@@ -408,6 +416,7 @@ class ScreenshotExportDialog(QDialog):
                         target_dots=target_svg_dots,
                         color_override=overlay_color,
                         pen_width=settings.OVERLAY_TRACE_WIDTH,
+                        clip_rect=clip_rect_for(channel_idx, channel_rect),
                     )
             for draw_idx, (channel_idx, channel_rect) in enumerate(digital_rects):
                 channel_data = processed_data.get(channel_idx)
@@ -421,6 +430,7 @@ class ScreenshotExportDialog(QDialog):
                     channels_setup=channels_setup,
                     default_color=signal_default_color,
                     target_dots=target_svg_dots,
+                    clip_rect=clip_rect_for(channel_idx, channel_rect),
                 )
         cls._draw_auxiliary_groups_resampled(
             painter=painter,
@@ -492,6 +502,28 @@ class ScreenshotExportDialog(QDialog):
         new_x = np.linspace(0.0, 1.0, target_dots, dtype=np.float64)
         return np.interp(new_x, old_x, data).astype(np.float64)
 
+    @staticmethod
+    def draw_polyline_trace(
+        painter: QPainter,
+        x_coords: np.ndarray,
+        y_coords: np.ndarray,
+        color: QColor,
+        pen_width: float,
+        clip_rect: QRect,
+    ):
+        """Emit one SVG element per trace.
+
+        Vector editors such as Corel choke on a separate line element per sample, so the
+        trace goes out as a single polyline and the rect is applied as a clip instead of
+        dropping the out-of-range segments one by one.
+        """
+        polyline = QPolygonF([QPointF(float(x), float(y)) for x, y in zip(x_coords, y_coords)])
+        painter.save()
+        painter.setClipRect(clip_rect)
+        painter.setPen(QPen(color, pen_width))
+        painter.drawPolyline(polyline)
+        painter.restore()
+
     @classmethod
     def _draw_trace_resampled(
         cls,
@@ -505,6 +537,7 @@ class ScreenshotExportDialog(QDialog):
         target_dots: int,
         color_override: Optional[QColor] = None,
         pen_width: float = 1.2,
+        clip_rect: Optional[QRect] = None,
     ):
         if channel_data is None or len(channel_data) < 2:
             return
@@ -523,19 +556,9 @@ class ScreenshotExportDialog(QDialog):
         pixel_per_uv = channel_rect.height() / max(scale, 1e-12)
         y_mid = channel_rect.top() + channel_rect.height() / 2.0
         y_coords = y_mid - (data + y_offset) * pixel_per_uv
-        top = channel_rect.top()
-        bottom = channel_rect.bottom()
 
-        painter.setPen(QPen(color, pen_width))
-        prev_x = float(x_coords[0])
-        prev_y = float(y_coords[0])
-        for i in range(1, n):
-            cur_x = float(x_coords[i])
-            cur_y = float(y_coords[i])
-            if top <= prev_y <= bottom and top <= cur_y <= bottom:
-                painter.drawLine(int(prev_x), int(prev_y), int(cur_x), int(cur_y))
-            prev_x = cur_x
-            prev_y = cur_y
+        cls.draw_polyline_trace(painter, x_coords, y_coords, color, pen_width,
+                                clip_rect if clip_rect is not None else channel_rect)
 
     @classmethod
     def _draw_auxiliary_groups_resampled(
@@ -588,19 +611,7 @@ class ScreenshotExportDialog(QDialog):
                     x_coords = np.linspace(group_rect.left(), group_rect.right(), n, dtype=np.float64)
                     pixel_per_uv = group_rect.height() / max(scale, 1e-12)
                     y_coords = center_y - (data_rs + y_offset) * pixel_per_uv
-                    top = group_rect.top()
-                    bottom = group_rect.bottom()
-
-                    painter.setPen(QPen(color, pen_width))
-                    prev_x = float(x_coords[0])
-                    prev_y = float(y_coords[0])
-                    for i in range(1, n):
-                        cur_x = float(x_coords[i])
-                        cur_y = float(y_coords[i])
-                        if top <= prev_y <= bottom and top <= cur_y <= bottom:
-                            painter.drawLine(int(prev_x), int(prev_y), int(cur_x), int(cur_y))
-                        prev_x = cur_x
-                        prev_y = cur_y
+                    cls.draw_polyline_trace(painter, x_coords, y_coords, color, pen_width, group_rect)
 
     @classmethod
     def _build_svg_bytes_from_pixmap(cls, pixmap: QPixmap) -> bytes:
