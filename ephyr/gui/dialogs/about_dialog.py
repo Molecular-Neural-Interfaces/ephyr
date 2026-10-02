@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QDesktopServices, QPixmap
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ephyr import settings
 from ephyr import version
 from ephyr.gui._utils import resolve_app_icon_path
 
@@ -82,15 +81,6 @@ class AboutDialog(QDialog):
         copyright_label.setWordWrap(True)
         copyright_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         title_block.addWidget(copyright_label)
-
-        docs_link = QLabel(
-            f'<a href="{settings.DOCUMENTATION_LINK}">Documentation</a>',
-            self,
-        )
-        docs_link.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
-        docs_link.setOpenExternalLinks(False)
-        docs_link.linkActivated.connect(self._on_documentation_clicked)
-        title_block.addWidget(docs_link)
         title_block.addStretch(1)
 
         header.addLayout(title_block, stretch=1)
@@ -99,6 +89,3 @@ class AboutDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
-
-    def _on_documentation_clicked(self, _link: str) -> None:
-        QDesktopServices.openUrl(QUrl(settings.DOCUMENTATION_LINK))
