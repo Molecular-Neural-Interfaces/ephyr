@@ -842,6 +842,7 @@ class ChannelManagementPanel(QWidget):
         self._rebuilding_groups = False
         self._group_tabs_updating = False
         self._pending_group_tab_move: Optional[Tuple[int, int]] = None
+        self._is_expert = False
         self.setup_ui()
         self.connect_signals()
 
@@ -892,8 +893,15 @@ class ChannelManagementPanel(QWidget):
 
     def apply_gui_mode(self, gui_mode: GuiMode):
         is_expert = gui_mode == GuiMode.EXPERT
+        mode_changed = is_expert != self._is_expert
+        self._is_expert = is_expert
         self.number_of_dots_label.setVisible(is_expert)
         self.number_of_dots_spinbox.setVisible(is_expert)
+        self.create_group_btn.setEnabled(is_expert)
+        self.groups_layout_btn.setEnabled(is_expert)
+        self.set_units_btn.setEnabled(is_expert)
+        if mode_changed and self._session_manager.gui_setup:
+            self.rebuild_groups_ui()
 
     def connect_signals(self):
         self.number_of_dots_spinbox.valueChanged.connect(self._session_manager.set_number_of_dots_to_display)
@@ -1123,14 +1131,15 @@ class ChannelManagementPanel(QWidget):
             )
             form.addRow("Cut traces:", cut_traces)
 
-            aux_checkbox = QCheckBox()
-            aux_checkbox.setChecked(group.is_auxiliary)
-            aux_checkbox.stateChanged.connect(
-                lambda state, idx=group_idx: self._on_aux_changed(
-                    idx, Qt.CheckState(state) == Qt.CheckState.Checked
+            if self._is_expert:
+                aux_checkbox = QCheckBox()
+                aux_checkbox.setChecked(group.is_auxiliary)
+                aux_checkbox.stateChanged.connect(
+                    lambda state, idx=group_idx: self._on_aux_changed(
+                        idx, Qt.CheckState(state) == Qt.CheckState.Checked
+                    )
                 )
-            )
-            form.addRow("Auxiliary channels:", aux_checkbox)
+                form.addRow("Auxiliary channels:", aux_checkbox)
             box_layout.addLayout(form)
 
             self._build_group_filters_setup(box_layout, group_idx, group)
@@ -1150,6 +1159,7 @@ class ChannelManagementPanel(QWidget):
 
             btn_row = QHBoxLayout()
             reorder_btn = QPushButton("Channels layout")
+            reorder_btn.setEnabled(self._is_expert)
             reorder_btn.clicked.connect(lambda _c=False, idx=group_idx: self._open_reorder_dialog(idx))
             btn_row.addWidget(reorder_btn)
             btn_row.addStretch(1)
@@ -1269,8 +1279,12 @@ class ChannelManagementPanel(QWidget):
             apply_to_all()
 
         color_btn.clicked.connect(on_pick_color)
+        if not self._is_expert:
+            y_offset_spin.hide()
+        y_offset_spin.setParent(layout.parentWidget())
         form.addRow("Scale (uV):", scale_spin)
-        form.addRow("Y offset:", y_offset_spin)
+        if self._is_expert:
+            form.addRow("Y offset:", y_offset_spin)
         form.addRow("Color:", color_btn)
         layout.addLayout(form)
 
@@ -1324,7 +1338,7 @@ class ChannelManagementPanel(QWidget):
             scale_spin = QDoubleSpinBox(); scale_spin.setRange(settings.MIN_SCALE, settings.MAX_SCALE)
             scale_spin.setKeyboardTracking(False)
             scale_spin.setSingleStep(settings.SCALE_STEP); scale_spin.setValue(scale)
-            y_spin = QDoubleSpinBox(); y_spin.setRange(-1_000_000.0, 1_000_000.0)
+            y_spin = QDoubleSpinBox(widget); y_spin.setRange(-1_000_000.0, 1_000_000.0)
             y_spin.setKeyboardTracking(False)
             y_spin.setSingleStep(10.0); y_spin.setValue(y_offset)
             color_btn = QPushButton(); color_btn.setProperty("color_str", color)
@@ -1353,8 +1367,11 @@ class ChannelManagementPanel(QWidget):
             aux_row = QHBoxLayout()
             aux_row.addWidget(QLabel("S"))
             aux_row.addWidget(scale_spin)
-            aux_row.addWidget(QLabel("Y"))
-            aux_row.addWidget(y_spin)
+            if self._is_expert:
+                aux_row.addWidget(QLabel("Y"))
+                aux_row.addWidget(y_spin)
+            else:
+                y_spin.hide()
             aux_row.addWidget(QLabel("C"))
             aux_row.addWidget(color_btn)
             aux_row.addStretch(1)

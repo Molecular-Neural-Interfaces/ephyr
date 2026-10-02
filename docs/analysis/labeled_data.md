@@ -120,8 +120,8 @@ Vocabulary helpers: `add_event_vocabulary`, `get_event_vocabulary_name`, `get_ev
 | `overlay_sweep_idxs` | `List[int]` | Sweeps drawn in gray behind the current one (empty = overlay off) |
 | `start_point` | `int` | First sample of the visible window |
 | `duration_ms` | `int` | Width of the visible window |
-| `time_step_ms` | `int` | Timebar step in milliseconds |
-| `autoscroll_step_interval_ms` | `int` | Auto-scroll frame delay in milliseconds |
+| `time_step_ms` | `int` | Timebar step in milliseconds. In Beginner mode the GUI sets this to half of `duration_ms`. |
+| `autoscroll_step_interval_ms` | `int` | How often auto-scroll advances, in milliseconds. New sessions default to 1000. |
 | `number_of_dots_to_display` | `int` | Target point count per trace (decimation) |
 | `channels_groups` | `List[ChannelGroup]` | Channel groups in display order |
 | `channels_setup` | `Dict[int, ChannelSetup]` | Per-channel style |

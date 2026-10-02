@@ -49,7 +49,8 @@ Below the traces:
 2. **Time controls** — `<<` `<` scrollbar `>` `>>`:
    - Scrollbar sets the window start sample
    - `<` / `>` step by the configured timebar step
-   - `<<` / `>>` toggle auto-scroll using the auto-scroll frame delay and timebar step
+   - `<<` / `>>` toggle auto-scroll: the view jumps by the timebar step on each frame, and the frame delay is how often that happens (1000 ms by default).
+     In Beginner mode the timebar step is half of the visible duration window.
 
 You can also **drag horizontally on the plot to pan** (when not in an exclusive overlay mode) and use
 **Ctrl/Cmd + scroll** to zoom duration around the cursor.

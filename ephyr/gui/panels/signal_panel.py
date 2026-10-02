@@ -1860,6 +1860,9 @@ class SignalPanel(QWidget):
         self._session_manager.session_loaded.connect(self.on_session_loaded)
         self._session_manager.start_point_changed.connect(self.on_start_point_changed)
         self._session_manager.duration_ms_changed.connect(lambda _duration: self._update_time_scrollbar())
+        self._session_manager.autoscroll_step_interval_ms_changed.connect(
+            self._on_autoscroll_interval_changed
+        )
         self._session_manager.current_sweep_idx_changed.connect(lambda _idx: self.on_session_loaded())
         self._session_manager.channels_groups_changed.connect(self._on_channels_groups_changed)
         self._session_manager.channel_setup_changed.connect(self._redraw_data)
@@ -2862,6 +2865,10 @@ class SignalPanel(QWidget):
         if interval <= 0:
             return 0
         return int((self._session_manager.gui_setup.time_step_ms * 1000) / interval)
+
+    def _on_autoscroll_interval_changed(self, interval_ms: int):
+        if int(interval_ms) > 0:
+            self._auto_scroll_timer.setInterval(int(interval_ms))
 
     def _toggle_auto_scroll(self, direction: int):
         if self._auto_scroll_timer.isActive() and self._auto_scroll_direction == direction:

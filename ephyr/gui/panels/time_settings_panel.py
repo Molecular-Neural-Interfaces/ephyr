@@ -4,6 +4,7 @@
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from ephyr import settings
+from ephyr.core.global_storage import GuiMode
 from ephyr.gui._utils import milliseconds_to_readable, sample_rate_to_readable
 from ephyr.gui.dialogs.overlay_sweeps_dialog import OverlaySweepsDialog
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
@@ -15,6 +16,8 @@ class TimeSettingsPanel(QWidget):
         super().__init__(parent)
         self._session_manager = session_manager
         self._updating = False
+        self._is_expert = False
+        self._expert_only_rows = []
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.setup_ui()
         self.connect_signals()
@@ -46,7 +49,7 @@ class TimeSettingsPanel(QWidget):
         self.duration_spinbox.setSuffix(" ms")
 
         self.time_step_spinbox = QSpinBox()
-        self.time_step_spinbox.setRange(settings.MIN_TIME_STEP, settings.MAX_TIME_STEP)
+        self.time_step_spinbox.setRange(settings.MIN_TIME_STEP, settings.MAX_DURATION)
         self.time_step_spinbox.setSingleStep(100)
         self.time_step_spinbox.setSuffix(" ms")
 
@@ -55,8 +58,8 @@ class TimeSettingsPanel(QWidget):
         self.autoscroll_step_interval_spinbox.setSingleStep(50)
         self.autoscroll_step_interval_spinbox.setSuffix(" ms")
 
-        self.start_point_label = QLabel("Start point:")
         self.duration_label = QLabel("Duration to show:")
+        self.start_point_label = QLabel("Start point:")
         self.time_step_label = QLabel("Timebar step:")
         self.sweep_info_label = QLabel("")
         self.sweep_info_label.setStyleSheet("color: gray; font-size: 9pt;")
@@ -64,21 +67,33 @@ class TimeSettingsPanel(QWidget):
 
         layout.addWidget(self.sweep_info_label)
 
-        rows = [
-            ("Current sweep:", self.current_sweep_spinbox),
-            (self.start_point_label, self.start_point_spinbox),
-            (self.duration_label, self.duration_spinbox),
-            (self.time_step_label, self.time_step_spinbox),
-            ("Auto-scroll frame delay:", self.autoscroll_step_interval_spinbox),
-        ]
-        for label, widget in rows:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(label) if isinstance(label, str) else label)
-            row.addWidget(widget)
-            if widget is self.current_sweep_spinbox:
-                row.addWidget(self.setup_overlay_button)
-            row.addStretch(1)
-            layout.addLayout(row)
+        self._add_control_row(layout, "Current sweep:", self.current_sweep_spinbox, self.setup_overlay_button)
+        self._add_control_row(layout, self.duration_label, self.duration_spinbox)
+        self._add_control_row(layout, self.start_point_label, self.start_point_spinbox, expert_only=True)
+        self._add_control_row(layout, self.time_step_label, self.time_step_spinbox, expert_only=True)
+        self._add_control_row(
+            layout, "Auto-scroll frame delay:", self.autoscroll_step_interval_spinbox, expert_only=True
+        )
+
+    def _add_control_row(self, layout, label, widget, trailing=None, expert_only=False):
+        row_widget = QWidget()
+        row = QHBoxLayout(row_widget)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(label if not isinstance(label, str) else QLabel(label))
+        row.addWidget(widget)
+        if trailing is not None:
+            row.addWidget(trailing)
+        row.addStretch(1)
+        layout.addWidget(row_widget)
+        if expert_only:
+            self._expert_only_rows.append(row_widget)
+            row_widget.setVisible(False)
+
+    def apply_gui_mode(self, gui_mode: GuiMode):
+        self._is_expert = gui_mode == GuiMode.EXPERT
+        for row in self._expert_only_rows:
+            row.setVisible(self._is_expert)
+        self._sync_time_controls()
 
     def connect_signals(self):
         self.current_sweep_spinbox.valueChanged.connect(
@@ -162,12 +177,27 @@ class TimeSettingsPanel(QWidget):
         half_visible = int((new_duration_ms / 2000.0) * sample_rate)
         self._session_manager.set_start_point(center_sample - half_visible)
 
+    def _beginner_time_step_ms(self, duration_ms: int) -> int:
+        return max(settings.MIN_TIME_STEP, int(duration_ms) // 2)
+
+    def _apply_beginner_time_step(self):
+        gui_setup = self._session_manager.gui_setup
+        if self._is_expert or not gui_setup:
+            return
+        self._session_manager.set_beginner_time_step_ms(
+            self._beginner_time_step_ms(gui_setup.duration_ms)
+        )
+
     def _sync_time_controls(self, *_args):
+        if self._updating:
+            return
         gui_setup = self._session_manager.gui_setup
         if not gui_setup:
             return
 
         self._updating = True
+        if not self._is_expert:
+            self._apply_beginner_time_step()
         controls = (
             self.current_sweep_spinbox,
             self.start_point_spinbox,

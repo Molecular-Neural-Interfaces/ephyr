@@ -195,6 +195,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.gui_mode_combo.setCurrentIndex(self.gui_mode_combo.findData(current_mode))
         gui_mode_layout.addWidget(self.gui_mode_combo, 1)
         self.right_panel_layout.addWidget(gui_mode_row)
+        self.time_settings_panel.apply_gui_mode(current_mode)
         self.channel_management_panel.apply_gui_mode(current_mode)
         self.info_panel.apply_gui_mode(current_mode)
 
@@ -497,6 +498,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         if mode is None:
             return
         self.global_storage_manager.set_gui_mode(mode)
+        self.time_settings_panel.apply_gui_mode(mode)
         self.channel_management_panel.apply_gui_mode(mode)
         self.info_panel.apply_gui_mode(mode)
 
