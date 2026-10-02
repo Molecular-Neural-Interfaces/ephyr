@@ -58,6 +58,13 @@ class TimeSettingsPanel(QWidget):
         self.autoscroll_step_interval_spinbox.setSingleStep(50)
         self.autoscroll_step_interval_spinbox.setSuffix(" ms")
 
+        self.number_of_dots_spinbox = QSpinBox()
+        self.number_of_dots_spinbox.setRange(
+            settings.MIN_NUMBER_OF_DOTS_TO_DISPLAY,
+            settings.MAX_NUMBER_OF_DOTS_TO_DISPLAY,
+        )
+        self.number_of_dots_spinbox.setSingleStep(100)
+
         self.duration_label = QLabel("Duration to show:")
         self.start_point_label = QLabel("Start point:")
         self.time_step_label = QLabel("Timebar step:")
@@ -73,6 +80,9 @@ class TimeSettingsPanel(QWidget):
         self._add_control_row(layout, self.time_step_label, self.time_step_spinbox, expert_only=True)
         self._add_control_row(
             layout, "Auto-scroll frame delay:", self.autoscroll_step_interval_spinbox, expert_only=True
+        )
+        self._add_control_row(
+            layout, "Number of points to display:", self.number_of_dots_spinbox, expert_only=True
         )
 
     def _add_control_row(self, layout, label, widget, trailing=None, expert_only=False):
@@ -106,6 +116,7 @@ class TimeSettingsPanel(QWidget):
         self.autoscroll_step_interval_spinbox.valueChanged.connect(
             self._session_manager.set_autoscroll_step_interval_ms
         )
+        self.number_of_dots_spinbox.valueChanged.connect(self._session_manager.set_number_of_dots_to_display)
 
         self._session_manager.session_loaded.connect(self._sync_time_controls)
         self._session_manager.start_point_changed.connect(self._sync_time_controls)
@@ -113,6 +124,7 @@ class TimeSettingsPanel(QWidget):
         self._session_manager.current_sweep_idx_changed.connect(self._sync_time_controls)
         self._session_manager.time_step_ms_changed.connect(self._sync_time_controls)
         self._session_manager.autoscroll_step_interval_ms_changed.connect(self._sync_time_controls)
+        self._session_manager.number_of_dots_to_display_changed.connect(self._sync_time_controls)
         self._session_manager.overlay_sweep_idxs_changed.connect(self._sync_overlay_button)
 
     def _on_setup_overlay_clicked(self):
@@ -204,6 +216,7 @@ class TimeSettingsPanel(QWidget):
             self.duration_spinbox,
             self.time_step_spinbox,
             self.autoscroll_step_interval_spinbox,
+            self.number_of_dots_spinbox,
         )
         for control in controls:
             control.blockSignals(True)
@@ -220,6 +233,7 @@ class TimeSettingsPanel(QWidget):
         self.duration_spinbox.setValue(gui_setup.duration_ms)
         self.time_step_spinbox.setValue(gui_setup.time_step_ms)
         self.autoscroll_step_interval_spinbox.setValue(gui_setup.autoscroll_step_interval_ms)
+        self.number_of_dots_spinbox.setValue(gui_setup.number_of_dots_to_display)
 
         for control in controls:
             control.blockSignals(False)

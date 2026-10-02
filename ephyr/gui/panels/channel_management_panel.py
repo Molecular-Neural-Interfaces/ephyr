@@ -855,20 +855,6 @@ class ChannelManagementPanel(QWidget):
         title.setStyleSheet("font-weight: bold;")
         layout.addWidget(title)
 
-        self.number_of_dots_spinbox = QSpinBox()
-        self.number_of_dots_spinbox.setRange(
-            settings.MIN_NUMBER_OF_DOTS_TO_DISPLAY,
-            settings.MAX_NUMBER_OF_DOTS_TO_DISPLAY,
-        )
-        self.number_of_dots_spinbox.setSingleStep(100)
-        self.number_of_dots_label = QLabel("Number of points to display:")
-
-        dots_row = QHBoxLayout()
-        dots_row.addWidget(self.number_of_dots_label)
-        dots_row.addWidget(self.number_of_dots_spinbox)
-        dots_row.addStretch(1)
-        layout.addLayout(dots_row)
-
         instructions = QLabel("Drag&drop tabs to reorder groups. Tick channels, then Move checked to target group. "
                               "Channel order and enabling are edited in Layout.")
         instructions.setWordWrap(True)
@@ -895,8 +881,6 @@ class ChannelManagementPanel(QWidget):
         is_expert = gui_mode == GuiMode.EXPERT
         mode_changed = is_expert != self._is_expert
         self._is_expert = is_expert
-        self.number_of_dots_label.setVisible(is_expert)
-        self.number_of_dots_spinbox.setVisible(is_expert)
         self.create_group_btn.setEnabled(is_expert)
         self.groups_layout_btn.setEnabled(is_expert)
         self.set_units_btn.setEnabled(is_expert)
@@ -904,7 +888,6 @@ class ChannelManagementPanel(QWidget):
             self.rebuild_groups_ui()
 
     def connect_signals(self):
-        self.number_of_dots_spinbox.valueChanged.connect(self._session_manager.set_number_of_dots_to_display)
         self.create_group_btn.clicked.connect(lambda: self._session_manager.add_channel_group("Group"))
         self.groups_layout_btn.clicked.connect(self.on_groups_layout_clicked)
         self.set_units_btn.clicked.connect(self.on_set_units_clicked)
@@ -913,7 +896,6 @@ class ChannelManagementPanel(QWidget):
 
         self._session_manager.session_loaded.connect(self.on_session_loaded)
         self._session_manager.channels_groups_changed.connect(self._on_channels_groups_changed)
-        self._session_manager.number_of_dots_to_display_changed.connect(self._sync_number_of_dots)
         self._session_manager.filters_changed.connect(self.on_filters_changed)
         self._session_manager.header_units_changed.connect(lambda _units: self.rebuild_groups_ui())
 
@@ -921,7 +903,6 @@ class ChannelManagementPanel(QWidget):
         gui_setup = self._session_manager.gui_setup
         if not gui_setup:
             return
-        self._sync_number_of_dots()
         updated_groups = [g.model_copy(deep=True) for g in gui_setup.channels_groups]
         changed = False
         for group in updated_groups:
@@ -932,14 +913,6 @@ class ChannelManagementPanel(QWidget):
         if changed:
             self._session_manager.set_channels_groups(updated_groups)
         self.rebuild_groups_ui()
-
-    def _sync_number_of_dots(self, *_args):
-        gui_setup = self._session_manager.gui_setup
-        if not gui_setup:
-            return
-        self.number_of_dots_spinbox.blockSignals(True)
-        self.number_of_dots_spinbox.setValue(gui_setup.number_of_dots_to_display)
-        self.number_of_dots_spinbox.blockSignals(False)
 
     def on_filters_changed(self):
         # Do not rebuild filter form here. This signal can be emitted from
