@@ -10,7 +10,7 @@ from copy import copy
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 from enum import Enum
 
 import numpy as np
@@ -95,6 +95,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.global_storage_manager = global_storage_manager
         self._processed_channels_data_cache: Dict[int, np.ndarray[np.float64]] = {}
         self._overlay_channels_data_cache: Dict[int, Dict[int, np.ndarray[np.float64]]] = {}
+        self._overlay_cache_sweep_idxs: Tuple[int, ...] = ()
+        self._overlay_data_version = 0
         self._filters_enabled_last = False
 
         # Menu bar and actions
@@ -441,42 +443,52 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self._filters_enabled_last = any_enabled
 
     def on_sweep_idx_changed(self):
-        self.__recalculate_and_redraw_necessary_signals(recalculate_data=True, )
+        # The gray overlay covers every selected sweep for the current window, so switching
+        # the active sweep only needs the black trace on top of the cached gray layer.
+        self.__recalculate_and_redraw_necessary_signals(recalculate_data=True, recalculate_overlay=False)
 
     def on_overlay_sweep_idxs_changed(self):
         self.__recalculate_and_redraw_necessary_signals(recalculate_data=True, )
 
-    def __recalculate_and_redraw_necessary_signals(self, recalculate_data: bool = True, ):
+    def __recalculate_and_redraw_necessary_signals(self, recalculate_data: bool = True,
+                                                   recalculate_overlay: bool = True, ):
         group_layouts = self.signal_panel.get_visible_groups_layout()
         channel_indexes = []
         for group in group_layouts:
             channel_indexes.extend(group.visible_enabled_channels())
         if recalculate_data:
             gui_setup = self.session_manager.gui_setup
-            # The current sweep is drawn in black, so it never doubles as a gray overlay trace.
-            overlay_sweep_idxs = [
-                sweep_idx for sweep_idx in gui_setup.overlay_sweep_idxs
-                if sweep_idx != gui_setup.current_sweep_idx
-            ]
-            per_sweep_data = self.session_manager.experiment_data.process_data_pipeline_multi_sweep(
-                params=gui_setup,
-                sweep_indexes=[gui_setup.current_sweep_idx] + overlay_sweep_idxs,
-                channel_indexes=channel_indexes,
-                output_number_of_dots=gui_setup.number_of_dots_to_display,
-                transformation_add_ons=self.session_manager.get_transformation_add_ons(),
-            )
-            self._processed_channels_data_cache = per_sweep_data.get(gui_setup.current_sweep_idx, {})
-            self._overlay_channels_data_cache = {
-                sweep_idx: per_sweep_data[sweep_idx]
-                for sweep_idx in overlay_sweep_idxs
-                if sweep_idx in per_sweep_data
-            }
+            overlay_sweep_idxs = tuple(gui_setup.overlay_sweep_idxs)
+            if recalculate_overlay or overlay_sweep_idxs != self._overlay_cache_sweep_idxs:
+                self._overlay_channels_data_cache = \
+                    self.session_manager.experiment_data.process_data_pipeline_multi_sweep(
+                        params=gui_setup,
+                        sweep_indexes=list(overlay_sweep_idxs),
+                        channel_indexes=channel_indexes,
+                        output_number_of_dots=gui_setup.number_of_dots_to_display,
+                        transformation_add_ons=self.session_manager.get_transformation_add_ons(),
+                    )
+                self._overlay_cache_sweep_idxs = overlay_sweep_idxs
+                self._overlay_data_version += 1
+
+            # An overlaid current sweep is already processed, so only reprocess it when it is not.
+            current_sweep_data = self._overlay_channels_data_cache.get(gui_setup.current_sweep_idx)
+            if current_sweep_data is None:
+                current_sweep_data = self.session_manager.experiment_data.process_data_pipeline(
+                    params=gui_setup,
+                    sweep_idx=gui_setup.current_sweep_idx,
+                    channel_indexes=channel_indexes,
+                    output_number_of_dots=gui_setup.number_of_dots_to_display,
+                    transformation_add_ons=self.session_manager.get_transformation_add_ons(),
+                )
+            self._processed_channels_data_cache = current_sweep_data
 
         self.signal_panel.reset_data_and_redraw(
             self._processed_channels_data_cache,
             group_layouts=group_layouts,
             visible_channels=channel_indexes,
             overlay_processed_data=self._overlay_channels_data_cache,
+            overlay_data_version=self._overlay_data_version,
         )
 
     # ---------- Right Panel Management ----------

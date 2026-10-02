@@ -424,6 +424,11 @@ class SignalWidget(QWidget):
 
         self._processed_data = {}
         self._overlay_processed_data: Dict[int, Dict[int, np.ndarray]] = {}
+        self._overlay_data_version = 0
+        # Gray sweeps live on their own cached layer, so switching the active sweep only
+        # repaints the black trace on top of it.
+        self._overlay_pixmap = QPixmap()
+        self._overlay_pixmap_sig: Optional[Tuple] = None
         self._visible_channel_indexes = []
         self._channel_names = []
         self._voltage_scale = 0.0
@@ -486,6 +491,7 @@ class SignalWidget(QWidget):
             voltage_scale,
             *,
             overlay_processed_data: Optional[Dict[int, Dict[int, np.ndarray]]] = None,
+            overlay_data_version: int = 0,
             group_layouts: Optional[List[ChannelGroup]] = None,
             channels_setup: Optional[Dict[int, ChannelSetup]] = None,
             start_point: int,
@@ -507,6 +513,7 @@ class SignalWidget(QWidget):
         # SETUP VARIABLES
         self._processed_data = processed_data
         self._overlay_processed_data = dict(overlay_processed_data or {})
+        self._overlay_data_version = int(overlay_data_version)
         self._visible_channel_indexes = visible_channel_indexes
         self._voltage_scale = voltage_scale
         self._axis_start_point = max(0, start_point)
@@ -542,10 +549,12 @@ class SignalWidget(QWidget):
             self._reset_geometry()
             self._geometry_signature = None
             self.pixmap_cache = QPixmap()
+            self._discard_overlay_pixmap()
             self.update()
             return
 
         self._compute_geometry()
+        self._refresh_overlay_pixmap()
 
         # DRAW
         self.pixmap_cache = QPixmap(self._axis_width, self._draw_area_height)
@@ -558,10 +567,12 @@ class SignalWidget(QWidget):
             for channel_idx, cell_rect, enabled, _count in self._cell_rects:
                 if enabled:
                     self._draw_middle_line(painter, cell_rect)
+            self._draw_auxiliary_center_lines(painter)
 
         self._draw_add_ons(ViewEntitiesZIndexEnum.MIDDLE_LINE.value, ViewEntitiesZIndexEnum.TRACES.value, painter)
         if self._traces_are_visible:
-            self._draw_overlay_sweeps(painter, voltage_scale)
+            if not self._overlay_pixmap.isNull():
+                painter.drawPixmap(0, 0, self._overlay_pixmap)
 
             cur_draw_idx = 0
             for channel_idx, cell_rect, enabled, _count in self._cell_rects:
@@ -973,10 +984,42 @@ class SignalWidget(QWidget):
             return color
         return QColor("#00AA55")
 
-    def _draw_overlay_sweeps(self, painter: QPainter, voltage_scale):
-        """Draw the non-current sweeps in gray, underneath the black current sweep."""
-        if not self._overlay_processed_data:
+    def _discard_overlay_pixmap(self):
+        self._overlay_pixmap = QPixmap()
+        self._overlay_pixmap_sig = None
+
+    def _overlay_render_sig(self) -> Tuple:
+        """Everything the gray layer depends on: geometry, per-channel scaling and the data itself."""
+        channels_sig = []
+        for group in self._group_layouts:
+            for channel_idx in group.channel_indexes:
+                setup = self._channels_setup.get(channel_idx)
+                channels_sig.append((
+                    channel_idx,
+                    float(getattr(setup, "scale", 1.0) or 1.0),
+                    float(getattr(setup, "y_offset", 0.0)),
+                    bool(self._channel_cut_traces.get(channel_idx, False)),
+                ))
+        return (
+            self._geometry_signature,
+            self._overlay_data_version,
+            tuple(sorted(self._overlay_processed_data.keys())),
+            tuple(channels_sig),
+        )
+
+    def _refresh_overlay_pixmap(self):
+        """Rebuild the cached gray sweep layer only when its inputs changed."""
+        if not self._overlay_processed_data or not self._traces_are_visible:
+            self._discard_overlay_pixmap()
             return
+
+        sig = self._overlay_render_sig()
+        if sig == self._overlay_pixmap_sig and not self._overlay_pixmap.isNull():
+            return
+
+        pixmap = QPixmap(self._axis_width, self._draw_area_height)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
         overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
         for sweep_data in self._overlay_processed_data.values():
             cur_draw_idx = 0
@@ -989,7 +1032,7 @@ class SignalWidget(QWidget):
                         painter,
                         channel_data,
                         cell_rect,
-                        voltage_scale,
+                        0.0,
                         channel_idx,
                         cur_draw_idx,
                         color_override=overlay_color,
@@ -998,17 +1041,11 @@ class SignalWidget(QWidget):
                     )
                 cur_draw_idx += 1
 
-    def _draw_auxiliary_groups(self, painter: QPainter, processed_data):
-        for group_idx, group_rect in self._auxiliary_group_rects:
-            if group_rect.height() <= 0:
-                continue
-            center_y = group_rect.top() + group_rect.height() / 2.0
-            painter.setPen(QPen(self._GRID_COLOR, 1, Qt.PenStyle.DotLine))
-            painter.drawLine(group_rect.left(), int(center_y), group_rect.right(), int(center_y))
-
-            channels = self._group_layouts[group_idx].visible_channels()
-            for sweep_data in self._overlay_processed_data.values():
-                for channel_idx in channels:
+            for group_idx, group_rect in self._auxiliary_group_rects:
+                if group_rect.height() <= 0:
+                    continue
+                center_y = group_rect.top() + group_rect.height() / 2.0
+                for channel_idx in self._group_layouts[group_idx].visible_channels():
                     channel_data = sweep_data.get(channel_idx)
                     if channel_data is None or len(channel_data) < 2:
                         continue
@@ -1025,7 +1062,24 @@ class SignalWidget(QWidget):
                         pen_width=settings.OVERLAY_TRACE_WIDTH,
                         buffer_namespace=3,
                     )
+        painter.end()
+        self._overlay_pixmap = pixmap
+        self._overlay_pixmap_sig = sig
 
+    def _draw_auxiliary_center_lines(self, painter: QPainter):
+        for _group_idx, group_rect in self._auxiliary_group_rects:
+            if group_rect.height() <= 0:
+                continue
+            center_y = int(group_rect.top() + group_rect.height() / 2.0)
+            painter.setPen(QPen(self._GRID_COLOR, 1, Qt.PenStyle.DotLine))
+            painter.drawLine(group_rect.left(), center_y, group_rect.right(), center_y)
+
+    def _draw_auxiliary_groups(self, painter: QPainter, processed_data):
+        for group_idx, group_rect in self._auxiliary_group_rects:
+            if group_rect.height() <= 0:
+                continue
+            center_y = group_rect.top() + group_rect.height() / 2.0
+            channels = self._group_layouts[group_idx].visible_channels()
             for channel_idx in channels:
                 channel_data = processed_data.get(channel_idx)
                 if channel_data is None or len(channel_data) < 2:
@@ -1670,6 +1724,7 @@ class SignalPanel(QWidget):
         self._session_manager: QtEphyrSessionManagerWrapper = session_manager
         self._cached_processed_data: Dict[int, np.ndarray[np.float64]] = {}
         self._cached_overlay_processed_data: Dict[int, Dict[int, np.ndarray[np.float64]]] = {}
+        self._cached_overlay_data_version = 0
 
         # Scale bar
         self._current_overlay_mode = OverlayModeEnum.NONE
@@ -1989,9 +2044,11 @@ class SignalPanel(QWidget):
             group_layouts: Optional[List[ChannelGroup]] = None,
             visible_channels: Optional[List[int]] = None,
             overlay_processed_data: Optional[Dict[int, Dict[int, np.ndarray[np.float64]]]] = None,
+            overlay_data_version: int = 0,
     ):
         self._cached_processed_data = processed_data
         self._cached_overlay_processed_data = dict(overlay_processed_data or {})
+        self._cached_overlay_data_version = int(overlay_data_version)
         self._cached_group_layouts_override = list(group_layouts) if group_layouts is not None else None
         self._cached_visible_channels_override = list(visible_channels) if visible_channels is not None else None
         self._redraw_data()
@@ -2100,6 +2157,7 @@ class SignalPanel(QWidget):
             self._session_manager.header.channel_info.name,
             settings.DEFAULT_SCALE,
             overlay_processed_data=self._cached_overlay_processed_data,
+            overlay_data_version=self._cached_overlay_data_version,
             group_layouts=group_layouts,
             channels_setup=gui_setup.channels_setup,
             start_point=gui_setup.start_point,
@@ -2407,23 +2465,43 @@ class SignalPanel(QWidget):
             return
 
         duration_ms = max(1e-9, self._end_time_ms - self._start_time_ms)
-        data_subset: Dict[int, np.ndarray[np.float64]] = {}
-        for ch_idx in selected_channels:
-            data = self._cached_processed_data.get(ch_idx)
+
+        def time_slice(data: Optional[np.ndarray]) -> Optional[np.ndarray]:
             if data is None or len(data) < 2:
-                continue
+                return None
             n = len(data)
             left_idx = int(((start_ms - self._start_time_ms) / duration_ms) * (n - 1))
             right_idx = int(((end_ms - self._start_time_ms) / duration_ms) * (n - 1))
             left_idx = max(0, min(n - 2, left_idx))
             right_idx = max(left_idx + 1, min(n - 1, right_idx))
-            data_subset[ch_idx] = data[left_idx:right_idx + 1]
+            return data[left_idx:right_idx + 1]
+
+        data_subset: Dict[int, np.ndarray[np.float64]] = {}
+        for ch_idx in selected_channels:
+            channel_slice = time_slice(self._cached_processed_data.get(ch_idx))
+            if channel_slice is not None:
+                data_subset[ch_idx] = channel_slice
 
         selected_channels = [ch for ch in selected_channels if ch in data_subset]
         if not selected_channels:
             return
 
+        overlay_subset: Dict[int, Dict[int, np.ndarray[np.float64]]] = {}
+        for sweep_idx, sweep_data in self._cached_overlay_processed_data.items():
+            sweep_subset = {}
+            for ch_idx in selected_channels:
+                channel_slice = time_slice(sweep_data.get(ch_idx))
+                if channel_slice is not None:
+                    sweep_subset[ch_idx] = channel_slice
+            if sweep_subset:
+                overlay_subset[sweep_idx] = sweep_subset
+
         gui_setup = self._session_manager.gui_setup
+        channel_cut_traces = {
+            ch: bool(group.cut_traces)
+            for group in gui_setup.channels_groups
+            for ch in group.channel_indexes
+        }
         dialog = FullViewSelectedAreaDialog(
             channel_indexes=selected_channels,
             channel_names=self._session_manager.header.channel_info.name,
@@ -2431,6 +2509,8 @@ class SignalPanel(QWidget):
             channels_setup=gui_setup.channels_setup,
             start_time_ms=start_ms,
             end_time_ms=end_ms,
+            overlay_channel_data=overlay_subset,
+            channel_cut_traces=channel_cut_traces,
             parent=self,
         )
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)

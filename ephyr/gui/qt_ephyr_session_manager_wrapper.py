@@ -409,7 +409,7 @@ class QtEphyrSessionManagerWrapper(QObject):
         normalized = sorted({
             int(sweep_idx) for sweep_idx in (sweep_idxs or [])
             if 0 <= int(sweep_idx) < sweeps_num
-        })[:settings.MAX_OVERLAY_SWEEPS]
+        })
         if self.gui_setup.overlay_sweep_idxs == normalized:
             return
         self._session_manager.current_user_session.gui_setup.overlay_sweep_idxs = normalized
