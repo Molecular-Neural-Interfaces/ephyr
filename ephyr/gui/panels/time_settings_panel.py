@@ -24,7 +24,7 @@ class TimeSettingsPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(8)
 
-        title = QLabel("Time Settings")
+        title = QLabel("Timeline settings")
         title.setStyleSheet("font-weight: bold;")
         layout.addWidget(title)
 
@@ -57,7 +57,7 @@ class TimeSettingsPanel(QWidget):
 
         self.start_point_label = QLabel("Start point:")
         self.duration_label = QLabel("Duration to show:")
-        self.time_step_label = QLabel("Auto-scroll time step:")
+        self.time_step_label = QLabel("Timebar step:")
         self.sweep_info_label = QLabel("")
         self.sweep_info_label.setStyleSheet("color: gray; font-size: 9pt;")
         self.sweep_info_label.setWordWrap(True)
@@ -69,7 +69,7 @@ class TimeSettingsPanel(QWidget):
             (self.start_point_label, self.start_point_spinbox),
             (self.duration_label, self.duration_spinbox),
             (self.time_step_label, self.time_step_spinbox),
-            ("Auto-scroll interval:", self.autoscroll_step_interval_spinbox),
+            ("Auto-scroll frame delay:", self.autoscroll_step_interval_spinbox),
         ]
         for label, widget in rows:
             row = QHBoxLayout()
@@ -199,7 +199,7 @@ class TimeSettingsPanel(QWidget):
         self.start_point_label.setText(f"Start point {milliseconds_to_readable(start_ms)}")
         self.duration_label.setText(f"Duration window {milliseconds_to_readable(gui_setup.duration_ms)}")
         self.time_step_label.setText(
-            f"Auto-scroll time step {milliseconds_to_readable(gui_setup.time_step_ms)}"
+            f"Timebar step {milliseconds_to_readable(gui_setup.time_step_ms)}"
         )
         self._update_sweep_info_label(current_sweep_idx)
         self._sync_overlay_button()

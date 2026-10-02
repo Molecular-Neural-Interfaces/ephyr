@@ -140,7 +140,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         self.btn_right_panel_toggle = QToolButton(header)
         # self.btn_right_panel_toggle.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMinButton))
-        self.btn_right_panel_toggle.setText("Show tool panel")
+        self.btn_right_panel_toggle.setText("Show session panel")
 
         if settings.DEBUG:
             self.btn_debug = QToolButton(header)
@@ -182,12 +182,12 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.right_panel_layout.setContentsMargins(5, 5, 5, 5)
         self.right_panel_layout.setSpacing(8)
 
-        # GUI mode selector at the top of the right panel
+        # Session panel selector (Beginner / Expert) at the top of the right panel
         gui_mode_row = QWidget()
         gui_mode_layout = QHBoxLayout(gui_mode_row)
         gui_mode_layout.setContentsMargins(0, 0, 0, 0)
         gui_mode_layout.setSpacing(8)
-        gui_mode_layout.addWidget(QLabel("GUI mode:"))
+        gui_mode_layout.addWidget(QLabel("Session panel:"))
         self.gui_mode_combo = QComboBox()
         for mode in GuiMode:
             self.gui_mode_combo.addItem(mode.label, mode)
@@ -286,9 +286,9 @@ class MainWindow(QMainWindow, QWidgetMixin):
             view_menu.addAction(action)
 
         view_menu.addSection("Tools")
-        self.view_time_settings_panel = QAction("Time settings", self, checkable=True, checked=False)
+        self.view_time_settings_panel = QAction("Timeline settings", self, checkable=True, checked=False)
         self.view_channel_management_panel = QAction("Channel management", self, checkable=True, checked=False)
-        self.view_info_panel = QAction("Experiment description", self, checkable=True, checked=False)
+        self.view_info_panel = QAction("Recording description", self, checkable=True, checked=False)
         self.view_logs_panel = QAction("Application logs", self, checkable=True, checked=False)
         self.view_analysis_panel = QAction("Add-ons", self, checkable=True, checked=False)
         for action in (
@@ -505,7 +505,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         now_visible = not self.right_panel_scroll.isVisible()
         self.right_panel_scroll.setVisible(now_visible)
         self.btn_right_panel_toggle.setText(
-            "Hide tool panel" if now_visible else "Show tool panel"
+            "Hide session panel" if now_visible else "Show session panel"
         )
 
         # Adjust splitter sizes based on visibility
@@ -1200,7 +1200,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
             raise ValueError("Unknown widget_type")
 
     def __get_right_panel_widget_position(self, widget_type: RightPanelWidgetEnum, right_panel_widgets: List[RightPanelWidgetEnum]):
-        # Index 0 is reserved for the GUI mode selector at the top of the right panel.
+        # Index 0 is reserved for the Session panel selector at the top of the right panel.
         idx = 1
         for widget in RightPanelWidgetEnum.widgets_order():
             if widget == widget_type:

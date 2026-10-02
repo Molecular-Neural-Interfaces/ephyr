@@ -48,8 +48,8 @@ Below the traces:
    left arrow that jumps to its start, including periods whose boundaries are in different sweeps.
 2. **Time controls** — `<<` `<` scrollbar `>` `>>`:
    - Scrollbar sets the window start sample
-   - `<` / `>` step by the configured time step
-   - `<<` / `>>` toggle auto-scroll using the auto-scroll interval and time step
+   - `<` / `>` step by the configured timebar step
+   - `<<` / `>>` toggle auto-scroll using the auto-scroll frame delay and timebar step
 
 You can also **drag horizontally on the plot to pan** (when not in an exclusive overlay mode) and use
 **Ctrl/Cmd + scroll** to zoom duration around the cursor.

@@ -98,13 +98,13 @@ Checkable items that show or hide sections of the right-hand settings panel:
 
 | Item | Panel section |
 |------|----------------|
-| **Time settings** | Sweep and visible time-window controls |
+| **Timeline settings** | Sweep and visible time-window controls |
 | **Channel management** | Channel groups, layouts, filters, and units |
 | **Add-ons** | Searchable add-on list with View / Transform / Run |
-| **Experiment description** | Free-text notes and, in Expert mode, visual attachment |
+| **Recording description** | Free-text notes and, in Expert mode, visual attachment |
 | **Application logs** | Live application log and level filter |
 
-If no tool sections are visible, the right panel may hide automatically. Use **Panel** in the header bar
+If no tool sections are visible, the right panel may hide automatically. Use **Show session panel** in the header bar
 to show or hide the whole right panel.
 
 ## Events
