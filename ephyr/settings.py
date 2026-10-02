@@ -55,7 +55,7 @@ INDEX_RAW_URL = "https://raw.github.com/Molecular-Neural-Interfaces/ephyr-add-on
 REPO_RAW_BASE = "https://raw.github.com/Molecular-Neural-Interfaces/ephyr-add-ons/main"
 
 # Documentation
-DOCUMENTATION_LINK = "https://ephyr.readthedocs.io/"
+DOCUMENTATION_LINK = "https://ephyr.readthedocs.io/en/latest/"
 
 # Logging
 MAX_LOG_ITEMS = 60

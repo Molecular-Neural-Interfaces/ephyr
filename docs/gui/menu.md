@@ -164,9 +164,13 @@ and session via `EphyrSessionManager`. See [Using Labeled Data](../analysis/labe
 
 ## Help
 
+### EphyR Guide
+
+Opens the Ephyr guide at [https://ephyr.readthedocs.io/en/latest/](https://ephyr.readthedocs.io/en/latest/).
+
 ### About
 
-Shows the application name, version, description, and a link to the documentation site.
+Shows the application name, version, and description.
 
 ### Hotkeys
 

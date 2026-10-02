@@ -14,8 +14,8 @@ from typing import Optional, List, Dict, Tuple
 from enum import Enum
 
 import numpy as np
-from PyQt6.QtCore import Qt, QRect, QDir
-from PyQt6.QtGui import QAction, QGuiApplication
+from PyQt6.QtCore import Qt, QRect, QDir, QUrl
+from PyQt6.QtGui import QAction, QDesktopServices, QGuiApplication
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -332,6 +332,9 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # Help
         help_menu = menubar.addMenu("Help")
+        self.act_ephyr_guide = QAction("EphyR Guide", self)
+        self.act_ephyr_guide.setMenuRole(QAction.MenuRole.NoRole)
+        help_menu.addAction(self.act_ephyr_guide)
         self.act_about = QAction("About", self)
         self.act_about.setMenuRole(QAction.MenuRole.NoRole)
         help_menu.addAction(self.act_about)
@@ -381,6 +384,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.add_ons_manage.triggered.connect(self.on_add_ons_manage)
         self.add_ons_create_template.triggered.connect(self.on_add_ons_create_template)
         self.add_ons_generate_script.triggered.connect(self.on_add_ons_generate_script)
+        self.act_ephyr_guide.triggered.connect(self.on_ephyr_guide)
         self.act_about.triggered.connect(self.on_about)
         self.act_hotkeys.triggered.connect(self.on_hotkeys)
 
@@ -1033,6 +1037,9 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
     def on_add_ons_generate_script(self):
         ScriptTemplateGeneratorDialog(self.session_manager, self).exec()
+
+    def on_ephyr_guide(self):
+        QDesktopServices.openUrl(QUrl(settings.DOCUMENTATION_LINK))
 
     def on_about(self):
         AboutDialog(self).exec()
