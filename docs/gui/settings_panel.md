@@ -22,6 +22,7 @@ An independent right-panel section enabled with **View → Tools → Timeline se
 | **Duration to show** | Both | Length of the visible window in milliseconds. Changing duration keeps the window center fixed when possible. |
 | **Timebar step** | **Expert only** | Step size (ms) used by the `<` / `>` buttons and by auto-scroll. |
 | **Auto-scroll frame delay** | **Expert only** | How often the view advances while `<<` / `>>` is active, in milliseconds. New sessions default to 1000 ms. |
+| **Number of points to display** | **Expert only** | Target number of plotted points after downsampling. Lower values improve performance; higher values show more detail. |
 
 In **Beginner mode** the timebar step is not shown. Ephyr keeps it at half of **Duration to show** and updates it whenever that window changes. The frame delay stays at its stored value (1000 ms by default).
 
@@ -37,7 +38,6 @@ laid out on screen.
 
 | Control                       | Mode | Purpose |
 |-------------------------------|------|---------|
-| **Number of dots to display** | **Expert only** | Target number of plotted points after downsampling. Lower values improve performance; higher values show more detail. |
 | **Add channels group**        | **Expert only** | Creates a new empty channel-group tab. Disabled in Beginner mode. |
 | **Groups layout**             | **Expert only** | Opens a dialog to place groups on a shared grid (row, column, height ratio, width ratio). Disabled in Beginner mode. |
 | **Set units**                 | **Expert only** | Opens header units management so you can change voltage units for selected channels. Disabled in Beginner mode. |
