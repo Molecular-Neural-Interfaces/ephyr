@@ -1228,16 +1228,17 @@ class SignalWidget(QWidget):
                     seen.add(channel_idx)
         return selected
 
-    def is_auxiliary_y(self, y: int) -> bool:
+    def is_auxiliary_at(self, pos: QPoint) -> bool:
+        """True only when the point lies inside an auxiliary group, not its whole row."""
         for _idx, rect in self._auxiliary_group_rects:
-            if rect.top() <= y <= rect.bottom():
+            if rect.contains(pos):
                 return True
         return False
 
-    def get_scale_for_non_aux_y(self, y: int) -> Optional[float]:
-        """Return group scale for non-aux area at Y, if available."""
+    def get_scale_for_non_aux_at(self, pos: QPoint) -> Optional[float]:
+        """Return group scale for the non-aux group under the point, if available."""
         for group_idx, rect in self._non_aux_group_rects:
-            if not (rect.top() <= y <= rect.bottom()):
+            if not rect.contains(pos):
                 continue
             channels = self._group_layouts[group_idx].visible_channels()
             if not channels:
@@ -2273,7 +2274,7 @@ class SignalPanel(QWidget):
             time_axis_width = 0
 
         scale_value = self._resolve_measure_scale_value(measure_cursor_pos)
-        cursor_is_aux = bool(measure_cursor_pos and self.signal_widget.is_auxiliary_y(measure_cursor_pos.y()))
+        cursor_is_aux = bool(measure_cursor_pos and self.signal_widget.is_auxiliary_at(measure_cursor_pos))
 
         # Determine selection_start_time_ms based on current mode
         selection_start_time_ms = None
@@ -2325,7 +2326,7 @@ class SignalPanel(QWidget):
     def _resolve_measure_scale_value(self, measure_cursor_pos: Optional[QPoint]) -> float:
         if measure_cursor_pos is None:
             return settings.DEFAULT_SCALE
-        scale_value = self.signal_widget.get_scale_for_non_aux_y(measure_cursor_pos.y())
+        scale_value = self.signal_widget.get_scale_for_non_aux_at(measure_cursor_pos)
         if scale_value is None or scale_value <= 0:
             return settings.DEFAULT_SCALE
         return scale_value
