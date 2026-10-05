@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,19 @@ _MAX_RAW_HEADER_SIZE = 5000
 _MCS_RAW_SUFFIXES = {".raw", ".mcsraw"}
 _MCS_H5_SUFFIXES = {".h5", ".hdf5"}
 _MCS_CMOS_SUFFIXES = {".cmcr", ".cmtr"}
+_MCS_MCD_SUFFIXES = {".mcd"}
+_MCD_MAGIC = b"MCSSTRM "
+_MCD_HEADER_LIST = b"LISThdr "
+_MCD_CHUNK = struct.Struct("<8sq")
+_MCD_BLOCK_TIMES = struct.Struct("<qq")
+# Fixed MC_Rack STRMHDR layout: stream properties followed by 1104-byte channel records.
+_MCD_STREAM_KIND = slice(2, 11)
+_MCD_STREAM_RATE_COUNT_OFFSET = 784
+_MCD_STREAM_ID = slice(792, 800)
+_MCD_CHANNEL_RECORDS_OFFSET = 804
+_MCD_CHANNEL_RECORD_SIZE = 1104
+_MCD_CHANNEL_NAME = slice(12, 788)
+_MCD_CHANNEL_LABEL = slice(790, 1048)
 _CMOS_FILE_TYPE_ID = "cabb6cdd-47e0-417a-8e04-5664cbbc449b"
 _CMOS_CHANNEL_STREAM_TYPE_ID = "9217aeb4-59a0-4d7f-bdcd-0371c9fd66eb"
 _CMOS_SENSOR_STREAM_TYPE_ID = "15e5a1fe-df2f-421b-8b60-23eeb2213c45"
@@ -43,6 +57,11 @@ class MCSRecordingInfo:
     header_size: int = 0
     h5_dataset_paths: Tuple[str, ...] = ()
     h5_layout: str = "channels_samples"
+    sweep_sample_counts: Tuple[int, ...] = ()
+    mcd_channel_counts: Tuple[int, ...] = ()
+    # (blocks, streams) byte offsets of interleaved uint16 frames and samples per block.
+    mcd_block_offsets: Optional[np.ndarray] = None
+    mcd_block_samples: Optional[np.ndarray] = None
 
     @property
     def channel_count(self) -> int:
@@ -385,8 +404,184 @@ def _parse_mcs_cmos(path: Path, options: Dict[str, Any]) -> MCSRecordingInfo:
         return _parse_cmos_channel_stream(path, stream)
 
 
+@dataclass(frozen=True)
+class _MCDStream:
+    stream_id: str
+    kind: str
+    channel_labels: List[str]
+    sample_rate: float
+    bits: int
+    adc_zero: int
+    gain_volts: float
+
+
+def _c_string(data: bytes) -> str:
+    return data.split(b"\x00", 1)[0].decode("windows-1252", errors="replace").strip()
+
+
+def _parse_mcd_stream(stream_header: bytes, stream_format: bytes) -> _MCDStream:
+    if len(stream_header) < _MCD_CHANNEL_RECORDS_OFFSET or len(stream_format) < 16:
+        raise ValueError("MCD stream header is truncated")
+    rate_millihertz, channel_count = struct.unpack_from("<ii", stream_header, _MCD_STREAM_RATE_COUNT_OFFSET)
+    records_end = _MCD_CHANNEL_RECORDS_OFFSET + channel_count * _MCD_CHANNEL_RECORD_SIZE
+    if rate_millihertz <= 0 or channel_count <= 0 or len(stream_header) < records_end:
+        raise ValueError("MCD stream header has an invalid sample rate or channel list")
+
+    labels: List[Optional[str]] = [None] * channel_count
+    for record_index in range(channel_count):
+        start = _MCD_CHANNEL_RECORDS_OFFSET + record_index * _MCD_CHANNEL_RECORD_SIZE
+        record = stream_header[start:start + _MCD_CHANNEL_RECORD_SIZE]
+        data_index = struct.unpack_from("<i", record, 4)[0]
+        if not 0 <= data_index < channel_count or labels[data_index] is not None:
+            raise ValueError("MCD channel records have invalid data indices")
+        labels[data_index] = (
+            _c_string(record[_MCD_CHANNEL_LABEL])
+            or _c_string(record[_MCD_CHANNEL_NAME])
+            or f"Ch{data_index}"
+        )
+
+    bits, adc_zero = struct.unpack_from("<HH", stream_format, 4)
+    gain_volts = struct.unpack_from("<d", stream_format, 8)[0]
+    return _MCDStream(
+        stream_id=stream_header[_MCD_STREAM_ID].decode("ascii", errors="replace"),
+        kind=_c_string(stream_header[_MCD_STREAM_KIND]),
+        channel_labels=[str(label) for label in labels],
+        sample_rate=rate_millihertz / 1000.0,
+        bits=int(bits),
+        adc_zero=int(adc_zero),
+        gain_volts=float(gain_volts),
+    )
+
+
+def _parse_mcd_header(source, file_size: int) -> Tuple[List[_MCDStream], int]:
+    source.seek(0)
+    magic, _ = _MCD_CHUNK.unpack(source.read(_MCD_CHUNK.size))
+    if magic != _MCD_MAGIC:
+        raise ValueError("Not an MC_Rack MCD file")
+    tag, size = _MCD_CHUNK.unpack(source.read(_MCD_CHUNK.size))
+    data_start = 2 * _MCD_CHUNK.size + size
+    if tag != _MCD_HEADER_LIST or size <= 0 or data_start > file_size:
+        raise ValueError("MCD file has no valid header list")
+    header = source.read(size)
+
+    streams: List[_MCDStream] = []
+    pending_header: Optional[bytes] = None
+    position = 0
+    while position + _MCD_CHUNK.size <= len(header):
+        tag, size = _MCD_CHUNK.unpack_from(header, position)
+        payload_start = position + _MCD_CHUNK.size
+        if size < 0 or payload_start + size > len(header):
+            raise ValueError("MCD header chunk is truncated")
+        payload = header[payload_start:payload_start + size]
+        if tag == b"STRMHDR ":
+            pending_header = payload
+        elif tag == b"STRMFMT " and pending_header is not None:
+            streams.append(_parse_mcd_stream(pending_header, payload))
+            pending_header = None
+        position = payload_start + size
+    return streams, data_start
+
+
+def _select_mcd_streams(streams: Sequence[_MCDStream], options: Dict[str, Any]) -> List[_MCDStream]:
+    requested_name = options.get("stream_name")
+    if requested_name is not None:
+        selected = [stream for stream in streams if stream.stream_id == str(requested_name)]
+        if not selected:
+            raise ValueError(f"MCD stream is unavailable: {requested_name}")
+    else:
+        # Digital, trigger and spike-cutout streams are not continuous voltage signals.
+        selected = [stream for stream in streams if stream.kind == "analog" and stream.gain_volts > 0]
+        if not selected:
+            raise ValueError("MCD file contains no continuous analog streams")
+    if any(stream.sample_rate != selected[0].sample_rate for stream in selected[1:]):
+        raise ValueError("MCD analog streams have different sample rates")
+    if any(stream.bits != 16 for stream in selected):
+        raise ValueError("Only 16-bit MCD analog streams are supported")
+    return selected
+
+
+def _parse_mcs_mcd(path: Path, options: Dict[str, Any]) -> MCSRecordingInfo:
+    file_size = path.stat().st_size
+    with open(path, "rb") as source:
+        streams, data_start = _parse_mcd_header(source, file_size)
+        selected = _select_mcd_streams(streams, options)
+        blocks: Dict[str, List[Tuple[int, int, int, int]]] = {stream.stream_id: [] for stream in selected}
+        position = data_start
+        while position + _MCD_CHUNK.size <= file_size:
+            source.seek(position)
+            tag, size = _MCD_CHUNK.unpack(source.read(_MCD_CHUNK.size))
+            # An interrupted recording leaves a partially written last block.
+            if size < 0 or position + _MCD_CHUNK.size + size > file_size:
+                break
+            stream_blocks = blocks.get(tag.decode("ascii", errors="replace"))
+            if stream_blocks is not None and size >= _MCD_BLOCK_TIMES.size:
+                start_time, end_time = _MCD_BLOCK_TIMES.unpack(source.read(_MCD_BLOCK_TIMES.size))
+                data_offset = position + _MCD_CHUNK.size + _MCD_BLOCK_TIMES.size
+                stream_blocks.append((data_offset, size - _MCD_BLOCK_TIMES.size, start_time, end_time))
+            position += _MCD_CHUNK.size + size
+
+    block_count = min(len(stream_blocks) for stream_blocks in blocks.values())
+    if block_count == 0:
+        raise ValueError("MCD file contains no analog data blocks")
+    offsets = np.empty((block_count, len(selected)), dtype=np.int64)
+    samples = np.empty(block_count, dtype=np.int64)
+    sweep_sample_counts: List[int] = []
+    previous_end: Optional[int] = None
+    for block_index in range(block_count):
+        block_start: Optional[int] = None
+        for stream_index, stream in enumerate(selected):
+            data_offset, data_bytes, start_time, end_time = blocks[stream.stream_id][block_index]
+            frame_bytes = 2 * len(stream.channel_labels)
+            if data_bytes % frame_bytes:
+                raise ValueError(f"MCD block size does not match channel count in stream {stream.stream_id}")
+            if stream_index == 0:
+                block_start, block_end = start_time, end_time
+                samples[block_index] = data_bytes // frame_bytes
+            elif start_time != block_start or data_bytes // frame_bytes != samples[block_index]:
+                raise ValueError("MCD analog streams are not block-aligned")
+            offsets[block_index, stream_index] = data_offset
+        # Triggered recordings store sweeps as runs of contiguous blocks separated by time gaps.
+        if previous_end is None or block_start != previous_end:
+            sweep_sample_counts.append(0)
+        sweep_sample_counts[-1] += int(samples[block_index])
+        previous_end = block_end
+
+    channel_names = [label for stream in selected for label in stream.channel_labels]
+    if len(set(channel_names)) != len(channel_names):
+        channel_names = [
+            f"{label}__{stream.stream_id}" for stream in selected for label in stream.channel_labels
+        ]
+    zeros = np.concatenate(
+        [np.full(len(stream.channel_labels), stream.adc_zero, dtype=np.int64) for stream in selected]
+    )
+    gains = np.concatenate(
+        [np.full(len(stream.channel_labels), stream.gain_volts * 1e6) for stream in selected]
+    )
+    dtype = np.dtype("<u2")
+    digital_min, digital_max = _digital_ranges(dtype, zeros)
+    return MCSRecordingInfo(
+        path=path,
+        source_type="mcs_mcd",
+        channel_names=channel_names,
+        units=[VoltageUnitEnum.MICROVOLT.value] * len(channel_names),
+        gains=gains,
+        adc_zero=zeros,
+        digital_min=digital_min,
+        digital_max=digital_max,
+        sample_rate=selected[0].sample_rate,
+        sample_count=int(samples.sum()),
+        dtype=dtype,
+        sweep_sample_counts=tuple(sweep_sample_counts),
+        mcd_channel_counts=tuple(len(stream.channel_labels) for stream in selected),
+        mcd_block_offsets=offsets,
+        mcd_block_samples=samples,
+    )
+
+
 def _parse_mcs(path: Path, options: Dict[str, Any]) -> MCSRecordingInfo:
     suffix = path.suffix.lower()
+    if suffix in _MCS_MCD_SUFFIXES:
+        return _parse_mcs_mcd(path, options)
     if suffix in _MCS_RAW_SUFFIXES:
         return _parse_mcs_raw(path)
     if suffix in _MCS_H5_SUFFIXES:
@@ -408,11 +603,16 @@ class MCSDataWriter(AbstractDataWriter):
         self._raw_data: Optional[np.memmap] = None
         self._h5_file: Optional[h5py.File] = None
         self._h5_data: List[h5py.Dataset] = []
+        self._mcd_file = None
+        self._mcd_block_index = 0
 
     def __iter__(self) -> "MCSDataWriter":
         self._close()
         self._sample_position = 0
-        if self._info.source_type == "mcs_raw":
+        self._mcd_block_index = 0
+        if self._info.source_type == "mcs_mcd":
+            self._mcd_file = open(self._info.path, "rb")
+        elif self._info.source_type == "mcs_raw":
             self._raw_data = np.memmap(
                 self._info.path,
                 dtype=self._info.dtype,
@@ -433,7 +633,10 @@ class MCSDataWriter(AbstractDataWriter):
             raise StopIteration
 
         end = min(self._sample_position + self._chunk_samples, self._info.sample_count)
-        if self._raw_data is not None:
+        if self._mcd_file is not None:
+            values = self._read_mcd_blocks()
+            end = self._sample_position + values.shape[1]
+        elif self._raw_data is not None:
             values = np.asarray(self._raw_data[self._sample_position:end, :]).T
         elif self._h5_data:
             if self._info.h5_layout == "samples_grid":
@@ -454,10 +657,50 @@ class MCSDataWriter(AbstractDataWriter):
         self._sample_position = end
         return result
 
+    def _read_mcd_blocks(self) -> np.ndarray:
+        offsets = self._info.mcd_block_offsets
+        block_samples = self._info.mcd_block_samples
+        first_block = self._mcd_block_index
+        last_block = first_block + 1
+        total = int(block_samples[first_block])
+        while last_block < len(block_samples) and total + block_samples[last_block] <= self._chunk_samples:
+            total += int(block_samples[last_block])
+            last_block += 1
+
+        values = np.empty((self._info.channel_count, total), dtype=self._info.dtype)
+        column = 0
+        for block_index in range(first_block, last_block):
+            samples = int(block_samples[block_index])
+            row = 0
+            for stream_index, channel_count in enumerate(self._info.mcd_channel_counts):
+                self._mcd_file.seek(int(offsets[block_index, stream_index]))
+                frames = np.fromfile(self._mcd_file, dtype=self._info.dtype, count=samples * channel_count)
+                if frames.size != samples * channel_count:
+                    raise ValueError("MCD data block is truncated")
+                values[row:row + channel_count, column:column + samples] = frames.reshape(
+                    samples, channel_count
+                ).T
+                row += channel_count
+            column += samples
+        self._mcd_block_index = last_block
+        return values
+
     def total_chunks(self, header: Header) -> int:
+        if self._info.mcd_block_samples is not None:
+            chunks = 0
+            filled = 0
+            for samples in self._info.mcd_block_samples:
+                if chunks == 0 or filled + samples > self._chunk_samples:
+                    chunks += 1
+                    filled = 0
+                filled += int(samples)
+            return chunks
         return (self._info.sample_count + self._chunk_samples - 1) // self._chunk_samples
 
     def _close(self) -> None:
+        if self._mcd_file is not None:
+            self._mcd_file.close()
+            self._mcd_file = None
         self._raw_data = None
         self._h5_data = []
         if self._h5_file is not None:
@@ -469,7 +712,7 @@ class MCSDataWriter(AbstractDataWriter):
 
 
 class MCSSourceReader(AbstractSourceReader):
-    """Read MCS RAW, DataManager HDF5, and CMOS-MEA CMCR/CMTR files."""
+    """Read MC_Rack MCD, MCS RAW, DataManager HDF5, and CMOS-MEA CMCR/CMTR files."""
 
     def __init__(self, experiment_path: Path):
         super().__init__(experiment_path)
@@ -479,11 +722,17 @@ class MCSSourceReader(AbstractSourceReader):
     @classmethod
     def _try_to_open(cls, experiment_path: Path) -> None:
         path = Path(experiment_path)
-        supported_suffixes = _MCS_RAW_SUFFIXES | _MCS_H5_SUFFIXES | _MCS_CMOS_SUFFIXES
+        supported_suffixes = _MCS_RAW_SUFFIXES | _MCS_H5_SUFFIXES | _MCS_CMOS_SUFFIXES | _MCS_MCD_SUFFIXES
         if not path.is_file() or path.suffix.lower() not in supported_suffixes:
             raise WrongSourceReaderError(cls)
         try:
-            _parse_mcs(path, {})
+            if path.suffix.lower() in _MCS_MCD_SUFFIXES:
+                # Avoid scanning every data block of multi-gigabyte recordings just to detect the format.
+                with open(path, "rb") as source:
+                    streams, _ = _parse_mcd_header(source, path.stat().st_size)
+                _select_mcd_streams(streams, {})
+            else:
+                _parse_mcs(path, {})
         except Exception:
             raise WrongSourceReaderError(cls)
 
@@ -512,6 +761,7 @@ class MCSSourceReader(AbstractSourceReader):
             number_of_points_per_channel=[info.sample_count] * info.channel_count,
         )
 
+        points_per_sweep = list(info.sweep_sample_counts) or [info.sample_count]
         created = datetime.fromtimestamp(path.stat().st_mtime)
         header = Header(
             type_before_conversion=info.source_type,
@@ -521,8 +771,8 @@ class MCSSourceReader(AbstractSourceReader):
             sample_interval_microseconds=1e6 / info.sample_rate,
             sample_rate=info.sample_rate,
             number_of_channels=info.channel_count,
-            number_of_sweeps=1,
-            number_of_points_per_sweep=[info.sample_count],
+            number_of_sweeps=len(points_per_sweep),
+            number_of_points_per_sweep=points_per_sweep,
             channel_info=channel_info,
         )
         return header, MCSDataWriter(info)
