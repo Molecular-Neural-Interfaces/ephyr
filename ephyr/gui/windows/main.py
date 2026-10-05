@@ -967,7 +967,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
             self.__set_status("Warning: ephyr session is not active")
             return
 
-        EventsVocabularyDialog(self.session_manager, self).exec()
+        EventsVocabularyDialog(self.session_manager, self, allow_add=False).exec()
 
     def on_add_event(self):
         if not self.session_manager.session_is_active:
@@ -1024,7 +1024,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
             self.__set_status("Warning: ephyr session is not active")
             return
 
-        PeriodsVocabularyDialog(self.session_manager, self).exec()
+        PeriodsVocabularyDialog(self.session_manager, self, allow_add=False).exec()
 
     def on_add_period(self):
         if not self.session_manager.session_is_active:
