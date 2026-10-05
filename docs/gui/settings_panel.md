@@ -39,18 +39,20 @@ laid out on screen.
 | Control                       | Mode | Purpose |
 |-------------------------------|------|---------|
 | **Add channels group**        | **Expert only** | Creates a new empty channel-group tab. Disabled in Beginner mode. |
-| **Groups layout**             | **Expert only** | Opens a dialog to place groups on a shared grid (row, column, height ratio, width ratio). Disabled in Beginner mode. |
+| **Groups layout**             | **Expert only** | Opens an N×N grid (N is the number of groups) to place each group in one cell and set row and column ratios. Disabled in Beginner mode. |
 | **Set units**                 | **Expert only** | Opens header units management so you can change voltage units for selected channels. Disabled in Beginner mode. |
 
 ![Groups layout dialog](../source/_static/gui/groups_layout.png)
 
 ### Groups layout
 
-**Groups layout** controls how multiple channel groups share the signal panel:
+**Groups layout** opens an N×N grid, where N is the number of channel groups. Select a group, then click a cell to place it. Each group occupies one cell; clicking an occupied cell swaps the two groups.
 
-- Groups on the **same row** appear side by side.
-- **Height ratio** and **width ratio** allocate space within the row/column.
-- **Reset** restores a simple default arrangement.
+The spin box to the left of a row is its **height ratio**, and the spin box above a column is its **width ratio**. Occupied rows and columns in the grid grow and shrink with those ratios. Empty rows and columns stay small and are not counted.
+
+On the signal panel, groups that share a row are drawn side by side, and **width ratio** splits that row between them. Unoccupied cells are filled along the row and do not leave a gap. A group that is the only one in its row stretches across the full width. For example, two groups in the top row and one group in the row below: the lower group spans the whole row. **Height ratio** is that row's share of the vertical space; the row uses the largest height ratio among its groups.
+
+**Reset** stacks every group in the first column with ratios of 1. Nothing is applied until you press **Save**.
 
 ### Per-group tabs
 

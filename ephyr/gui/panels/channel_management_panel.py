@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
 # SPDX-License-Identifier: GPL-3.0-only
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QColor
 from pathlib import Path
 
@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QGridLayout,
     QSizePolicy,
+    QButtonGroup,
 )
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -754,49 +755,221 @@ class LayoutSettingsDialog(QDialog):
         )
 
 
+class _GroupsLayoutBoard(QWidget):
+    """NxN placement grid.
+
+    Occupied rows and columns share the free space in proportion to their ratios.
+    Empty rows and columns stay at a fixed size and are left out of that split.
+    """
+
+    _HEADER_W = 74
+    _HEADER_H = 32
+    _COL_MIN = 74
+    _ROW_MIN = 32
+    _GAP = 4
+
+    def __init__(
+        self,
+        cells: List[List[Optional[int]]],
+        row_spins: List[QSpinBox],
+        col_spins: List[QSpinBox],
+        cell_buttons: List[List[QPushButton]],
+        parent=None,
+    ):
+        super().__init__(parent)
+        self._cells = cells
+        self._row_spins = row_spins
+        self._col_spins = col_spins
+        self._buttons = cell_buttons
+        self._corner = QLabel("H ↓\nW →", self)
+        self._corner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._corner.setStyleSheet("color: gray; font-size: 8pt;")
+        for widget in [*row_spins, *col_spins, *(btn for row in cell_buttons for btn in row)]:
+            widget.setParent(self)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumSize(self.minimumSizeHint())
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        n = len(self._cells)
+        gaps = self._GAP * max(0, n - 1)
+        return QSize(
+            self._HEADER_W + self._GAP + n * self._COL_MIN + gaps,
+            self._HEADER_H + self._GAP + n * self._ROW_MIN + gaps,
+        )
+
+    def reposition(self) -> None:
+        n = len(self._cells)
+        if n == 0:
+            return
+        self._corner.setGeometry(0, 0, self._HEADER_W, self._HEADER_H)
+        grid_w = max(0, self.width() - self._HEADER_W - self._GAP)
+        grid_h = max(0, self.height() - self._HEADER_H - self._GAP)
+        gaps = self._GAP * max(0, n - 1)
+        row_active = [any(cell is not None for cell in row) for row in self._cells]
+        col_active = [any(self._cells[r][c] is not None for r in range(n)) for c in range(n)]
+        row_ratios = [spin.value() for spin in self._row_spins]
+        col_ratios = [spin.value() for spin in self._col_spins]
+        row_h = self._distribute(max(0, grid_h - gaps), row_active, row_ratios, self._ROW_MIN)
+        col_w = self._distribute(max(0, grid_w - gaps), col_active, col_ratios, self._COL_MIN)
+
+        y = self._HEADER_H + self._GAP
+        for r in range(n):
+            spin_h = min(26, row_h[r])
+            spin_y = y + max(0, (row_h[r] - spin_h) // 2)
+            self._row_spins[r].setGeometry(0, spin_y, self._HEADER_W, spin_h)
+            y += row_h[r] + self._GAP
+
+        x = self._HEADER_W + self._GAP
+        for c in range(n):
+            spin_w = min(self._HEADER_W, col_w[c])
+            spin_x = x + max(0, (col_w[c] - spin_w) // 2)
+            self._col_spins[c].setGeometry(spin_x, 3, spin_w, self._HEADER_H - 6)
+            x += col_w[c] + self._GAP
+
+        y = self._HEADER_H + self._GAP
+        for r in range(n):
+            x = self._HEADER_W + self._GAP
+            for c in range(n):
+                self._buttons[r][c].setGeometry(x, y, col_w[c], row_h[r])
+                x += col_w[c] + self._GAP
+            y += row_h[r] + self._GAP
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.reposition()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.reposition()
+
+    @staticmethod
+    def _distribute(usable: int, active: List[bool], ratios: List[int], track_min: int) -> List[int]:
+        n = len(active)
+        sizes = [track_min] * n
+        active_idxs = [i for i, flag in enumerate(active) if flag]
+        if not active_idxs:
+            return sizes
+        inactive = n - len(active_idxs)
+        flex = usable - inactive * track_min
+        if flex <= 0:
+            return sizes
+        weight = sum(max(1, int(ratios[i])) for i in active_idxs) or 1
+        shares: List[int] = []
+        consumed = 0
+        for k, i in enumerate(active_idxs):
+            if k == len(active_idxs) - 1:
+                shares.append(flex - consumed)
+            else:
+                add = int(flex * max(1, int(ratios[i])) / weight)
+                shares.append(add)
+                consumed += add
+        if all(share >= track_min for share in shares):
+            for i, share in zip(active_idxs, shares):
+                sizes[i] = share
+            return sizes
+        extra = flex - track_min * len(active_idxs)
+        if extra <= 0:
+            return sizes
+        consumed = 0
+        for k, i in enumerate(active_idxs):
+            if k == len(active_idxs) - 1:
+                sizes[i] += extra - consumed
+            else:
+                add = int(extra * max(1, int(ratios[i])) / weight)
+                sizes[i] += add
+                consumed += add
+        return sizes
+
+
 class GroupsLayoutDialog(QDialog):
+    _GROUP_COLORS = (
+        "#4C78A8", "#F58518", "#54A24B", "#E45756", "#72B7B2",
+        "#B279A2", "#FF9DA6", "#9D755D", "#BAB0AC", "#EECA3B",
+    )
+
     def __init__(self, groups: List[ChannelGroup], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Groups layout")
-        self.resize(560, 420)
-        self._rows: List[Tuple[QSpinBox, QSpinBox, QSpinBox, QSpinBox]] = []
+        self.resize(860, 640)
+        self._names = [group.name or f"Group {i + 1}" for i, group in enumerate(groups)]
+        self._colors = [self._GROUP_COLORS[i % len(self._GROUP_COLORS)] for i in range(len(groups))]
+        self._cells, row_ratios, col_ratios = self._seed_cells(groups)
+        self._n = len(groups)
+        self._selected = 0 if groups else -1
+        self._row_spins: List[QSpinBox] = []
+        self._col_spins: List[QSpinBox] = []
+        self._cell_buttons: List[List[QPushButton]] = []
+        self._group_buttons: List[QPushButton] = []
 
         root = QVBoxLayout(self)
         caption = QLabel(
-            "Arrange groups relative to each other. Groups sharing the same Row "
-            "are placed side by side; each Row's height uses the maximum Height "
-            "ratio among its groups, and Width ratio splits the horizontal space."
+            "Select a group, then click a cell to place it. Each group occupies one cell; "
+            "clicking an occupied cell swaps the two groups. The spin box to the left of a row "
+            "is its height ratio, and the spin box above a column is its width ratio. "
+            "Occupied rows and columns grow and shrink with those ratios. Empty rows and columns "
+            "stay small and are not counted."
         )
         caption.setWordWrap(True)
         root.addWidget(caption)
+        packing = QLabel(
+            "Unoccupied cells are filled along the row: groups in the same row sit side by side, "
+            "and a group alone in its row stretches to the full width. Two groups in the top row "
+            "and one in the row below means the lower group spans the whole row."
+        )
+        packing.setWordWrap(True)
+        packing.setStyleSheet("color: gray;")
+        root.addWidget(packing)
 
+        picker_scroll = QScrollArea()
+        picker_scroll.setWidgetResizable(True)
+        picker_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        picker_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        picker_scroll.setFixedHeight(52)
+        picker = QWidget()
+        picker_row = QHBoxLayout(picker)
+        picker_row.setContentsMargins(0, 0, 0, 0)
+        picker_row.addWidget(QLabel("Group:"))
+        self._group_btn_group = QButtonGroup(self)
+        self._group_btn_group.setExclusive(True)
+        for i, name in enumerate(self._names):
+            button = QPushButton(name)
+            button.setCheckable(True)
+            button.setAutoDefault(False)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.clicked.connect(lambda _checked=False, gi=i: self._select_group(gi))
+            self._group_btn_group.addButton(button, i)
+            self._group_buttons.append(button)
+            picker_row.addWidget(button)
+        picker_row.addStretch(1)
+        picker_scroll.setWidget(picker)
+        root.addWidget(picker_scroll)
+
+        for r in range(self._n):
+            self._row_spins.append(self._make_ratio_spin(row_ratios[r], "Height ratio"))
+        for c in range(self._n):
+            self._col_spins.append(self._make_ratio_spin(col_ratios[c], "Width ratio"))
+        for r in range(self._n):
+            row_buttons: List[QPushButton] = []
+            for c in range(self._n):
+                button = QPushButton()
+                button.setAutoDefault(False)
+                button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                button.setCursor(Qt.CursorShape.PointingHandCursor)
+                button.clicked.connect(lambda _checked=False, rr=r, cc=c: self._on_cell_clicked(rr, cc))
+                row_buttons.append(button)
+            self._cell_buttons.append(row_buttons)
+
+        self._board = _GroupsLayoutBoard(
+            self._cells, self._row_spins, self._col_spins, self._cell_buttons, self,
+        )
+        for spin in [*self._row_spins, *self._col_spins]:
+            spin.valueChanged.connect(self._board.reposition)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        container = QWidget()
-        grid = QGridLayout(container)
-        grid.setSpacing(4)
-        for col, header in enumerate(["Group", "Row", "Height ratio", "Column", "Width ratio"]):
-            label = QLabel(header)
-            label.setStyleSheet("font-weight: bold;")
-            grid.addWidget(label, 0, col)
-
-        for row_idx, group in enumerate(groups, start=1):
-            grid.addWidget(QLabel(group.name or f"Group {row_idx}"), row_idx, 0)
-            row_spin = QSpinBox(); row_spin.setRange(0, 999)
-            row_spin.setValue(int(group.group_layout.layout_row_idx))
-            height_spin = QSpinBox(); height_spin.setRange(1, 1000)
-            height_spin.setValue(group.group_layout.height_ratio)
-            col_spin = QSpinBox(); col_spin.setRange(0, 999)
-            col_spin.setValue(int(group.group_layout.layout_column_idx))
-            width_spin = QSpinBox(); width_spin.setRange(1, 1000)
-            width_spin.setValue(group.group_layout.width_ratio)
-            grid.addWidget(row_spin, row_idx, 1)
-            grid.addWidget(height_spin, row_idx, 2)
-            grid.addWidget(col_spin, row_idx, 3)
-            grid.addWidget(width_spin, row_idx, 4)
-            self._rows.append((row_spin, height_spin, col_spin, width_spin))
-
-        scroll.setWidget(container)
+        scroll.setWidget(self._board)
         root.addWidget(scroll, 1)
 
         actions = QHBoxLayout()
@@ -805,6 +978,7 @@ class GroupsLayoutDialog(QDialog):
         actions.addStretch(1)
         self.cancel_btn = QPushButton("Cancel")
         self.save_btn = QPushButton("Save")
+        self.save_btn.setDefault(True)
         actions.addWidget(self.cancel_btn)
         actions.addWidget(self.save_btn)
         root.addLayout(actions)
@@ -812,24 +986,223 @@ class GroupsLayoutDialog(QDialog):
         self.reset_btn.clicked.connect(self._reset)
         self.cancel_btn.clicked.connect(self.reject)
         self.save_btn.clicked.connect(self.accept)
+        if self._selected >= 0:
+            self._select_group(self._selected)
+        else:
+            self._restyle_cells()
 
-    def _reset(self):
-        for row_spin, height_spin, col_spin, width_spin in self._rows:
-            row_spin.setValue(0)
-            height_spin.setValue(1)
-            col_spin.setValue(0)
-            width_spin.setValue(1)
+    @staticmethod
+    def _make_ratio_spin(value: int, tooltip: str) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(1, 1000)
+        spin.setValue(max(1, int(value)))
+        spin.setToolTip(tooltip)
+        spin.setFixedWidth(70)
+        return spin
+
+    @staticmethod
+    def _text_on(color: str) -> str:
+        parsed = QColor(color)
+        luma = 0.299 * parsed.red() + 0.587 * parsed.green() + 0.114 * parsed.blue()
+        return "#111111" if luma > 160 else "#ffffff"
+
+    @classmethod
+    def _seed_cells(
+        cls, groups: List[ChannelGroup],
+    ) -> Tuple[List[List[Optional[int]]], List[int], List[int]]:
+        """Place each group into one cell of an N×N grid.
+
+        Unique in-range coordinates are kept. The classic stack (every group on the
+        same cell) is shown as one group per row, which is how it is drawn.
+        """
+        n = len(groups)
+        cells: List[List[Optional[int]]] = [[None] * n for _ in range(n)]
+        row_ratios = [1] * n
+        col_ratios = [1] * n
+        if n == 0:
+            return cells, row_ratios, col_ratios
+
+        coords = [
+            (int(group.group_layout.layout_row_idx), int(group.group_layout.layout_column_idx))
+            for group in groups
+        ]
+        all_same = len({row for row, _col in coords}) == 1 and len({col for _row, col in coords}) == 1
+        unique = len(set(coords)) == n
+        in_range = all(0 <= row < n and 0 <= col < n for row, col in coords)
+        if unique and in_range:
+            for i, group in enumerate(groups):
+                row, col = coords[i]
+                cells[row][col] = i
+                row_ratios[row] = max(row_ratios[row], max(1, int(group.group_layout.height_ratio)))
+                col_ratios[col] = max(col_ratios[col], max(1, int(group.group_layout.width_ratio)))
+            return cells, row_ratios, col_ratios
+
+        if all_same:
+            for i, group in enumerate(groups):
+                cells[i][0] = i
+                row_ratios[i] = max(1, int(group.group_layout.height_ratio))
+            if n == 1:
+                col_ratios[0] = max(1, int(groups[0].group_layout.width_ratio))
+            return cells, row_ratios, col_ratios
+
+        arranged = cls._arranged_rows(groups)
+        col_keys = sorted({col for _row, col in coords})
+        col_map = {key: index for index, key in enumerate(col_keys)}
+        for visual_row, row in enumerate(arranged):
+            if visual_row >= n:
+                break
+            row_ratios[visual_row] = max(
+                max(1, int(group.group_layout.height_ratio)) for _i, group in row
+            )
+            used: Set[int] = set()
+            for group_idx, group in row:
+                visual_col = col_map.get(int(group.group_layout.layout_column_idx), 0)
+                while visual_col < n and visual_col in used:
+                    visual_col += 1
+                if visual_col >= n:
+                    visual_col = cls._first_free_column(cells, visual_row)
+                if visual_col is None or visual_col >= n:
+                    continue
+                cells[visual_row][visual_col] = group_idx
+                used.add(visual_col)
+                col_ratios[visual_col] = max(
+                    col_ratios[visual_col], max(1, int(group.group_layout.width_ratio)),
+                )
+        placed = {cell for row in cells for cell in row if cell is not None}
+        for group_idx, group in enumerate(groups):
+            if group_idx in placed:
+                continue
+            for row in range(n):
+                col = cls._first_free_column(cells, row)
+                if col is None:
+                    continue
+                cells[row][col] = group_idx
+                row_ratios[row] = max(row_ratios[row], max(1, int(group.group_layout.height_ratio)))
+                col_ratios[col] = max(col_ratios[col], max(1, int(group.group_layout.width_ratio)))
+                break
+        return cells, row_ratios, col_ratios
+
+    @staticmethod
+    def _arranged_rows(groups: List[ChannelGroup]) -> List[List[Tuple[int, ChannelGroup]]]:
+        rows_map: Dict[int, List[Tuple[int, ChannelGroup]]] = {}
+        for index, group in enumerate(groups):
+            rows_map.setdefault(int(group.group_layout.layout_row_idx), []).append((index, group))
+        arranged: List[List[Tuple[int, ChannelGroup]]] = []
+        for row_key in sorted(rows_map):
+            row = sorted(
+                rows_map[row_key],
+                key=lambda pair: (int(pair[1].group_layout.layout_column_idx), pair[0]),
+            )
+            arranged.append(row)
+        return arranged
+
+    @staticmethod
+    def _first_free_column(cells: List[List[Optional[int]]], row: int) -> Optional[int]:
+        for col, group_idx in enumerate(cells[row]):
+            if group_idx is None:
+                return col
+        return None
+
+    def _select_group(self, index: int) -> None:
+        if not (0 <= index < self._n):
+            return
+        self._selected = index
+        for i, button in enumerate(self._group_buttons):
+            selected = i == index
+            button.setChecked(selected)
+            button.setStyleSheet(self._group_button_style(i, selected))
+        self._restyle_cells()
+
+    def _group_button_style(self, index: int, selected: bool) -> str:
+        bg = self._colors[index]
+        fg = self._text_on(bg)
+        border = "2px solid #222222" if selected else "1px solid #888888"
+        weight = "bold" if selected else "normal"
+        return (
+            f"QPushButton {{ background-color: {bg}; color: {fg}; border: {border}; "
+            f"padding: 4px 10px; font-weight: {weight}; }}"
+        )
+
+    def _restyle_cells(self) -> None:
+        for r in range(self._n):
+            for c in range(self._n):
+                group_idx = self._cells[r][c]
+                button = self._cell_buttons[r][c]
+                if group_idx is None:
+                    button.setText("")
+                    button.setToolTip("Place the selected group here")
+                    button.setStyleSheet(
+                        "QPushButton { background-color: #f3f3f3; border: 1px dashed #bbbbbb; }"
+                        "QPushButton:hover { background-color: #e7e7e7; }"
+                    )
+                    continue
+                name = self._names[group_idx]
+                bg = self._colors[group_idx]
+                fg = self._text_on(bg)
+                selected = group_idx == self._selected
+                border = "3px solid #222222" if selected else "1px solid #666666"
+                button.setText(name)
+                button.setToolTip(name)
+                button.setStyleSheet(
+                    f"QPushButton {{ background-color: {bg}; color: {fg}; border: {border}; "
+                    f"font-weight: bold; padding: 2px; }}"
+                )
+
+    def _on_cell_clicked(self, row: int, col: int) -> None:
+        if self._selected < 0:
+            return
+        self._move_group(self._selected, row, col)
+
+    def _find_group(self, group_idx: int) -> Optional[Tuple[int, int]]:
+        for r in range(self._n):
+            for c in range(self._n):
+                if self._cells[r][c] == group_idx:
+                    return r, c
+        return None
+
+    def _move_group(self, group_idx: int, row: int, col: int) -> None:
+        current = self._find_group(group_idx)
+        if current == (row, col):
+            return
+        occupant = self._cells[row][col]
+        if current is not None:
+            old_row, old_col = current
+            self._cells[old_row][old_col] = occupant if occupant not in (None, group_idx) else None
+        self._cells[row][col] = group_idx
+        self._restyle_cells()
+        self._board.reposition()
+
+    def _reset(self) -> None:
+        n = self._n
+        for r in range(n):
+            for c in range(n):
+                self._cells[r][c] = None
+        for i in range(n):
+            self._cells[i][0] = i
+        for spin in [*self._row_spins, *self._col_spins]:
+            spin.blockSignals(True)
+            spin.setValue(1)
+            spin.blockSignals(False)
+        self._restyle_cells()
+        self._board.reposition()
 
     def get_group_layouts(self) -> List[GroupLayout]:
-        return [
-            GroupLayout(
-                layout_row_idx=row_spin.value(),
-                layout_column_idx=col_spin.value(),
-                height_ratio=height_spin.value(),
-                width_ratio=width_spin.value(),
-            )
-            for row_spin, height_spin, col_spin, width_spin in self._rows
-        ]
+        found: Dict[int, Tuple[int, int]] = {}
+        for r in range(self._n):
+            for c in range(self._n):
+                group_idx = self._cells[r][c]
+                if group_idx is not None:
+                    found[group_idx] = (r, c)
+        layouts: List[GroupLayout] = []
+        for group_idx in range(self._n):
+            row, col = found[group_idx]
+            layouts.append(GroupLayout(
+                layout_row_idx=row,
+                layout_column_idx=col,
+                height_ratio=self._row_spins[row].value(),
+                width_ratio=self._col_spins[col].value(),
+            ))
+        return layouts
 
 
 class ChannelManagementPanel(QWidget):
