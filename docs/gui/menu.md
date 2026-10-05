@@ -31,20 +31,20 @@ The new session gets default channel groups and GUI setup and becomes the active
 Saves the current user session to `sessions/<name>.json` in the experiment folder.
 Shortcut: **Ctrl+S** (Windows/Linux) or **Cmd+S** (macOS).
 
-#### Import → session
+#### Import → Session
 
 Imports a session JSON file into the current experiment. If the session name already exists, you can rename it.
 
-#### Import → events
+#### Import → Events
 
 Imports events and their vocabulary from another session JSON file, or from a WEEGIT `.mat` events file.
 Imported times are validated against the experiment’s sweeps and duration.
 
-#### Import → periods
+#### Import → Periods
 
 Imports periods and their vocabulary from another session JSON file.
 
-#### Import → settings
+#### Import → Settings
 
 Imports GUI setup (channel groups, time window defaults, visibility flags, and related view settings)
 from another session. Sweep index and start point are reset as needed; duration is clamped to valid bounds.
@@ -69,7 +69,7 @@ Closing the window uses the same unsaved-changes check.
 
 ## Edit
 
-### Copy image
+### Copy Image
 
 Exports the current signal view as PNG or SVG, the same action as **Copy image** in the header bar.
 
@@ -96,40 +96,40 @@ Checkable items that show or hide layers on the signal panel (and related naviga
 
 These toggles stay in sync with the current session’s GUI setup.
 
-### Tools
+### Session Panel
 
 Checkable items that show or hide sections of the right-hand settings panel:
 
-| Item | Panel section |
-|------|----------------|
-| **Timeline settings** | Sweep and visible time-window controls |
-| **Channel management** | Channel groups, layouts, filters, and units |
-| **Add-ons** | Searchable add-on list with View / Transform / Run |
-| **Recording description** | Free-text notes and, in Expert mode, visual attachment |
-| **Application logs** | Live application log and level filter |
+| Item                      | Panel section |
+|---------------------------|----------------|
+| **Timeline Settings**     | Sweep and visible time-window controls |
+| **Channel Management**    | Channel groups, layouts, filters, and units |
+| **Add-ons**               | Searchable add-on list with View / Transform / Run |
+| **Recording Description** | Free-text notes and, in Expert mode, visual attachment |
+| **Application Logs**      | Live application log and level filter |
 
 If no tool sections are visible, the right panel may hide automatically. Use **Show session panel** in the header bar
 to show or hide the whole right panel.
 
 ## Events
 
-### Show table
+### List of Events
 
 Opens the events vocabulary dialog: visibility, event IDs, names, colors, and counts in the current sweep /
 across sweeps. You can show or hide individual event types, add or remove vocabulary entries, rename names
 in place, and pick colors.
 
-### Add
+### Add Event
 
 Opens the vocabulary dialog so you can select (or create) an event type, then places you in interactive
 mode: click on the signal to add an event at that time. Right-click or **Esc** cancels.
 
-### Set bad event
+### Set Bad Event
 
 Interactive two-click range on the signal: events inside the range are marked as bad.
 Right-click or **Esc** cancels.
 
-### Unset bad event
+### Unset Bad Event
 
 Two-click range that clears the bad flag on events inside the range.
 
@@ -139,12 +139,12 @@ Two-click range that deletes events inside the range.
 
 ## Periods
 
-### Show table
+### List of Periods
 
 Opens the periods vocabulary dialog: visibility, period IDs, names, and colors. You can show or hide
 individual period types and use the same editing patterns as events (add/remove, rename, color pick).
 
-### Add period
+### Add Period
 
 Select a period type from the vocabulary, then click twice on the signal to set the start and end
 (can span sweeps). Right-click or **Esc** cancels.
@@ -161,7 +161,7 @@ See [Add-ons Usage](../add_ons/usage.md).
 Opens the template generator that scaffolds a development add-on under `./add_on_development`.
 See [Add-on Development](../add_ons/development.md).
 
-### Generate script
+### Generate Script
 
 Opens a dialog that writes a starter Python script for loading the current (or selected) Ephyr folder
 and session via `EphyrSessionManager`. See [Using Labeled Data](../analysis/labeled_data.md).

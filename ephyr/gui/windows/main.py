@@ -255,10 +255,10 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.act_save_session.setShortcut("Ctrl+S")
         file_menu.addAction(self.act_save_session)
         self.menu_import = file_menu.addMenu("Import")
-        self.act_import_session = QAction("session", self)
-        self.act_import_events = QAction("events", self)
-        self.act_import_periods = QAction("periods", self)
-        self.act_import_settings = QAction("settings", self)
+        self.act_import_session = QAction("Session", self)
+        self.act_import_events = QAction("Events", self)
+        self.act_import_periods = QAction("Periods", self)
+        self.act_import_settings = QAction("Settings", self)
         self.menu_import.addAction(self.act_import_session)
         self.menu_import.addAction(self.act_import_events)
         self.menu_import.addAction(self.act_import_periods)
@@ -275,7 +275,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # Edit menu
         edit_menu = menubar.addMenu("Edit")
-        self.act_copy_image = QAction("Copy image", self)
+        self.act_copy_image = QAction("Copy Image", self)
         edit_menu.addAction(self.act_copy_image)
         edit_menu.addSeparator()
         self.undo_action = QAction("Undo", self)
@@ -287,7 +287,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         view_menu = menubar.addMenu("View")
         view_menu.addSection("Signal")
         self.view_traces = QAction("Traces", self, checkable=True, checked=True)
-        self.view_channel_names = QAction("Channel names", self, checkable=True, checked=True)
+        self.view_channel_names = QAction("Channel Names", self, checkable=True, checked=True)
         self.view_events = QAction("Events", self, checkable=True, checked=False)
         self.view_periods = QAction("Periods", self, checkable=True, checked=False)
         for action in (
@@ -298,11 +298,11 @@ class MainWindow(QMainWindow, QWidgetMixin):
         ):
             view_menu.addAction(action)
 
-        self._add_labeled_menu_section(view_menu, "Session panel")
-        self.view_time_settings_panel = QAction("Timeline settings", self, checkable=True, checked=False)
-        self.view_channel_management_panel = QAction("Channel management", self, checkable=True, checked=False)
-        self.view_info_panel = QAction("Recording description", self, checkable=True, checked=False)
-        self.view_logs_panel = QAction("Application logs", self, checkable=True, checked=False)
+        self._add_labeled_menu_section(view_menu, "Session Panel")
+        self.view_time_settings_panel = QAction("Timeline Settings", self, checkable=True, checked=False)
+        self.view_channel_management_panel = QAction("Channel Management", self, checkable=True, checked=False)
+        self.view_info_panel = QAction("Recording Description", self, checkable=True, checked=False)
+        self.view_logs_panel = QAction("Application Logs", self, checkable=True, checked=False)
         self.view_analysis_panel = QAction("Add-ons", self, checkable=True, checked=False)
         for action in (
                 self.view_time_settings_panel,
@@ -315,11 +315,11 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # Events menu
         events_menu = menubar.addMenu("Events")
-        self.events_show_all_action = QAction("List of events", self)
-        self.events_add_action = QAction("Add event", self)
-        self.events_set_bad_event_action = QAction("Set bad event", self)
-        self.events_unset_bad_event_action = QAction("Unset bad event", self)
-        self.events_remove_action = QAction("Remove event", self)
+        self.events_show_all_action = QAction("List of Events", self)
+        self.events_add_action = QAction("Add Event", self)
+        self.events_set_bad_event_action = QAction("Set Bad Event", self)
+        self.events_unset_bad_event_action = QAction("Unset Bad Event", self)
+        self.events_remove_action = QAction("Remove Event", self)
         events_menu.addAction(self.events_show_all_action)
         events_menu.addAction(self.events_add_action)
         events_menu.addAction(self.events_set_bad_event_action)
@@ -328,8 +328,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # Periods menu
         periods_menu = menubar.addMenu("Periods")
-        self.periods_show_all_action = QAction("List of periods", self)
-        self.periods_add_action = QAction("Add period", self)
+        self.periods_show_all_action = QAction("List of Periods", self)
+        self.periods_add_action = QAction("Add Period", self)
         periods_menu.addAction(self.periods_show_all_action)
         periods_menu.addAction(self.periods_add_action)
 
@@ -339,7 +339,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         add_ons_menu.addAction(self.add_ons_manage)
         self.add_ons_create_template = QAction("Create", self)
         add_ons_menu.addAction(self.add_ons_create_template)
-        self.add_ons_generate_script = QAction("Generate script", self)
+        self.add_ons_generate_script = QAction("Generate Script", self)
         add_ons_menu.addAction(self.add_ons_generate_script)
 
         # Help
