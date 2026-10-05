@@ -162,10 +162,12 @@ Helpers: `effective_grid()`, `grid_dims()`, `visible_window()`, `visible_cells()
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `layout_row_idx` | `int` | Row of the group on the panel |
-| `layout_column_idx` | `int` | Column of the group on the panel |
-| `height_ratio` | `int` | Relative share of the row height |
-| `width_ratio` | `int` | Relative share of the row width |
+| `layout_row_idx` | `int` | Row of the group on the panel. Groups with the same row are placed side by side. |
+| `layout_column_idx` | `int` | Position of the group within that row. |
+| `height_ratio` | `int` | Relative height of the row. The row uses the maximum height ratio among its groups. |
+| `width_ratio` | `int` | Relative width of the group among the groups that share its row. |
+
+Unoccupied cells are not reserved: space is packed along the row. A group that is the only one in its row takes the full width. Two groups in the top row and one group in the row below means the lower group spans the whole row.
 
 ### `ChannelSetup`
 
