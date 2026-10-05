@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QFormLayout,
     QMessageBox,
-    QColorDialog,
     QAbstractItemView, QLineEdit,
     QApplication,
     QDialog,
@@ -30,6 +29,7 @@ from PyQt6.QtWidgets import (
 from typing import Dict, List, Optional, Set, Tuple
 
 from ephyr import settings
+from ephyr.gui._utils import pick_saturated_color
 from ephyr.converter.channel_order import (
     import_channel_order,
     resolve_source_path,
@@ -1245,10 +1245,8 @@ class ChannelManagementPanel(QWidget):
         y_offset_spin.valueChanged.connect(lambda _v: apply_to_all())
 
         def on_pick_color():
-            cur = QColor(color_btn.property("color_str"))
-            if not cur.isValid():
-                cur = QColor("#000000")
-            new = QColorDialog.getColor(cur, self, "Select color")
+            cur = QColor(color_btn.property("color_str") or "")
+            new = pick_saturated_color(cur, self, "Select color")
             if not new.isValid():
                 return
             color_btn.setProperty("color_str", new.name())
@@ -1338,8 +1336,8 @@ class ChannelManagementPanel(QWidget):
             y_spin.valueChanged.connect(lambda _v: apply())
 
             def pick_color():
-                cur = QColor(color_btn.property("color_str"))
-                new = QColorDialog.getColor(cur, self, "Select color")
+                cur = QColor(color_btn.property("color_str") or "")
+                new = pick_saturated_color(cur, self, "Select color")
                 if not new.isValid():
                     return
                 color_btn.setProperty("color_str", new.name())

@@ -6,8 +6,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtWidgets import QApplication, QWidget, QFileDialog
+from PyQt6.QtGui import QColor, QIcon, QPixmap
+from PyQt6.QtWidgets import QApplication, QColorDialog, QFileDialog, QWidget
 
 
 def resolve_app_icon_path() -> Path | None:
@@ -177,3 +177,19 @@ def capture_widget_to_file(main_widget: QWidget, widget: QWidget, base_filename:
             print(f"Успешно сохранено: {file_path}")
         else:
             print(f"Ошибка при сохранении: {file_path}")
+
+
+def pick_saturated_color(initial: QColor, parent: QWidget | None, title: str) -> QColor:
+    """Open the color dialog at full saturation so the wheel is not a black disk."""
+    color = QColor(initial)
+    if not color.isValid():
+        color = QColor.fromHsv(0, 255, 255)
+    else:
+        hue, saturation, value, alpha = color.getHsv()
+        if saturation < 255 or value <= 0:
+            if hue < 0:
+                hue = 0
+            if value <= 0:
+                value = 255
+            color = QColor.fromHsv(hue, 255, value, alpha)
+    return QColorDialog.getColor(color, parent, title)

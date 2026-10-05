@@ -15,10 +15,10 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QMessageBox,
-    QColorDialog,
 )
 
 from ephyr.core.ephyr_session import EventVocabularyEntry
+from ephyr.gui._utils import pick_saturated_color
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 
 
@@ -208,7 +208,7 @@ class EventsVocabularyDialog(QDialog):
             return
         event_vocabulary_id = int(id_item.text())
         initial_color = QColor(color_item.text())
-        selected = QColorDialog.getColor(initial_color, self, "Select event color")
+        selected = pick_saturated_color(initial_color, self, "Select event color")
         if not selected.isValid():
             return
         self._session_manager.set_event_vocabulary_color(event_vocabulary_id, selected.name())
