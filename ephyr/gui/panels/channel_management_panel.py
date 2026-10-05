@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QColorDialog,
     QAbstractItemView, QLineEdit,
+    QApplication,
     QDialog,
     QFileDialog,
     QScrollArea,
@@ -837,6 +838,7 @@ class ChannelManagementPanel(QWidget):
         self._session_manager = session_manager
         self._group_list_widgets: Dict[int, QListWidget] = {}
         self._group_move_checkboxes: Dict[Tuple[int, int], QCheckBox] = {}
+        self._move_checkbox_anchor: Dict[int, int] = {}
         self._group_channel_labels: Dict[Tuple[int, int], QLabel] = {}
         self._last_groups_structure_signature: Tuple = tuple()
         self._rebuilding_groups = False
@@ -856,6 +858,7 @@ class ChannelManagementPanel(QWidget):
         layout.addWidget(title)
 
         instructions = QLabel("Drag&drop tabs to reorder groups. Tick channels, then Move checked to target group. "
+                              "Shift-click ticks every channel from the previous checkbox to the new one. "
                               "Channel order and enabling are edited in Layout.")
         instructions.setWordWrap(True)
         instructions.setStyleSheet("color: gray; font-size: 9pt;")
@@ -1069,6 +1072,7 @@ class ChannelManagementPanel(QWidget):
                 tab.deleteLater()
         self._group_list_widgets.clear()
         self._group_move_checkboxes.clear()
+        self._move_checkbox_anchor.clear()
         self._group_channel_labels.clear()
 
         for group_idx, group in enumerate(gui_setup.channels_groups):
@@ -1274,7 +1278,13 @@ class ChannelManagementPanel(QWidget):
         row.setSpacing(2)
 
         move_cb = QCheckBox()
-        move_cb.setToolTip("Check to move this channel to another group")
+        move_cb.setToolTip(
+            "Check to move this channel to another group. "
+            "Shift-click checks every channel from the previous checkbox to this one."
+        )
+        move_cb.clicked.connect(
+            lambda _checked=False, g=group_idx, c=channel_idx: self._on_move_checkbox_clicked(g, c)
+        )
         self._group_move_checkboxes[(group_idx, channel_idx)] = move_cb
         row.addWidget(move_cb)
         row.addSpacing(10)
@@ -1414,6 +1424,37 @@ class ChannelManagementPanel(QWidget):
                 f"Channels of group #{group_idx} '{group.name}' enabled={newly_enabled} "
                 f"disabled={newly_disabled}"
             )
+
+    def _on_move_checkbox_clicked(self, group_idx: int, channel_idx: int) -> None:
+        shift = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier)
+        anchor = self._move_checkbox_anchor.get(group_idx)
+        if shift and anchor is not None and anchor != channel_idx:
+            self._check_move_checkbox_range(group_idx, anchor, channel_idx)
+            return
+        self._move_checkbox_anchor[group_idx] = channel_idx
+
+    def _check_move_checkbox_range(self, group_idx: int, start_idx: int, end_idx: int) -> None:
+        channel_list = self._group_list_widgets.get(group_idx)
+        if channel_list is None:
+            return
+        order: List[int] = []
+        for row in range(channel_list.count()):
+            item = channel_list.item(row)
+            if item is None:
+                continue
+            order.append(int(item.data(Qt.ItemDataRole.UserRole)))
+        try:
+            start_row = order.index(start_idx)
+            end_row = order.index(end_idx)
+        except ValueError:
+            self._move_checkbox_anchor[group_idx] = end_idx
+            return
+        lo, hi = sorted((start_row, end_row))
+        for idx in order[lo:hi + 1]:
+            checkbox = self._group_move_checkboxes.get((group_idx, idx))
+            if checkbox is None:
+                continue
+            checkbox.setChecked(True)
 
     def _move_checked_to_group(self, from_group_idx: int, to_group_idx: int):
         if to_group_idx < 0:

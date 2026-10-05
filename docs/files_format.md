@@ -12,7 +12,7 @@ Ephyr detects the format, converts it into a Ephyr experiment folder when needed
 | DAQ | `.daq` | Select the **file** |
 | XDAT | `.xdat`, `*.xdat.json` | Select the **file** |
 | NWB | `.nwb` | Select the **file** |
-| Multi Channel Systems | exported `.raw` / `.mcsraw`, DataManager `.h5` / `.hdf5`, CMOS-MEA `.cmcr` / `.cmtr` | Select the **file**. Native `.mcd` files are not supported; export them to MCS RAW with a binary header or MCS HDF5 first. A `.cmtr` file references its source `.cmcr` through an HDF5 external link, so both files must remain together. |
+| Multi Channel Systems | MC_Rack `.mcd`, exported `.raw` / `.mcsraw`, DataManager `.h5` / `.hdf5`, CMOS-MEA `.cmcr` / `.cmtr` | Select the **file**. For `.mcd`, all continuous analog streams (e.g. `Electrode Raw Data 1`/`2`) are imported in µV; digital, trigger and spike streams are skipped, and triggered recordings become separate sweeps. A `.cmtr` file references its source `.cmcr` through an HDF5 external link, so both files must remain together. |
 | Neuralynx | `.ncs` (also `.nev`, related text) | Prefer the **folder** that contains `.ncs` files. Selecting a Neuralynx file is also accepted; Ephyr resolves to the parent folder of the `.ncs` set. |
 | Open Ephys | session folder (`settings.xml`, continuous streams, etc.) | Select the **session folder**, or a file inside it (Ephyr walks parent directories until a valid session is found). |
 | Intan RHD | `.rhd`, optional `.xml` | Select the **folder** that contains the `.rhd` files, or an `.rhd`/`.xml` file (resolved to the parent folder). |
