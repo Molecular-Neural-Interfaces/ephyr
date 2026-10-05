@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QFileDialog,
     QApplication, QStatusBar, QSizePolicy, QMessageBox, QProgressDialog,
-    QFrame, QScrollArea, QStackedWidget,
+    QFrame, QScrollArea, QStackedWidget, QStyle,
 )
 
 from ephyr import settings
@@ -248,7 +248,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.menu_open_recent = file_menu.addMenu("Open Recent")
         self.__update_recent_dirs()
 
-        file_menu.addSection("Session")
+        self._add_labeled_menu_section(file_menu, "Session")
         self.act_new_session = QAction("New", self)
         file_menu.addAction(self.act_new_session)
         self.act_save_session = QAction("Save", self)
@@ -298,7 +298,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         ):
             view_menu.addAction(action)
 
-        view_menu.addSection("Tools")
+        self._add_labeled_menu_section(view_menu, "Session panel")
         self.view_time_settings_panel = QAction("Timeline settings", self, checkable=True, checked=False)
         self.view_channel_management_panel = QAction("Channel management", self, checkable=True, checked=False)
         self.view_info_panel = QAction("Recording description", self, checkable=True, checked=False)
@@ -1210,6 +1210,16 @@ class MainWindow(QMainWindow, QWidgetMixin):
                     return session_name
             else:
                 return None
+
+    def _add_labeled_menu_section(self, menu, title: str) -> None:
+        """Group title that stays visible when the style draws addSection() as a plain line."""
+        if menu.style().styleHint(QStyle.StyleHint.SH_Menu_SupportsSections):
+            menu.addSection(title)
+            return
+        menu.addSeparator()
+        title_action = QAction(title, self)
+        title_action.setEnabled(False)
+        menu.addAction(title_action)
 
     def __get_panel_by_type(self, widget_type: RightPanelWidgetEnum):
         if widget_type == RightPanelWidgetEnum.TIME_SETTINGS:
