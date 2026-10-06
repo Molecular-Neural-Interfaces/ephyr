@@ -60,19 +60,17 @@ Each channel group has its own tab (tabs can be reordered; empty groups can be c
 
 | Field / action | Purpose                                                                                                                                                                                                                                  |
 |----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Name** | Title of the group.                                                                                                                                                                                                                      |
-| **View** | Show or hide this group on the signal panel.                                                                                                                                                                                             |
-| **Clip traces** | Clip drawn traces to each channel cell’s bounds.                                                                                                                                                                                         |
-| **Auxiliary channels** | **Expert only.** Marks the group as auxiliary. Auxiliary groups expose per-channel scale, Y offset, and color, and do not use the same “number to show” windowing as regular groups. Disabling a channel in an aux group can reset its style to defaults. |
-| **Filters** | Choose a filter type (Butterworth low/high/band-pass, Chebyshev band-pass, Notch), set parameters (cutoff, order, ripple, Q, and so on), and enable or disable each filter. **Disable all** turns every filter off for the group.        |
-| **Common Scale / Y offset / Color** | Scale and color apply to all channels in non-auxiliary groups. **Y offset** is **Expert only**.                                                                                                                                                                                         |
+| **Name / Color** | Title of the group. **Color** applies to all channels in non-auxiliary groups. |
+| **View / Clip traces** | **View** shows or hides this group on the signal panel. **Clip traces** clips drawn traces to each channel cell’s bounds. |
+| **Scale** | Vertical scale for all channels in non-auxiliary groups. |
+| **Auxiliary channels / Y offset** | **Auxiliary channels** is **Expert only.** Auxiliary groups expose per-channel scale, Y offset, and color, and do not use the same “number to show” windowing as regular groups. Disabling a channel in an aux group can reset its style to defaults. **Y offset** is **Expert only** and applies to all channels in non-auxiliary groups. |
 | **Channel list** | Checkbox that marks the channel for moving, channel index and name (disabled channels are greyed out and marked `(disabled)`), free-text **Info** field. Auxiliary rows also show per-channel Scale / Y / Color; **Y** is **Expert only**. Rows cannot be selected: use the checkboxes. |
-| **Channels layout** | Opens the channel layout dialog for this group (order, enabling, and optional grid). Disabled in Beginner mode.                                                                                                                                                     |
-| **Move checked to** | Moves the checked channels to another group.                                                                                                                                                                                             |
+| **Move checked to** | Moves the checked channels to another group. **Channels layout** (to the right of **Move**) opens the layout dialog (order, enabling, and optional grid) and is disabled in Beginner mode. |
+| **Filters** | Lists currently enabled filters as **Enable**. **Enable** next to **Filter** turns the selected filter on or off. Choose a filter type (Butterworth low/high/band-pass, Chebyshev band-pass, Notch) and set parameters (cutoff, order, ripple, Q, and so on). **Disable all** turns every filter off for the group. |
 
 ### Channel layout
 
-Click **Channels layout** on a group to open **Channels layout**. The button is disabled in Beginner mode.
+Click **Channels layout** next to **Move** on a group to open **Channels layout**. The button is disabled in Beginner mode.
 
 - Reorder channels by drag-and-drop, up/down buttons, or a manual index list such as `1,10,12,14-18,20`.
 - Tick the **Enabled** checkbox of a channel to draw it on the signal panel; untick to hide it.

@@ -1306,11 +1306,16 @@ class ChannelManagementPanel(QWidget):
         title.setStyleSheet("font-weight: bold;")
         filter_layout.addWidget(title)
 
-        add_row = QHBoxLayout()
-        add_row.addWidget(QLabel("Choose filter:"))
+        enabled_label = QLabel()
+        filter_layout.addWidget(enabled_label)
+
         selector = QComboBox()
         for flt in filters:
             selector.addItem(flt.filter_name)
+        enable_checkbox = QCheckBox("Enable")
+        add_row = QHBoxLayout()
+        add_row.addWidget(enable_checkbox)
+        add_row.addWidget(QLabel("Filter:"))
         add_row.addWidget(selector, 1)
         filter_layout.addLayout(add_row)
 
@@ -1320,9 +1325,6 @@ class ChannelManagementPanel(QWidget):
         params_layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft)
         params_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         filter_layout.addWidget(params_widget)
-
-        enabled_label = QLabel()
-        filter_layout.addWidget(enabled_label)
 
         disable_btn = QPushButton("Disable all")
         filter_layout.addWidget(disable_btn)
@@ -1339,7 +1341,7 @@ class ChannelManagementPanel(QWidget):
 
         def sync_label(local_filters: List):
             enabled = [f.filter_name for f in local_filters if getattr(f, "enabled", False)]
-            enabled_label.setText(f"Enabled: {', '.join(enabled) if enabled else 'None'}")
+            enabled_label.setText(f"Enable: {', '.join(enabled) if enabled else 'None'}")
 
         def clear_form():
             while params_layout.rowCount():
@@ -1364,14 +1366,9 @@ class ChannelManagementPanel(QWidget):
                 return
             flt = local_filters[index]
             clear_form()
-            enabled_checkbox = QCheckBox()
-            enabled_checkbox.setChecked(bool(flt.enabled))
-            enabled_checkbox.stateChanged.connect(
-                lambda state, idx=index: update_filter_param(
-                    idx, "enabled", Qt.CheckState(state) == Qt.CheckState.Checked
-                )
-            )
-            params_layout.addRow("Enabled:", enabled_checkbox)
+            enable_checkbox.blockSignals(True)
+            enable_checkbox.setChecked(bool(flt.enabled))
+            enable_checkbox.blockSignals(False)
             if isinstance(flt, ButterworthLowPassFilter):
                 cutoff = QDoubleSpinBox(); cutoff.setRange(0.1, 1e6); cutoff.setSingleStep(1.0); cutoff.setValue(float(flt.cutoff_hz))
                 cutoff.valueChanged.connect(lambda value, idx=index: update_filter_param(idx, "cutoff_hz", value))
@@ -1413,6 +1410,13 @@ class ChannelManagementPanel(QWidget):
             sync_label(local_filters)
 
         selector.currentIndexChanged.connect(build_form)
+        enable_checkbox.stateChanged.connect(
+            lambda state: update_filter_param(
+                selector.currentIndex(),
+                "enabled",
+                Qt.CheckState(state) == Qt.CheckState.Checked,
+            )
+        )
 
         def disable_all():
             updated_filters = []
@@ -1452,17 +1456,17 @@ class ChannelManagementPanel(QWidget):
             box = QWidget()
             box_layout = QVBoxLayout(box)
 
-            form = QFormLayout()
-            form.setFormAlignment(Qt.AlignmentFlag.AlignLeft)
-            form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+            scale_spin = y_offset_spin = color_btn = None
+            if not group.is_auxiliary:
+                scale_spin, y_offset_spin, color_btn = self._build_group_common_setup(
+                    group.channel_indexes, gui_setup.channels_setup
+                )
 
             name_edit = QLineEdit()
             name_edit.setText(group.name)
             name_edit.editingFinished.connect(
                 lambda idx=group_idx, w=name_edit: self._on_group_name_editing_finished(idx, w)
             )
-            form.addRow("Name:", name_edit)
-
             shown = QCheckBox()
             shown.setChecked(group.is_shown)
             shown.stateChanged.connect(
@@ -1470,7 +1474,10 @@ class ChannelManagementPanel(QWidget):
                     idx, is_shown=(Qt.CheckState(state) == Qt.CheckState.Checked)
                 )
             )
-            form.addRow("View:", shown)
+            name_row_cells = [self._labeled_stretch_cell("Name:", name_edit)]
+            if color_btn is not None:
+                name_row_cells.append(self._labeled_stretch_cell("Color:", color_btn))
+            self._add_stretch_row(box_layout, name_row_cells)
 
             cut_traces = QCheckBox()
             cut_traces.setChecked(group.cut_traces)
@@ -1479,8 +1486,15 @@ class ChannelManagementPanel(QWidget):
                     idx, Qt.CheckState(state) == Qt.CheckState.Checked
                 )
             )
-            form.addRow("Clip traces:", cut_traces)
+            self._add_stretch_row(box_layout, [
+                self._labeled_stretch_cell("View:", shown),
+                self._labeled_stretch_cell("Clip traces:", cut_traces),
+            ])
 
+            if scale_spin is not None:
+                self._add_stretch_row(box_layout, [self._labeled_stretch_cell("Scale (uV):", scale_spin)])
+
+            aux_row_cells = []
             if self._is_expert:
                 aux_checkbox = QCheckBox()
                 aux_checkbox.setChecked(group.is_auxiliary)
@@ -1489,13 +1503,15 @@ class ChannelManagementPanel(QWidget):
                         idx, Qt.CheckState(state) == Qt.CheckState.Checked
                     )
                 )
-                form.addRow("Auxiliary channels:", aux_checkbox)
-            box_layout.addLayout(form)
-
-            self._build_group_filters_setup(box_layout, group_idx, group)
-
-            if not group.is_auxiliary:
-                self._build_group_common_setup(box_layout, group.channel_indexes, gui_setup.channels_setup)
+                aux_row_cells.append(self._labeled_stretch_cell("Auxiliary channels:", aux_checkbox))
+            if y_offset_spin is not None:
+                if self._is_expert:
+                    aux_row_cells.append(self._labeled_stretch_cell("Y offset:", y_offset_spin))
+                else:
+                    y_offset_spin.setParent(box)
+                    y_offset_spin.hide()
+            if aux_row_cells:
+                self._add_stretch_row(box_layout, aux_row_cells)
 
             channel_list = QListWidget()
             channel_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -1506,14 +1522,6 @@ class ChannelManagementPanel(QWidget):
             for channel_idx in group.channel_indexes:
                 self._add_channel_row(channel_list, group_idx, group, channel_idx, gui_setup.channels_setup)
             box_layout.addWidget(channel_list)
-
-            btn_row = QHBoxLayout()
-            reorder_btn = QPushButton("Channels layout")
-            reorder_btn.setEnabled(self._is_expert)
-            reorder_btn.clicked.connect(lambda _c=False, idx=group_idx: self._open_reorder_dialog(idx))
-            btn_row.addWidget(reorder_btn)
-            btn_row.addStretch(1)
-            box_layout.addLayout(btn_row)
 
             move_row = QHBoxLayout()
             move_row.addWidget(QLabel("Move checked to"))
@@ -1530,7 +1538,13 @@ class ChannelManagementPanel(QWidget):
             )
             move_row.addWidget(move_combo, 1)
             move_row.addWidget(move_btn)
+            reorder_btn = QPushButton("Channels layout")
+            reorder_btn.setEnabled(self._is_expert)
+            reorder_btn.clicked.connect(lambda _c=False, idx=group_idx: self._open_reorder_dialog(idx))
+            move_row.addWidget(reorder_btn)
             box_layout.addLayout(move_row)
+
+            self._build_group_filters_setup(box_layout, group_idx, group)
             self.groups_tabs.addTab(box, group.name or f"Group {group_idx + 1}")
         if self.groups_tabs.count():
             self.groups_tabs.setCurrentIndex(min(max(prev_tab_idx, 0), self.groups_tabs.count() - 1))
@@ -1579,31 +1593,31 @@ class ChannelManagementPanel(QWidget):
                     label.setText(f"{channel_idx} [{channel_name}] (disabled)")
                     label.setStyleSheet("color: gray;")
 
-    def _build_group_common_setup(self, layout: QVBoxLayout, channel_indexes: List[int], channels_setup):
+    def _build_group_common_setup(self, channel_indexes: List[int], channels_setup):
         if not channel_indexes:
-            return
+            return None, None, None
         sample = channels_setup.get(channel_indexes[0])
         scale_val = float(getattr(sample, "scale", settings.DEFAULT_SCALE))
         y_offset_val = float(getattr(sample, "y_offset", 0.0))
         color_val = str(getattr(sample, "color", "#000000"))
 
-        form = QFormLayout()
-        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         scale_spin = QDoubleSpinBox()
         scale_spin.setRange(settings.MIN_SCALE, settings.MAX_SCALE)
         scale_spin.setKeyboardTracking(False)
         scale_spin.setSingleStep(settings.SCALE_STEP)
         scale_spin.setValue(scale_val)
+        scale_spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         y_offset_spin = QDoubleSpinBox()
         y_offset_spin.setRange(-1_000_000.0, 1_000_000.0)
         y_offset_spin.setKeyboardTracking(False)
         y_offset_spin.setSingleStep(10.0)
         y_offset_spin.setValue(y_offset_val)
+        y_offset_spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         color_btn = QPushButton()
         color_btn.setProperty("color_str", color_val)
         color_btn.setStyleSheet(f"background-color: {color_val};")
-        color_btn.setMaximumWidth(30)
+        color_btn.setMinimumWidth(30)
+        color_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         def apply_to_all():
             color_str = color_btn.property("color_str") or "#000000"
@@ -1627,14 +1641,27 @@ class ChannelManagementPanel(QWidget):
             apply_to_all()
 
         color_btn.clicked.connect(on_pick_color)
-        if not self._is_expert:
-            y_offset_spin.hide()
-        y_offset_spin.setParent(layout.parentWidget())
-        form.addRow("Scale (uV):", scale_spin)
-        if self._is_expert:
-            form.addRow("Y offset:", y_offset_spin)
-        form.addRow("Color:", color_btn)
-        layout.addLayout(form)
+        return scale_spin, y_offset_spin, color_btn
+
+    @staticmethod
+    def _labeled_stretch_cell(text: str, widget: QWidget) -> QWidget:
+        cell = QWidget()
+        layout = QHBoxLayout(cell)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        if text:
+            layout.addWidget(QLabel(text))
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        layout.addWidget(widget, 1)
+        return cell
+
+    @staticmethod
+    def _add_stretch_row(parent: QVBoxLayout, cells: List[QWidget]):
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        for cell in cells:
+            row.addWidget(cell, 1)
+        parent.addLayout(row)
 
     def _add_channel_row(self, channel_list: QListWidget, group_idx: int, group, channel_idx: int, channels_setup):
         channel_name = self.get_channel_name(channel_idx)
