@@ -83,7 +83,7 @@ Re-applies the last undone command.
 
 ## View
 
-### Signal visibility
+### Data Panel
 
 Checkable items that show or hide layers on the signal panel (and related navigator elements):
 

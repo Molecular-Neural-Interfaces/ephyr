@@ -44,6 +44,15 @@ class RightPanelWidgetEnum(Enum):
             RightPanelWidgetEnum.LOGS,
         ]
 
+    @staticmethod
+    def default_widgets():
+        return [
+            RightPanelWidgetEnum.TIME_SETTINGS,
+            RightPanelWidgetEnum.INFORMATION,
+            RightPanelWidgetEnum.CHANNEL_MANAGEMENT,
+            RightPanelWidgetEnum.ANALYSIS,
+        ]
+
 
 class EventsTableFormat(Enum):
     DICT = "dict"
@@ -195,7 +204,7 @@ class ChannelGroup(BaseModel):
 
 class GuiSetup(BaseModel):
     right_panel_widgets: List[RightPanelWidgetEnum] = Field(
-        default_factory=lambda: RightPanelWidgetEnum.widgets_order())
+        default_factory=lambda: RightPanelWidgetEnum.default_widgets())
     add_ons: Dict[str, AddOnSetup] = Field(default_factory=dict)
 
     traces_are_shown: bool = True

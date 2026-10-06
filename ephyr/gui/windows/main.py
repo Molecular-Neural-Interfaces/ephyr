@@ -260,6 +260,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.act_import_periods = QAction("Periods", self)
         self.act_import_settings = QAction("Settings", self)
         self.menu_import.addAction(self.act_import_session)
+        self.menu_import.addSeparator()
         self.menu_import.addAction(self.act_import_events)
         self.menu_import.addAction(self.act_import_periods)
         self.menu_import.addAction(self.act_import_settings)
@@ -285,7 +286,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # View menu (checkable)
         view_menu = menubar.addMenu("View")
-        view_menu.addSection("Signal")
+        self._add_labeled_menu_section(view_menu, "Data Panel")
         self.view_traces = QAction("Channel Traces", self, checkable=True, checked=True)
         self.view_channel_names = QAction("Channel Names", self, checkable=True, checked=True)
         self.view_events = QAction("Events", self, checkable=True, checked=False)
