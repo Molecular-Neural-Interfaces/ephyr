@@ -15,4 +15,5 @@ def get_hotkey_descriptions() -> List[str]:
         "M: scalebar",
         "V: zoom to area",
         "Esc: disable",
+        "Right-click: disable",
     ]

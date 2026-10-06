@@ -175,3 +175,4 @@ Lists the built-in keyboard shortcuts:
 | **M** | Cycle the scalebar (time/voltage) |
 | **V** | Select an area (**Select area**) |
 | **Esc** | Cancel the current interactive overlay mode |
+| **Right-click** | Cancel the current interactive overlay mode |
