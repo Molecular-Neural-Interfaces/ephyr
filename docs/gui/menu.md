@@ -31,7 +31,7 @@ The new session gets default channel groups and GUI setup and becomes the active
 Saves the current user session to `sessions/<name>.json` in the experiment folder.
 Shortcut: **Ctrl+S** (Windows/Linux) or **Cmd+S** (macOS).
 
-#### Import → Session
+#### Import → Full Session
 
 Imports a session JSON file into the current experiment. If the session name already exists, you can rename it.
 
@@ -69,9 +69,9 @@ Closing the window uses the same unsaved-changes check.
 
 ## Edit
 
-### Copy Image
+### Export Canvas
 
-Exports the current signal view as PNG or SVG, the same action as **Copy image** in the header bar.
+Exports the current signal view as PNG or SVG, the same action as **Export Canvas** in the header bar.
 
 ### Undo
 
@@ -89,7 +89,7 @@ Checkable items that show or hide layers on the signal panel (and related naviga
 
 | Item | Purpose |
 |------|---------|
-| **Traces** | Show or hide waveform traces. |
+| **Channel Traces** | Show or hide waveform traces. |
 | **Channel names** | Show or hide channel name labels drawn on each channel cell. |
 | **Events** | Show or hide event markers. |
 | **Periods** | Show or hide period intervals and labels. |
@@ -161,7 +161,7 @@ and session via `EphyrSessionManager`. See [Using Labeled Data](../analysis/labe
 
 ## Help
 
-### EphyR Guide
+### Guide
 
 Opens the Ephyr guide at [https://ephyr.readthedocs.io/en/latest/](https://ephyr.readthedocs.io/en/latest/).
 

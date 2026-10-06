@@ -28,7 +28,7 @@ In **Beginner mode** the timebar step is not shown. Ephyr keeps it at half of **
 
 These values are stored in the session’s `gui_setup` and drive the signal panel and navigator.
 
-## Channel Management
+## Channel management
 
 An independent right-panel section enabled with **View → Tools → Channel management**. Use it to
 organize electrodes into groups, apply filters, set units, and control how groups and channels are
@@ -62,9 +62,9 @@ Each channel group has its own tab (tabs can be reordered; empty groups can be c
 |----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Name** | Title of the group.                                                                                                                                                                                                                      |
 | **View** | Show or hide this group on the signal panel.                                                                                                                                                                                             |
-| **Cut traces** | Clip drawn traces to each channel cell’s bounds.                                                                                                                                                                                         |
+| **Clip traces** | Clip drawn traces to each channel cell’s bounds.                                                                                                                                                                                         |
 | **Auxiliary channels** | **Expert only.** Marks the group as auxiliary. Auxiliary groups expose per-channel scale, Y offset, and color, and do not use the same “number to show” windowing as regular groups. Disabling a channel in an aux group can reset its style to defaults. |
-| **Group filters** | Choose a filter type (Butterworth low/high/band-pass, Chebyshev band-pass, Notch), set parameters (cutoff, order, ripple, Q, and so on), and enable or disable each filter. **Disable all** turns every filter off for the group.        |
+| **Filters** | Choose a filter type (Butterworth low/high/band-pass, Chebyshev band-pass, Notch), set parameters (cutoff, order, ripple, Q, and so on), and enable or disable each filter. **Disable all** turns every filter off for the group.        |
 | **Common Scale / Y offset / Color** | Scale and color apply to all channels in non-auxiliary groups. **Y offset** is **Expert only**.                                                                                                                                                                                         |
 | **Channel list** | Checkbox that marks the channel for moving, channel index and name (disabled channels are greyed out and marked `(disabled)`), free-text **Info** field. Auxiliary rows also show per-channel Scale / Y / Color; **Y** is **Expert only**. Rows cannot be selected: use the checkboxes. |
 | **Channels layout** | Opens the channel layout dialog for this group (order, enabling, and optional grid). Disabled in Beginner mode.                                                                                                                                                     |

@@ -230,7 +230,7 @@ class FullViewSelectedAreaDialog(QDialog):
         root.addWidget(self.signal_view, 1)
 
         controls = QHBoxLayout()
-        self.btn_screenshot = QPushButton("Screenshot", self)
+        self.btn_screenshot = QPushButton("Export Canvas", self)
         self.status_label = QLabel("", self)
         self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         controls.addWidget(self.btn_screenshot)
