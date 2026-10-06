@@ -102,7 +102,8 @@ Checkable items that show or hide sections of the right-hand settings panel:
 
 | Item                      | Panel section |
 |---------------------------|----------------|
-| **Timeline Settings**     | Sweep and visible time-window controls |
+| **Recording Navigation**  | Current sweep, sweep info, and overlay of other sweeps |
+| **Timeline Settings**     | Visible time-window controls |
 | **Channel Management**    | Channel groups, layouts, filters, and units |
 | **Add-ons**               | Searchable add-on list with View / Transform / Run |
 | **Recording Description** | Free-text notes and, in Expert mode, visual attachment |
