@@ -315,23 +315,19 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # Events menu
         events_menu = menubar.addMenu("Events")
-        self.events_show_all_action = QAction("List of Events", self)
-        self.events_add_action = QAction("Add Event", self)
-        self.events_set_bad_event_action = QAction("Set Bad Event", self)
-        self.events_unset_bad_event_action = QAction("Unset Bad Event", self)
-        self.events_remove_action = QAction("Remove Event", self)
+        self.events_show_all_action = QAction("Manage", self)
+        self.events_remove_action = QAction("Remove in Range", self)
+        self.events_set_bad_event_action = QAction("Set Bad", self)
+        self.events_unset_bad_event_action = QAction("Unset Bad", self)
         events_menu.addAction(self.events_show_all_action)
-        events_menu.addAction(self.events_add_action)
+        events_menu.addAction(self.events_remove_action)
         events_menu.addAction(self.events_set_bad_event_action)
         events_menu.addAction(self.events_unset_bad_event_action)
-        events_menu.addAction(self.events_remove_action)
 
         # Periods menu
         periods_menu = menubar.addMenu("Periods")
-        self.periods_show_all_action = QAction("List of Periods", self)
-        self.periods_add_action = QAction("Add Period", self)
+        self.periods_show_all_action = QAction("Manage", self)
         periods_menu.addAction(self.periods_show_all_action)
-        periods_menu.addAction(self.periods_add_action)
 
         # Add-ons
         add_ons_menu = menubar.addMenu("Add-ons")
@@ -391,12 +387,10 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.view_logs_panel.triggered.connect(self.on_view_logs_panel)
         self.view_analysis_panel.triggered.connect(self.on_view_analysis_panel)
         self.events_show_all_action.triggered.connect(self.on_show_events)
-        self.events_add_action.triggered.connect(self.on_add_event)
         self.events_set_bad_event_action.triggered.connect(self.on_set_bad_event)
         self.events_unset_bad_event_action.triggered.connect(self.on_unset_bad_event)
         self.events_remove_action.triggered.connect(self.on_remove_event)
         self.periods_show_all_action.triggered.connect(self.on_show_periods)
-        self.periods_add_action.triggered.connect(self.on_add_period)
         self.add_ons_manage.triggered.connect(self.on_add_ons_manage)
         self.add_ons_create_template.triggered.connect(self.on_add_ons_create_template)
         self.add_ons_generate_script.triggered.connect(self.on_add_ons_generate_script)
@@ -967,13 +961,6 @@ class MainWindow(QMainWindow, QWidgetMixin):
             self.__set_status("Warning: ephyr session is not active")
             return
 
-        EventsVocabularyDialog(self.session_manager, self, allow_add=False).exec()
-
-    def on_add_event(self):
-        if not self.session_manager.session_is_active:
-            self.__set_status("Warning: ephyr session is not active")
-            return
-
         dialog = EventsVocabularyDialog(self.session_manager, self)
         if dialog.exec():
             selected_id = dialog.get_selected_event_vocabulary_id()
@@ -1020,13 +1007,6 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.__set_status("Select two points on EEG panel to remove events (right click to cancel)")
 
     def on_show_periods(self):
-        if not self.session_manager.session_is_active:
-            self.__set_status("Warning: ephyr session is not active")
-            return
-
-        PeriodsVocabularyDialog(self.session_manager, self, allow_add=False).exec()
-
-    def on_add_period(self):
         if not self.session_manager.session_is_active:
             self.__set_status("Warning: ephyr session is not active")
             return
