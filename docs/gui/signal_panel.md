@@ -10,7 +10,7 @@ Signal samples are loaded from the Ephyr experiment folder (`data/sweep_*/*.samp
 Each group can show a classic single-column stack of channels or a custom electrode grid (see
 [Channel Management](settings_panel.md#channel-management)). Per-channel scale, color, Y offset, and
 optional clipping apply when drawing. Channel name labels on each cell can be hidden with
-**View → Channel names**.
+**View → Channel names**. Global waveform visibility is **View → Channel Traces**.
 
 ## Events and periods
 
@@ -64,5 +64,5 @@ you can pan the visible window of electrodes within that group.
 | Mode | How to start                                | What it does |
 |------|---------------------------------------------|--------------|
 | Scalebar | Header bar toggles on/off. **M** cycles follow → freeze → off | Time and voltage scale bars at the cursor |
-| Zoom to area | Header bar or **V** | Two clicks define a rectangle; the cursor label is **Select area**. Opens a dialog with the selected area |
+| Zoom to area | Header bar or **V** | Two clicks define a rectangle; the cursor label is **Select area**. Opens a **Full-view selected area** dialog; **Export Canvas** saves or copies the view (PNG/SVG) |
 | Event / period modes | Events and Periods menus                    | Crosshair overlay for placing or editing labels; **Esc** or right-click cancels |

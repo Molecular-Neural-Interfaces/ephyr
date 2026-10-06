@@ -142,7 +142,7 @@ class ChebyshevBandPassFilter(BaseIIRFilter):
 
 class NotchFilter(BaseIIRFilter):
     filter_type: Literal["notch"] = "notch"
-    filter_name: ClassVar[str] = "Notch (line noise)"
+    filter_name: ClassVar[str] = "Notch"
     notch_freq_hz: float = 50.0
     q_factor: float = 30.0
 

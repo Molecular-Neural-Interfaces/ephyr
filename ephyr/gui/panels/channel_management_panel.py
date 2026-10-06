@@ -1226,7 +1226,7 @@ class ChannelManagementPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(8)
 
-        title = QLabel("Channel Management")
+        title = QLabel("Channel management")
         title.setStyleSheet("font-weight: bold;")
         layout.addWidget(title)
 
@@ -1302,7 +1302,7 @@ class ChannelManagementPanel(QWidget):
             return
 
         filter_layout = QVBoxLayout()
-        title = QLabel("Group filters")
+        title = QLabel("Filters")
         title.setStyleSheet("font-weight: bold;")
         filter_layout.addWidget(title)
 
@@ -1479,7 +1479,7 @@ class ChannelManagementPanel(QWidget):
                     idx, Qt.CheckState(state) == Qt.CheckState.Checked
                 )
             )
-            form.addRow("Cut traces:", cut_traces)
+            form.addRow("Clip traces:", cut_traces)
 
             if self._is_expert:
                 aux_checkbox = QCheckBox()

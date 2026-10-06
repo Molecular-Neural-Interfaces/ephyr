@@ -143,7 +143,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.btn_zoom_to_area.setCheckable(True)
 
         self.btn_screenshot = QToolButton(header)
-        self.btn_screenshot.setText("Copy image")
+        self.btn_screenshot.setText("Export Canvas")
 
         self.btn_right_panel_toggle = QToolButton(header)
         self.btn_right_panel_toggle.setText("Show session panel")
@@ -255,7 +255,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.act_save_session.setShortcut("Ctrl+S")
         file_menu.addAction(self.act_save_session)
         self.menu_import = file_menu.addMenu("Import")
-        self.act_import_session = QAction("Session", self)
+        self.act_import_session = QAction("Full Session", self)
         self.act_import_events = QAction("Events", self)
         self.act_import_periods = QAction("Periods", self)
         self.act_import_settings = QAction("Settings", self)
@@ -275,7 +275,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # Edit menu
         edit_menu = menubar.addMenu("Edit")
-        self.act_copy_image = QAction("Copy Image", self)
+        self.act_copy_image = QAction("Export Canvas", self)
         edit_menu.addAction(self.act_copy_image)
         edit_menu.addSeparator()
         self.undo_action = QAction("Undo", self)
@@ -286,7 +286,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         # View menu (checkable)
         view_menu = menubar.addMenu("View")
         view_menu.addSection("Signal")
-        self.view_traces = QAction("Traces", self, checkable=True, checked=True)
+        self.view_traces = QAction("Channel Traces", self, checkable=True, checked=True)
         self.view_channel_names = QAction("Channel Names", self, checkable=True, checked=True)
         self.view_events = QAction("Events", self, checkable=True, checked=False)
         self.view_periods = QAction("Periods", self, checkable=True, checked=False)
@@ -340,7 +340,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # Help
         help_menu = menubar.addMenu("Help")
-        self.act_ephyr_guide = QAction("EphyR Guide", self)
+        self.act_ephyr_guide = QAction("Guide", self)
         self.act_ephyr_guide.setMenuRole(QAction.MenuRole.NoRole)
         help_menu.addAction(self.act_ephyr_guide)
         self.act_about = QAction("About", self)

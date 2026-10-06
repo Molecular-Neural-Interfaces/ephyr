@@ -14,9 +14,10 @@ from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -53,7 +54,7 @@ class ScreenshotExportResult:
 class ScreenshotExportDialog(QDialog):
     """Reusable dialog for screenshot export options."""
 
-    def __init__(self, parent=None, *, title: str = "Screenshot options"):
+    def __init__(self, parent=None, *, title: str = "Export Options"):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
@@ -70,15 +71,19 @@ class ScreenshotExportDialog(QDialog):
         self.format_combo.addItems(["png", "svg"])
         layout.addWidget(self.format_combo)
 
-        buttons = QDialogButtonBox(self)
-        self.copy_button = buttons.addButton("Copy to clipboard", QDialogButtonBox.ButtonRole.ActionRole)
-        self.save_button = buttons.addButton("Save as file", QDialogButtonBox.ButtonRole.AcceptRole)
-        buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
-        layout.addWidget(buttons)
+        buttons = QHBoxLayout()
+        cancel_button = QPushButton("Cancel", self)
+        self.copy_button = QPushButton("Copy to clipboard", self)
+        self.save_button = QPushButton("Save as file", self)
+        buttons.addWidget(cancel_button)
+        buttons.addStretch(1)
+        buttons.addWidget(self.copy_button)
+        buttons.addWidget(self.save_button)
+        layout.addLayout(buttons)
 
         self.copy_button.clicked.connect(self._on_copy_clicked)
         self.save_button.clicked.connect(self._on_save_clicked)
-        buttons.rejected.connect(self.reject)
+        cancel_button.clicked.connect(self.reject)
 
     def _on_copy_clicked(self):
         self._selected_action = "copy"
