@@ -49,7 +49,6 @@ from ephyr.gui.dialogs.events_vocabulary_dialog import EventsVocabularyDialog
 from ephyr.gui.dialogs.periods_vocabulary_dialog import PeriodsVocabularyDialog
 from ephyr.gui.dialogs.add_ons_dialog import AddOnsDialog
 from ephyr.gui.dialogs.add_on_development_dialog import AddOnDevelopmentDialog
-from ephyr.gui.dialogs.script_template_generator_dialog import ScriptTemplateGeneratorDialog
 from ephyr.gui.dialogs.screenshot_export_dialog import ScreenshotExportDialog, ScreenshotRenderContext
 from ephyr.gui.dialogs.about_dialog import AboutDialog
 from ephyr.gui.dialogs.hotkeys_dialog import HotkeysDialog
@@ -336,8 +335,6 @@ class MainWindow(QMainWindow, QWidgetMixin):
         add_ons_menu.addAction(self.add_ons_manage)
         self.add_ons_create_template = QAction("Create", self)
         add_ons_menu.addAction(self.add_ons_create_template)
-        self.add_ons_generate_script = QAction("Generate Script", self)
-        add_ons_menu.addAction(self.add_ons_generate_script)
 
         # Help
         help_menu = menubar.addMenu("Help")
@@ -394,7 +391,6 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.periods_show_all_action.triggered.connect(self.on_show_periods)
         self.add_ons_manage.triggered.connect(self.on_add_ons_manage)
         self.add_ons_create_template.triggered.connect(self.on_add_ons_create_template)
-        self.add_ons_generate_script.triggered.connect(self.on_add_ons_generate_script)
         self.act_ephyr_guide.triggered.connect(self.on_ephyr_guide)
         self.act_about.triggered.connect(self.on_about)
         self.act_hotkeys.triggered.connect(self.on_hotkeys)
@@ -1031,9 +1027,6 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
     def on_add_ons_create_template(self):
         AddOnDevelopmentDialog(self).exec()
-
-    def on_add_ons_generate_script(self):
-        ScriptTemplateGeneratorDialog(self.session_manager, self).exec()
 
     def on_ephyr_guide(self):
         QDesktopServices.openUrl(QUrl(settings.DOCUMENTATION_LINK))

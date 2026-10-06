@@ -1,9 +1,8 @@
 # Using Labeled Data
 
 After you annotate an experiment in Ephyr, you can load the same `*_ephyr` folder from Python and work
-with signals, sessions, events, periods, and add-on outputs. You can also generate a starter script
-from the GUI (**Add-ons → Generate script**); it uses the same API as the example at the bottom of this
-page.
+with signals, sessions, events, periods, and add-on outputs. The example at the bottom of this page
+shows the same API.
 
 ## Main objects
 

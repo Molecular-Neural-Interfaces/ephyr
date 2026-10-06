@@ -154,11 +154,6 @@ See [Add-ons Usage](../add_ons/usage.md).
 Opens the template generator that scaffolds a development add-on under `./add_on_development`.
 See [Add-on Development](../add_ons/development.md).
 
-### Generate Script
-
-Opens a dialog that writes a starter Python script for loading the current (or selected) Ephyr folder
-and session via `EphyrSessionManager`. See [Using Labeled Data](../analysis/labeled_data.md).
-
 ## Help
 
 ### Guide
