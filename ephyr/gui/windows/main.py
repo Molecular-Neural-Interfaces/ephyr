@@ -1149,12 +1149,17 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.view_periods.setChecked(self.session_manager.gui_setup.periods_are_shown)
 
     def __redraw_header(self):
-        experiment_name = self.session_manager.ephyr_experiment_folder.name
+        experiment_folder = self.session_manager.ephyr_experiment_folder
+        experiment_name = experiment_folder.name
+        parent_folder = experiment_folder.parent.name
+        recording = f"{parent_folder}/{experiment_name}" if parent_folder else experiment_name
         user_session = self.session_manager.user_session
         if user_session is None:
-            self.current_session_label.setText(experiment_name)
+            self.current_session_label.setText(f"Recording: {recording}")
             return
-        self.current_session_label.setText(f"{experiment_name}: {user_session.session_name}")
+        self.current_session_label.setText(
+            f"Session: {user_session.session_name}  |  Recording: {recording}"
+        )
 
     @staticmethod
     def __sweep_points(header, sweep_idx: int) -> int:

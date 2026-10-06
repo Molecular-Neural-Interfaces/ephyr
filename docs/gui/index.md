@@ -12,7 +12,7 @@ When an experiment session is open, the Ephyr window is organized as follows.
 | **Header bar** | **Scalebar** turns the time/voltage bar on or off. **Zoom to area** starts area selection (same as **V**). **Export Canvas** exports the current signal view (PNG/SVG). **Show session panel** / **Hide session panel** shows or hides the right-hand settings panel. |
 | **Signal panel** (left) | Channel groups with traces, events, periods, optional add-on overlays, and time navigation. See [Signal Panel](signal_panel.md). |
 | **Settings panel** (right) | Session panel (Beginner / Expert), timeline and channel settings, recording description, add-ons list, and application logs. See [Settings Panel](settings_panel.md). |
-| **Status bar** | Timestamped status messages on the left. The current experiment and session name (`experiment: session`) on the right. |
+| **Status bar** | Timestamped status messages on the left. On the right: `Session: SESSION  |  Recording: parent_folder/EXP_NAME`. |
 
 Before any experiment is loaded, the left area shows a start screen with a quick Open action and a short hotkey list.
 
