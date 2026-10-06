@@ -1,7 +1,7 @@
 # Settings Panel
 
 The right-hand settings panel holds tools that configure the view, describe the experiment, run add-ons,
-and inspect logs. Show or hide individual sections from **View → Tools**, or use **Show session panel** in
+and inspect logs. Show or hide individual sections from **View → Session Panel**, or use **Show session panel** in
 the header bar to hide the entire panel.
 
 ## Session panel
@@ -11,13 +11,22 @@ At the top of the panel, choose **Beginner mode** or **Expert mode**.
 The choice is stored in Ephyr’s global user settings and applied whenever you open the app.
 Expert mode reveals additional Timeline settings and Channel Management controls (see below).
 
-## Timeline settings
+## Recording navigation
 
-An independent right-panel section enabled with **View → Tools → Timeline settings**.
+An independent right-panel section enabled with **View → Session Panel → Recording Navigation**.
 
 | Control | Mode | Purpose |
 |---------|------|---------|
-| **Current sweep** | Both | Selects which sweep is displayed (1-based in the UI). Sample rate and sweep duration are shown underneath. |
+| Sweep info | Both | Sample rate and duration of the current sweep. |
+| **Current sweep** | Both | Selects which sweep is displayed (1-based in the UI). Disabled when the recording has a single sweep. |
+| **Set overlay** | Both | Choose other sweeps to draw in gray behind the current one, with the same filters and transformations. Disabled when the recording has a single sweep. |
+
+## Timeline settings
+
+An independent right-panel section enabled with **View → Session Panel → Timeline Settings**.
+
+| Control | Mode | Purpose |
+|---------|------|---------|
 | **Start point** | **Expert only** | Start of the visible window in milliseconds, with a `[h m s ms]` readout like duration. Stored as a sample index (`start_point`); the displayed value is `floor(index * 1000 / sample_rate)`. |
 | **Duration to show** | Both | Length of the visible window in milliseconds. Changing duration keeps the window center fixed when possible. |
 | **Timebar step** | **Expert only** | Step size (ms) used by the `<` / `>` buttons and by auto-scroll. |
@@ -30,7 +39,7 @@ These values are stored in the session’s `gui_setup` and drive the signal pane
 
 ## Channel management
 
-An independent right-panel section enabled with **View → Tools → Channel management**. Use it to
+An independent right-panel section enabled with **View → Session Panel → Channel Management**. Use it to
 organize electrodes into groups, apply filters, set units, and control how groups and channels are
 laid out on screen.
 
@@ -113,7 +122,7 @@ The **Layout settings** dialog configures a custom grid for the group:
 
 ## Recording description
 
-Shown when **View → Tools → Recording description** is enabled.
+Shown when **View → Session Panel → Recording Description** is enabled.
 
 A single free-text editor stores notes for the recording/session (`experiment_description` in the
 session JSON). Use it for protocols, animal IDs, or any free-form context you want next to the labels.
@@ -124,7 +133,7 @@ attached link externally.
 
 ## Add-ons
 
-Shown when **View → Tools → Add-ons** is enabled.
+Shown when **View → Session Panel → Add-ons** is enabled.
 
 Provides search, View / Transform checkboxes (when the add-on supports those capabilities), and a **Run**
 button for Runnable add-ons. See [Add-ons Usage](../add_ons/usage.md) for install/manage workflows and
@@ -132,7 +141,7 @@ button for Runnable add-ons. See [Add-ons Usage](../add_ons/usage.md) for instal
 
 ## Application Logs
 
-Shown when **View → Tools → Application logs** is enabled.
+Shown when **View → Session Panel → Application Logs** is enabled.
 
 | Control | Purpose |
 |---------|---------|

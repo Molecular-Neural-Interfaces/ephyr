@@ -26,6 +26,7 @@ from ephyr.converter.ephyr_io import EphyrIO
 
 
 class RightPanelWidgetEnum(Enum):
+    RECORDING_NAVIGATION = "recording_navigation"
     TIME_SETTINGS = "time_settings"
     CHANNEL_MANAGEMENT = "channel_management"
     INFORMATION = "information"
@@ -37,6 +38,7 @@ class RightPanelWidgetEnum(Enum):
     @staticmethod
     def widgets_order():
         return [
+            RightPanelWidgetEnum.RECORDING_NAVIGATION,
             RightPanelWidgetEnum.TIME_SETTINGS,
             RightPanelWidgetEnum.INFORMATION,
             RightPanelWidgetEnum.CHANNEL_MANAGEMENT,
@@ -47,6 +49,7 @@ class RightPanelWidgetEnum(Enum):
     @staticmethod
     def default_widgets():
         return [
+            RightPanelWidgetEnum.RECORDING_NAVIGATION,
             RightPanelWidgetEnum.TIME_SETTINGS,
             RightPanelWidgetEnum.INFORMATION,
             RightPanelWidgetEnum.CHANNEL_MANAGEMENT,

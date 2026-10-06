@@ -1,12 +1,11 @@
 # Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
 # SPDX-License-Identifier: GPL-3.0-only
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from ephyr import settings
 from ephyr.core.global_storage import GuiMode
-from ephyr.gui._utils import milliseconds_to_readable, sample_rate_to_readable
-from ephyr.gui.dialogs.overlay_sweeps_dialog import OverlaySweepsDialog
+from ephyr.gui._utils import milliseconds_to_readable
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 from ephyr.gui.widgets import FocusWheelSpinBox as QSpinBox
 
@@ -36,13 +35,6 @@ class TimeSettingsPanel(QWidget):
         self.start_point_spinbox.setSingleStep(1)
         self.start_point_spinbox.setSuffix(" ms")
 
-        self.current_sweep_spinbox = QSpinBox()
-        self.current_sweep_spinbox.setRange(1, 1)
-        self.current_sweep_spinbox.setSingleStep(1)
-        self.current_sweep_spinbox.setSuffix(" sweep")
-
-        self.setup_overlay_button = QPushButton("Setup overlay")
-
         self.duration_spinbox = QSpinBox()
         self.duration_spinbox.setRange(settings.MIN_DURATION, settings.MAX_DURATION)
         self.duration_spinbox.setSingleStep(100)
@@ -68,13 +60,7 @@ class TimeSettingsPanel(QWidget):
         self.duration_label = QLabel("Duration to show:")
         self.start_point_label = QLabel("Start point:")
         self.time_step_label = QLabel("Timebar step:")
-        self.sweep_info_label = QLabel("")
-        self.sweep_info_label.setStyleSheet("color: gray; font-size: 9pt;")
-        self.sweep_info_label.setWordWrap(True)
 
-        layout.addWidget(self.sweep_info_label)
-
-        self._add_control_row(layout, "Current sweep:", self.current_sweep_spinbox, self.setup_overlay_button)
         self._add_control_row(layout, self.duration_label, self.duration_spinbox)
         self._add_control_row(layout, self.start_point_label, self.start_point_spinbox, expert_only=True)
         self._add_control_row(layout, self.time_step_label, self.time_step_spinbox, expert_only=True)
@@ -106,10 +92,6 @@ class TimeSettingsPanel(QWidget):
         self._sync_time_controls()
 
     def connect_signals(self):
-        self.current_sweep_spinbox.valueChanged.connect(
-            lambda value: self._session_manager.set_current_sweep_idx(value - 1)
-        )
-        self.setup_overlay_button.clicked.connect(self._on_setup_overlay_clicked)
         self.start_point_spinbox.valueChanged.connect(self._on_start_point_ms_changed)
         self.duration_spinbox.valueChanged.connect(self._on_duration_changed)
         self.time_step_spinbox.valueChanged.connect(self._session_manager.set_time_step_ms)
@@ -125,12 +107,6 @@ class TimeSettingsPanel(QWidget):
         self._session_manager.time_step_ms_changed.connect(self._sync_time_controls)
         self._session_manager.autoscroll_step_interval_ms_changed.connect(self._sync_time_controls)
         self._session_manager.number_of_dots_to_display_changed.connect(self._sync_time_controls)
-        self._session_manager.overlay_sweep_idxs_changed.connect(self._sync_overlay_button)
-
-    def _on_setup_overlay_clicked(self):
-        if not self._session_manager.gui_setup:
-            return
-        OverlaySweepsDialog(self._session_manager, self).exec()
 
     def _sample_rate(self) -> float:
         header = self._session_manager.header
@@ -211,7 +187,6 @@ class TimeSettingsPanel(QWidget):
         if not self._is_expert:
             self._apply_beginner_time_step()
         controls = (
-            self.current_sweep_spinbox,
             self.start_point_spinbox,
             self.duration_spinbox,
             self.time_step_spinbox,
@@ -221,13 +196,6 @@ class TimeSettingsPanel(QWidget):
         for control in controls:
             control.blockSignals(True)
 
-        current_sweep_idx = int(gui_setup.current_sweep_idx)
-        sweeps_num = int(self._session_manager.header.number_of_sweeps) if self._session_manager.header else 1
-        sweeps_are_switchable = sweeps_num > 1
-        self.current_sweep_spinbox.setEnabled(sweeps_are_switchable)
-        self.setup_overlay_button.setEnabled(sweeps_are_switchable)
-        self.current_sweep_spinbox.setRange(1, max(1, sweeps_num))
-        self.current_sweep_spinbox.setValue(min(max(1, current_sweep_idx + 1), max(1, sweeps_num)))
         self.start_point_spinbox.setRange(0, self._max_start_point_ms())
         self.start_point_spinbox.setValue(self._start_ms_from_idx(gui_setup.start_point))
         self.duration_spinbox.setValue(gui_setup.duration_ms)
@@ -244,29 +212,4 @@ class TimeSettingsPanel(QWidget):
         self.duration_label.setText(f"Duration window {milliseconds_to_readable(gui_setup.duration_ms)}")
         self.time_step_label.setText(
             f"Timebar step {milliseconds_to_readable(gui_setup.time_step_ms)}"
-        )
-        self._update_sweep_info_label(current_sweep_idx)
-        self._sync_overlay_button()
-
-    def _sync_overlay_button(self, *_args):
-        overlay_sweep_idxs = self._session_manager.overlay_sweep_idxs
-        self.setup_overlay_button.setText(
-            f"Setup overlay ({len(overlay_sweep_idxs)})" if overlay_sweep_idxs else "Setup overlay"
-        )
-
-    def _update_sweep_info_label(self, current_sweep_idx: int):
-        header = self._session_manager.header
-        if not header or float(header.sample_rate) <= 0:
-            self.sweep_info_label.setText("")
-            return
-        points_per_sweep = list(header.number_of_points_per_sweep)
-        if not points_per_sweep:
-            self.sweep_info_label.setText("")
-            return
-        sweep_idx = max(0, min(current_sweep_idx, len(points_per_sweep) - 1))
-        sweep_duration_ms = (header.sample_interval_microseconds / 10 ** 3) * points_per_sweep[sweep_idx]
-        sample_rate_text = sample_rate_to_readable(float(header.sample_rate))
-        duration_text = milliseconds_to_readable(int(round(sweep_duration_ms)))
-        self.sweep_info_label.setText(
-            f"Sample rate {sample_rate_text}  Sweep duration {duration_text}"
         )

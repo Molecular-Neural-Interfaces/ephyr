@@ -30,5 +30,5 @@ Inside the signal panel you will typically work with:
 ## Settings panel highlights
 
 The right panel starts with **Session panel** (Beginner / Expert). Additional sections are toggled independently
-from **View → Tools**: Timeline settings, Channel management, Add-ons, Recording description, and
+from **View → Session Panel**: Recording Navigation, Timeline Settings, Channel management, Add-ons, Recording description, and
 Application logs.

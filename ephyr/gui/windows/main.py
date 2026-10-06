@@ -56,6 +56,7 @@ from ephyr.gui.panels.information_panel import InformationPanel
 from ephyr.gui.panels.analysis_panel import AnalysisPanel
 from ephyr.gui.panels.logs_panel import LogsPanel
 from ephyr.gui.panels.channel_management_panel import ChannelManagementPanel
+from ephyr.gui.panels.recording_navigation_panel import RecordingNavigationPanel
 from ephyr.gui.panels.time_settings_panel import TimeSettingsPanel
 from ephyr.gui.panels.signal_panel import SignalPanel
 from ephyr.gui.panels.start_screen_panel import StartScreenPanel
@@ -109,6 +110,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.logs_panel = LogsPanel()
         self.info_panel = InformationPanel(self.session_manager)
         self.analysis_panel = AnalysisPanel(self.session_manager)
+        self.recording_navigation_panel = RecordingNavigationPanel(self.session_manager)
         self.time_settings_panel = TimeSettingsPanel(self.session_manager)
         self.channel_management_panel = ChannelManagementPanel(self.session_manager)
 
@@ -299,12 +301,14 @@ class MainWindow(QMainWindow, QWidgetMixin):
             view_menu.addAction(action)
 
         self._add_labeled_menu_section(view_menu, "Session Panel")
+        self.view_recording_navigation_panel = QAction("Recording Navigation", self, checkable=True, checked=False)
         self.view_time_settings_panel = QAction("Timeline Settings", self, checkable=True, checked=False)
         self.view_channel_management_panel = QAction("Channel Management", self, checkable=True, checked=False)
         self.view_info_panel = QAction("Recording Description", self, checkable=True, checked=False)
         self.view_logs_panel = QAction("Application Logs", self, checkable=True, checked=False)
         self.view_analysis_panel = QAction("Add-ons", self, checkable=True, checked=False)
         for action in (
+                self.view_recording_navigation_panel,
                 self.view_time_settings_panel,
                 self.view_channel_management_panel,
                 self.view_analysis_panel,
@@ -379,6 +383,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.view_channel_names.triggered.connect(self.on_view_channel_names)
         self.view_events.triggered.connect(self.on_view_events)
         self.view_periods.triggered.connect(self.on_view_periods)
+        self.view_recording_navigation_panel.triggered.connect(self.on_view_recording_navigation_panel)
         self.view_time_settings_panel.triggered.connect(self.on_view_time_settings_panel)
         self.view_channel_management_panel.triggered.connect(self.on_view_channel_management_panel)
         self.view_info_panel.triggered.connect(self.on_view_info_panel)
@@ -900,6 +905,12 @@ class MainWindow(QMainWindow, QWidgetMixin):
         if self.session_manager.session_is_active:
             self.session_manager.set_periods_shown(checked)
 
+    def on_view_recording_navigation_panel(self, checked: bool, *args, **kwargs):
+        if checked:
+            self.add_widget_to_right_panel(RightPanelWidgetEnum.RECORDING_NAVIGATION)
+        else:
+            self.remove_widget_from_right_panel(RightPanelWidgetEnum.RECORDING_NAVIGATION)
+
     def on_view_time_settings_panel(self, checked: bool, *args, **kwargs):
         if checked:
             self.add_widget_to_right_panel(RightPanelWidgetEnum.TIME_SETTINGS)
@@ -1201,7 +1212,9 @@ class MainWindow(QMainWindow, QWidgetMixin):
         menu.addAction(title_action)
 
     def __get_panel_by_type(self, widget_type: RightPanelWidgetEnum):
-        if widget_type == RightPanelWidgetEnum.TIME_SETTINGS:
+        if widget_type == RightPanelWidgetEnum.RECORDING_NAVIGATION:
+            return self.recording_navigation_panel
+        elif widget_type == RightPanelWidgetEnum.TIME_SETTINGS:
             return self.time_settings_panel
         elif widget_type == RightPanelWidgetEnum.CHANNEL_MANAGEMENT:
             return self.channel_management_panel
@@ -1215,7 +1228,9 @@ class MainWindow(QMainWindow, QWidgetMixin):
             raise ValueError("Unknown widget_type")
 
     def __set_panel_checked_by_type(self, widget_type: RightPanelWidgetEnum, checked: bool):
-        if widget_type == RightPanelWidgetEnum.TIME_SETTINGS:
+        if widget_type == RightPanelWidgetEnum.RECORDING_NAVIGATION:
+            self.view_recording_navigation_panel.setChecked(checked)
+        elif widget_type == RightPanelWidgetEnum.TIME_SETTINGS:
             self.view_time_settings_panel.setChecked(checked)
         elif widget_type == RightPanelWidgetEnum.CHANNEL_MANAGEMENT:
             self.view_channel_management_panel.setChecked(checked)

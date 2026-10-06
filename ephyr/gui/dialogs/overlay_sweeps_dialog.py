@@ -26,7 +26,7 @@ class OverlaySweepsDialog(QDialog):
     def __init__(self, session_manager: QtEphyrSessionManagerWrapper, parent=None):
         super().__init__(parent)
         self._session_manager = session_manager
-        self.setWindowTitle("Setup overlay")
+        self.setWindowTitle("Set overlay")
         self.resize(360, 520)
         self._build_ui()
         self._populate_rows()
