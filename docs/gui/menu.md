@@ -113,40 +113,33 @@ to show or hide the whole right panel.
 
 ## Events
 
-### List of Events
+### Manage
 
 Opens the events vocabulary dialog: visibility, event IDs, names, colors, and counts in the current sweep /
 across sweeps. You can show or hide individual event types, add or remove vocabulary entries, rename names
-in place, and pick colors.
+in place, and pick colors. The **Add** button is enabled when a type is selected: it places you in
+interactive mode so you can click on the signal to add an event at that time. Right-click or **Esc** cancels.
 
-### Add Event
+### Remove in Range
 
-Opens the vocabulary dialog so you can select (or create) an event type, then places you in interactive
-mode: click on the signal to add an event at that time. Right-click or **Esc** cancels.
+Two-click range that deletes events inside the range. Right-click or **Esc** cancels.
 
-### Set Bad Event
+### Set Bad
 
 Interactive two-click range on the signal: events inside the range are marked as bad.
 Right-click or **Esc** cancels.
 
-### Unset Bad Event
+### Unset Bad
 
 Two-click range that clears the bad flag on events inside the range.
 
-### Remove
-
-Two-click range that deletes events inside the range.
-
 ## Periods
 
-### List of Periods
+### Manage
 
 Opens the periods vocabulary dialog: visibility, period IDs, names, and colors. You can show or hide
 individual period types and use the same editing patterns as events (add/remove, rename, color pick).
-
-### Add Period
-
-Select a period type from the vocabulary, then click twice on the signal to set the start and end
+The **Add** button is enabled when a type is selected: click twice on the signal to set the start and end
 (can span sweeps). Right-click or **Esc** cancels.
 
 ## Add-ons
