@@ -1341,7 +1341,7 @@ class ChannelManagementPanel(QWidget):
 
         def sync_label(local_filters: List):
             enabled = [f.filter_name for f in local_filters if getattr(f, "enabled", False)]
-            enabled_label.setText(f"Enable: {', '.join(enabled) if enabled else 'None'}")
+            enabled_label.setText(f"Enabled: {', '.join(enabled) if enabled else 'None'}")
 
         def clear_form():
             while params_layout.rowCount():
