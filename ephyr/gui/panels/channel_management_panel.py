@@ -25,7 +25,6 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QGridLayout,
     QSizePolicy,
-    QButtonGroup,
 )
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -898,19 +897,19 @@ class GroupsLayoutDialog(QDialog):
         self._colors = [self._GROUP_COLORS[i % len(self._GROUP_COLORS)] for i in range(len(groups))]
         self._cells, row_ratios, col_ratios = self._seed_cells(groups)
         self._n = len(groups)
-        self._selected = 0 if groups else -1
+        self._selected = -1
         self._row_spins: List[QSpinBox] = []
         self._col_spins: List[QSpinBox] = []
         self._cell_buttons: List[List[QPushButton]] = []
-        self._group_buttons: List[QPushButton] = []
 
         root = QVBoxLayout(self)
         caption = QLabel(
-            "Select a group, then click a cell to place it. Each group occupies one cell; "
-            "clicking an occupied cell swaps the two groups. The spin box to the left of a row "
-            "is its height ratio, and the spin box above a column is its width ratio. "
-            "Occupied rows and columns grow and shrink with those ratios. Empty rows and columns "
-            "stay small and are not counted."
+            "Click a group on the board, then click the cell to move it to. "
+            "Clicking an occupied cell swaps the two groups. After a move, select a group again. "
+            "Click the selected group once more to cancel the selection. "
+            "The spin box to the left of a row is its height ratio, and the spin box above a column "
+            "is its width ratio. Occupied rows and columns grow and shrink with those ratios. "
+            "Empty rows and columns stay small and are not counted."
         )
         caption.setWordWrap(True)
         root.addWidget(caption)
@@ -922,30 +921,6 @@ class GroupsLayoutDialog(QDialog):
         packing.setWordWrap(True)
         packing.setStyleSheet("color: gray;")
         root.addWidget(packing)
-
-        picker_scroll = QScrollArea()
-        picker_scroll.setWidgetResizable(True)
-        picker_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        picker_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        picker_scroll.setFixedHeight(52)
-        picker = QWidget()
-        picker_row = QHBoxLayout(picker)
-        picker_row.setContentsMargins(0, 0, 0, 0)
-        picker_row.addWidget(QLabel("Group:"))
-        self._group_btn_group = QButtonGroup(self)
-        self._group_btn_group.setExclusive(True)
-        for i, name in enumerate(self._names):
-            button = QPushButton(name)
-            button.setCheckable(True)
-            button.setAutoDefault(False)
-            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            button.clicked.connect(lambda _checked=False, gi=i: self._select_group(gi))
-            self._group_btn_group.addButton(button, i)
-            self._group_buttons.append(button)
-            picker_row.addWidget(button)
-        picker_row.addStretch(1)
-        picker_scroll.setWidget(picker)
-        root.addWidget(picker_scroll)
 
         for r in range(self._n):
             self._row_spins.append(self._make_ratio_spin(row_ratios[r], "Height ratio"))
@@ -986,10 +961,7 @@ class GroupsLayoutDialog(QDialog):
         self.reset_btn.clicked.connect(self._reset)
         self.cancel_btn.clicked.connect(self.reject)
         self.save_btn.clicked.connect(self.accept)
-        if self._selected >= 0:
-            self._select_group(self._selected)
-        else:
-            self._restyle_cells()
+        self._restyle_cells()
 
     @staticmethod
     def _make_ratio_spin(value: int, tooltip: str) -> QSpinBox:
@@ -1107,30 +1079,23 @@ class GroupsLayoutDialog(QDialog):
         if not (0 <= index < self._n):
             return
         self._selected = index
-        for i, button in enumerate(self._group_buttons):
-            selected = i == index
-            button.setChecked(selected)
-            button.setStyleSheet(self._group_button_style(i, selected))
         self._restyle_cells()
 
-    def _group_button_style(self, index: int, selected: bool) -> str:
-        bg = self._colors[index]
-        fg = self._text_on(bg)
-        border = "2px solid #222222" if selected else "1px solid #888888"
-        weight = "bold" if selected else "normal"
-        return (
-            f"QPushButton {{ background-color: {bg}; color: {fg}; border: {border}; "
-            f"padding: 4px 10px; font-weight: {weight}; }}"
-        )
+    def _clear_group_selection(self) -> None:
+        self._selected = -1
+        self._restyle_cells()
 
     def _restyle_cells(self) -> None:
+        has_selection = self._selected >= 0
         for r in range(self._n):
             for c in range(self._n):
                 group_idx = self._cells[r][c]
                 button = self._cell_buttons[r][c]
                 if group_idx is None:
                     button.setText("")
-                    button.setToolTip("Place the selected group here")
+                    button.setToolTip(
+                        "Place the selected group here" if has_selection else "Select a group first"
+                    )
                     button.setStyleSheet(
                         "QPushButton { background-color: #f3f3f3; border: 1px dashed #bbbbbb; }"
                         "QPushButton:hover { background-color: #e7e7e7; }"
@@ -1141,15 +1106,27 @@ class GroupsLayoutDialog(QDialog):
                 fg = self._text_on(bg)
                 selected = group_idx == self._selected
                 border = "3px solid #222222" if selected else "1px solid #666666"
+                if selected:
+                    tooltip = "Selected. Click another cell to move it, or click again to cancel"
+                elif has_selection:
+                    tooltip = "Swap with the selected group"
+                else:
+                    tooltip = "Select this group"
                 button.setText(name)
-                button.setToolTip(name)
+                button.setToolTip(tooltip)
                 button.setStyleSheet(
                     f"QPushButton {{ background-color: {bg}; color: {fg}; border: {border}; "
                     f"font-weight: bold; padding: 2px; }}"
                 )
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
+        occupant = self._cells[row][col]
         if self._selected < 0:
+            if occupant is not None:
+                self._select_group(occupant)
+            return
+        if occupant == self._selected:
+            self._clear_group_selection()
             return
         self._move_group(self._selected, row, col)
 
@@ -1169,7 +1146,7 @@ class GroupsLayoutDialog(QDialog):
             old_row, old_col = current
             self._cells[old_row][old_col] = occupant if occupant not in (None, group_idx) else None
         self._cells[row][col] = group_idx
-        self._restyle_cells()
+        self._clear_group_selection()
         self._board.reposition()
 
     def _reset(self) -> None:

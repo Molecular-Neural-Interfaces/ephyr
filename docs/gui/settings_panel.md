@@ -48,14 +48,14 @@ laid out on screen.
 | Control                       | Mode | Purpose |
 |-------------------------------|------|---------|
 | **Add channels group**        | **Expert only** | Creates a new empty channel-group tab. Disabled in Beginner mode. |
-| **Groups layout**             | **Expert only** | Opens an N×N grid (N is the number of groups) to place each group in one cell and set row and column ratios. Disabled in Beginner mode. |
+| **Groups layout**             | **Expert only** | Opens an N×N grid (N is the number of groups). Click a group on the board, then click the cell to move it to, and set row and column ratios. Disabled in Beginner mode. |
 | **Set units**                 | **Expert only** | Opens header units management so you can change voltage units for selected channels. Disabled in Beginner mode. |
 
 ![Groups layout dialog](../source/_static/gui/groups_layout.png)
 
 ### Groups layout
 
-**Groups layout** opens an N×N grid, where N is the number of channel groups. Select a group, then click a cell to place it. Each group occupies one cell; clicking an occupied cell swaps the two groups.
+**Groups layout** opens an N×N grid, where N is the number of channel groups. Click a group on the board to select it, then click the cell to move it to. Each group occupies one cell; clicking an occupied cell swaps the two groups. After a move, the selection is cleared, so the next move starts by selecting a group again. Click the selected group a second time to cancel the selection without moving it.
 
 The spin box to the left of a row is its **height ratio**, and the spin box above a column is its **width ratio**. Occupied rows and columns in the grid grow and shrink with those ratios. Empty rows and columns stay small and are not counted.
 

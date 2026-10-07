@@ -2046,15 +2046,8 @@ class SignalPanel(QWidget):
                 and watched is self.time_scrollbar
                 and event.type() == QEvent.Type.Wheel
                 and isinstance(event, QWheelEvent)):
-            delta = event.angleDelta().y() or event.angleDelta().x()
-            if delta > 0:
-                self.on_single_right_click()
-            elif delta < 0:
-                self.on_single_left_click()
-            else:
-                return super().eventFilter(watched, event)
-            event.accept()
-            return True
+            if self._step_time_by_wheel(event):
+                return True
 
         return super().eventFilter(watched, event)
 
@@ -3020,11 +3013,22 @@ class SignalPanel(QWidget):
         if self._session_manager.gui_setup:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 self.__zoom(event)
-            else:
-                pass
-                # self.__scroll_horizontally(event)
+            elif not self._step_time_by_wheel(event):
+                super().wheelEvent(event)
         else:
             super().wheelEvent(event)
+
+    def _step_time_by_wheel(self, event: QWheelEvent) -> bool:
+        """Move the visible window by one time_step_ms, same as the time scrollbar."""
+        delta = event.angleDelta().y() or event.angleDelta().x()
+        if delta > 0:
+            self.on_single_right_click()
+        elif delta < 0:
+            self.on_single_left_click()
+        else:
+            return False
+        event.accept()
+        return True
 
     def __zoom(self, event):
         cursor_x = event.position().x()
@@ -3053,15 +3057,3 @@ class SignalPanel(QWidget):
             self._redraw_data()
 
         event.accept()
-
-    def __scroll_horizontally(self, event):
-        cursor_x = event.position().x()
-        widget_width = self.width()
-        if cursor_x < 0 or cursor_x > widget_width:
-            return
-
-        delta = event.angleDelta().y()
-        if delta > 0:  # go right
-            self.on_single_right_click()
-        else:  # go left
-            self.on_single_left_click()

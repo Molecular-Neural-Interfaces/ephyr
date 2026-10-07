@@ -39,6 +39,8 @@ class TimeSettingsPanel(QWidget):
         self.duration_spinbox.setRange(settings.MIN_DURATION, settings.MAX_DURATION)
         self.duration_spinbox.setSingleStep(100)
         self.duration_spinbox.setSuffix(" ms")
+        # Commit the typed value on Enter or focus-out, not on every keystroke.
+        self.duration_spinbox.setKeyboardTracking(False)
 
         self.time_step_spinbox = QSpinBox()
         self.time_step_spinbox.setRange(settings.MIN_TIME_STEP, settings.MAX_DURATION)
@@ -93,7 +95,7 @@ class TimeSettingsPanel(QWidget):
 
     def connect_signals(self):
         self.start_point_spinbox.valueChanged.connect(self._on_start_point_ms_changed)
-        self.duration_spinbox.valueChanged.connect(self._on_duration_changed)
+        self.duration_spinbox.editingFinished.connect(self._commit_duration)
         self.time_step_spinbox.valueChanged.connect(self._session_manager.set_time_step_ms)
         self.autoscroll_step_interval_spinbox.valueChanged.connect(
             self._session_manager.set_autoscroll_step_interval_ms
@@ -145,11 +147,19 @@ class TimeSettingsPanel(QWidget):
             return
         self._session_manager.set_start_point(self._start_idx_from_ms(start_ms))
 
+    def _commit_duration(self):
+        """Apply duration when Enter is pressed or the field loses focus."""
+        if self._updating:
+            return
+        self._on_duration_changed(int(self.duration_spinbox.value()))
+
     def _on_duration_changed(self, duration_ms: int):
         """Keep the time-window center fixed when duration changes."""
         if self._updating:
             return
         gui_setup = self._session_manager.gui_setup
+        if gui_setup is not None and int(gui_setup.duration_ms) == duration_ms:
+            return
         header = self._session_manager.header
         if not gui_setup or not header or float(header.sample_rate) <= 0:
             self._session_manager.set_duration_ms(duration_ms)
