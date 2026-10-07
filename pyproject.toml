@@ -1,3 +1,21 @@
 [build-system]
 build-backend = "setuptools.build_meta"
 requires = ["setuptools", "wheel"]
+
+[tool.changelog-maestro]
+output_file = "CHANGELOG.md"
+version_prefix = "v"
+include_merges = false
+
+[tool.changelog-maestro.commit_types]
+feat = "Features"
+fix = "Bug Fixes"
+docs = "Documentation"
+style = "Styles"
+refactor = "Code Refactoring"
+perf = "Performance Improvements"
+test = "Tests"
+build = "Builds"
+ci = "Continuous Integration"
+chore = "Chores"
+revert = "Reverts"
