@@ -80,7 +80,7 @@ Each channel group has its own tab. Tabs can be reordered, and empty groups can 
 
 | Field / action | Purpose                                                                                                                                                                                                                                  |
 |----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Name / Color** | Title of the group.|
+| **Name** | Title of the group.|
 | **Color** | Applies the color to all channels in non-auxiliary groups. |
 | **View** | Shows or hides this group on the signal panel.|
 | **Clip traces** | Clips drawn traces to each channel cell’s bounds. |
