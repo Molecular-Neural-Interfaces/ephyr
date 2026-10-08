@@ -1,30 +1,34 @@
 # Menu
 
-The menu bar provides the main application actions. Items that require an open session are enabled after
-you load an experiment.
+The menu bar provides the primary application actions. Menu items that require an open 
+session are enabled after you load an experiment.
+
 
 ## File
 
-### Open
+### Open File
 
-Opens a dialog titled **Select experiment folder or source file**. Choose either:
+Opens a dialog for selecting a source file. Choose a supported source file. Ephyr converts it to a `*_ephyr` experiment. 
 
-- a supported source file or recording folder (Ephyr converts it to a `*_ephyr` experiment), or
+### Open Folder
+Opens a dialog for selecting a folder. Choose either:
+
+- a supported recording folder. Ephyr converts it to a `*_ephyr` experiment;
 - an existing Ephyr experiment folder that already contains `header.json`.
 
-See [Files Format](../files_format.md) for supported formats and how to select them.
+See [Files Format](../files_format.md) for supported formats and selection instructions.
 
 ### Open Recent
 
-Lists recently opened Ephyr experiment folders. Selecting an entry reloads that experiment.
+Lists recently opened Ephyr experiment folders. Selecting an entry reloads that experiment. 
 Missing folders are removed from the list automatically.
 
 ### Session
 
 #### New
 
-Creates a new annotation session inside the current experiment. You are prompted for a unique session name.
-The new session gets default channel groups and GUI setup and becomes the active session.
+Creates a new annotation session inside the current experiment. You are prompted for a unique session name. 
+The new session receives default channel groups and GUI setup, and becomes the active session. 
 
 #### Save
 
@@ -64,86 +68,88 @@ session without reloading the underlying signal data.
 
 ### Exit
 
-Quits the application. If the current session has unsaved changes, Ephyr asks for confirmation.
-Closing the window uses the same unsaved-changes check.
+Terminates the application. If the current session has unsaved changes, Ephyr requests confirmation. 
+Closing the window applies the same unsaved-changes check.
+
 
 ## Edit
 
+### Export Canvas
+
+Exports the current signal view as PNG or SVG. This command is equivalent to **Export Canvas** in the Toolbar Panel.
+
 ### Undo
 
-Reverses the last undoable labeling command (for example adding or removing events/periods or vocabulary changes).
+Reverses the last undoable labeling command, such as adding or removing events or periods, or changing the vocabulary.
 
 ### Redo
 
 Re-applies the last undone command.
 
+
 ## View
 
-### Signal visibility
+### Data visibility
 
-Checkable items that show or hide layers on the signal panel (and related navigator elements):
+Checkable items that control the visibility of layers on the data panel and related navigator elements:
 
 | Item | Purpose |
 |------|---------|
-| **Traces** | Show or hide waveform traces. |
+| **Channel Traces** | Show or hide waveform traces. |
 | **Channel names** | Show or hide channel name labels drawn on each channel cell. |
 | **Events** | Show or hide event markers. |
 | **Periods** | Show or hide period intervals and labels. |
 
 These toggles stay in sync with the current session’s GUI setup.
 
-### Tools
+### Session Panel visibility
 
-Checkable items that show or hide sections of the right-hand settings panel:
+Checkable items that show or hide sections of the right-hand session panel:
 
 | Item | Panel section |
 |------|----------------|
-| **Time settings** | Sweep and visible time-window controls |
-| **Channel management** | Channel groups, layouts, filters, units, and visual attachment |
+| **Recording Navigation** | Current sweep, sweep info, and overlay of other sweeps  |
+| **Time settings** | Visible time-window controls |
+| **Channel management** | Channel groups, layouts, filters, and units |
 | **Add-ons** | Searchable add-on list with View / Transform / Run |
-| **Experiment description** | Free-text experiment/session notes |
+| **Experiment description** | Free-text notes and, in Expert mode, visual attachment |
 | **Application logs** | Live application log and level filter |
 
-If no tool sections are visible, the right panel may hide automatically. Use **Panel** in the header bar
-to show or hide the whole right panel.
+If no tool sections are visible, the right panel may hide automatically. Use **Show session panel** in the header bar 
+to show or hide the entire right-hand settings panel.
 
 ## Events
 
-### Show table
+### Manage
 
-Opens the events vocabulary dialog: visibility, event IDs, names, colors, and counts in the current sweep /
-across sweeps. You can show or hide individual event types, add or remove vocabulary entries, rename names
-in place, and pick colors.
+Opens the events vocabulary dialog, which displays visibility, event IDs, names, colors, and counts for the current sweep and across sweeps. 
+You can show or hide individual event types, create or remove vocabulary entries, rename entries in place, and select colors. The **Add** button is 
+enabled when a type is selected: it places you in interactive mode so you can click on the signal to add an event at that time. Right-click or **Esc** cancels.
 
-### Add
+### Remove in range
 
-Opens the vocabulary dialog so you can select (or create) an event type, then places you in interactive
-mode: click on the signal to add an event at that time. Right-click or **Esc** cancels.
+Defines a two-click range that deletes events within the range. Right-click or **Esc** cancels.
 
 ### Set bad event
 
-Interactive two-click range on the signal: events inside the range are marked as bad.
+Defines an interactive two-click range on the signal; events within the range are marked as bad.
 Right-click or **Esc** cancels.
 
 ### Unset bad event
 
-Two-click range that clears the bad flag on events inside the range.
+Defines an interactive two-click range on the signal; clears the bad flag on events within the range.
 
-### Remove
-
-Two-click range that deletes events inside the range.
 
 ## Periods
 
-### Show table
+### Manage
 
-Opens the periods vocabulary dialog: visibility, period IDs, names, and colors. You can show or hide
-individual period types and use the same editing patterns as events (add/remove, rename, color pick).
+Opens the periods vocabulary dialog, which displays visibility, period IDs, names, and colors. You can show or hide individual 
+period types and use the same editing patterns as for events: add or remove entries, rename entries in place, and select colors.
+The **Add** button is enabled when a type is selected: click twice on the signal to set the start and end (can span sweeps). 
+Right-click or **Esc** cancels.
 
-### Add period
 
-Select a period type from the vocabulary, then click twice on the signal to set the start and end
-(can span sweeps). Right-click or **Esc** cancels.
 
 ## Add-ons
 
@@ -179,3 +185,4 @@ Lists the built-in keyboard shortcuts:
 | **M** | Cycle the measurement (time/voltage) bar |
 | **V** | Select an area for full-view inspection |
 | **Esc** | Cancel the current interactive overlay mode |
+| **Right-click** | Cancel the current interactive overlay mode |
