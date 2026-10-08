@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt, QRect
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout, QWidget, QHBoxLayout
 
+from ephyr import settings
 from ephyr.gui.dialogs.screenshot_export_dialog import ScreenshotExportDialog
 
 
@@ -22,6 +23,8 @@ class SelectedAreaSignalWidget(QWidget):
         channels_setup: Dict[int, Any],
         start_time_ms: float,
         end_time_ms: float,
+        overlay_channel_data: Dict[int, Dict[int, np.ndarray]] | None = None,
+        channel_cut_traces: Dict[int, bool] | None = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -31,6 +34,8 @@ class SelectedAreaSignalWidget(QWidget):
         self._channels_setup = channels_setup
         self._start_time_ms = start_time_ms
         self._end_time_ms = end_time_ms
+        self._overlay_channel_data = dict(overlay_channel_data or {})
+        self._channel_cut_traces = dict(channel_cut_traces or {})
 
         self._LEFT_MARGIN = 90
         self._RIGHT_MARGIN = 16
@@ -60,25 +65,12 @@ class SelectedAreaSignalWidget(QWidget):
         return np.interp(new_x, old_x, data).astype(np.float64)
 
     def draw_to_painter(self, painter: QPainter):
-        painter.fillRect(self.rect(), self._BG_COLOR)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-
-        channel_count = len(self._channel_indexes)
-        draw_height = max(1, self.height() - self._TOP_MARGIN - self._BOTTOM_MARGIN)
-        axis_width = max(1, self.width() - self._LEFT_MARGIN - self._RIGHT_MARGIN)
-        if channel_count == 0:
-            return
-        channel_height = max(1, int((draw_height - (channel_count - 1) * self._CHANNEL_SPACING) / channel_count))
-
-        for row, channel_idx in enumerate(self._channel_indexes):
-            top = self._TOP_MARGIN + row * (channel_height + self._CHANNEL_SPACING)
-            rect = QRect(self._LEFT_MARGIN, top, axis_width, channel_height)
-            self._draw_channel(painter, channel_idx, rect)
-
-        self._draw_time_axis(painter, draw_height)
-        self._draw_scale_panel(painter, draw_height, axis_width, channel_height)
+        self._draw_all(painter)
 
     def draw_to_painter_svg(self, painter: QPainter):
+        self._draw_all(painter, target_dots=self._target_svg_dots_1khz())
+
+    def _draw_all(self, painter: QPainter, target_dots: int | None = None):
         painter.fillRect(self.rect(), self._BG_COLOR)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
@@ -88,12 +80,14 @@ class SelectedAreaSignalWidget(QWidget):
         if channel_count == 0:
             return
         channel_height = max(1, int((draw_height - (channel_count - 1) * self._CHANNEL_SPACING) / channel_count))
-        target_dots = self._target_svg_dots_1khz()
+        # Channels that are not cut may overflow their row, exactly as in the main signal view.
+        channels_area = QRect(self._LEFT_MARGIN, self._TOP_MARGIN, axis_width, draw_height)
 
         for row, channel_idx in enumerate(self._channel_indexes):
             top = self._TOP_MARGIN + row * (channel_height + self._CHANNEL_SPACING)
             rect = QRect(self._LEFT_MARGIN, top, axis_width, channel_height)
-            self._draw_channel(painter, channel_idx, rect, target_dots=target_dots)
+            clip_rect = rect if self._channel_cut_traces.get(channel_idx, False) else channels_area
+            self._draw_channel(painter, channel_idx, rect, clip_rect, target_dots=target_dots)
 
         self._draw_time_axis(painter, draw_height)
         self._draw_scale_panel(painter, draw_height, axis_width, channel_height)
@@ -102,7 +96,8 @@ class SelectedAreaSignalWidget(QWidget):
         painter = QPainter(self)
         self.draw_to_painter(painter)
 
-    def _draw_channel(self, painter: QPainter, channel_idx: int, rect: QRect, target_dots: int | None = None):
+    def _draw_channel(self, painter: QPainter, channel_idx: int, rect: QRect, clip_rect: QRect,
+                      target_dots: int | None = None):
         setup = self._channels_setup.get(channel_idx)
         color = QColor(str(getattr(setup, "color", "#000000")))
         if not color.isValid():
@@ -123,26 +118,27 @@ class SelectedAreaSignalWidget(QWidget):
         painter.drawText(QRect(0, rect.top(), self._LEFT_MARGIN - 8, rect.height()),
                          Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, label)
 
-        data = self._channel_data.get(channel_idx)
+        overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
+        for sweep_data in self._overlay_channel_data.values():
+            self._draw_trace(painter, sweep_data.get(channel_idx), rect, clip_rect,
+                             scale_uv, y_offset, overlay_color, settings.OVERLAY_TRACE_WIDTH, target_dots)
+        self._draw_trace(painter, self._channel_data.get(channel_idx), rect, clip_rect,
+                         scale_uv, y_offset, color, 1.2, target_dots)
+
+    def _draw_trace(self, painter: QPainter, data: np.ndarray | None, rect: QRect, clip_rect: QRect,
+                    scale_uv: float, y_offset: float, color: QColor, pen_width: float,
+                    target_dots: int | None):
         if data is None or len(data) < 2:
             return
         if target_dots is not None:
             data = self._resample_data(data, target_dots)
         n = len(data)
-        x = np.linspace(rect.left(), rect.right(), n, dtype=np.float32)
+        if n < 2:
+            return
+        x = np.linspace(rect.left(), rect.right(), n, dtype=np.float64)
         pixel_per_uv = rect.height() / max(scale_uv, 1e-12)
         y = (rect.top() + rect.height() / 2.0) - (data + y_offset) * pixel_per_uv
-
-        painter.setPen(QPen(color, 1.2))
-        prev_x = float(x[0])
-        prev_y = float(y[0])
-        for i in range(1, n):
-            cur_x = float(x[i])
-            cur_y = float(y[i])
-            if rect.top() <= prev_y <= rect.bottom() and rect.top() <= cur_y <= rect.bottom():
-                painter.drawLine(int(prev_x), int(prev_y), int(cur_x), int(cur_y))
-            prev_x = cur_x
-            prev_y = cur_y
+        ScreenshotExportDialog.draw_polyline_trace(painter, x, y, color, pen_width, clip_rect)
 
     def _draw_time_axis(self, painter: QPainter, draw_height: int):
         axis_y = self._TOP_MARGIN + draw_height + 8
@@ -210,6 +206,8 @@ class FullViewSelectedAreaDialog(QDialog):
         channels_setup: Dict[int, Any],
         start_time_ms: float,
         end_time_ms: float,
+        overlay_channel_data: Dict[int, Dict[int, np.ndarray]] | None = None,
+        channel_cut_traces: Dict[int, bool] | None = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -225,12 +223,14 @@ class FullViewSelectedAreaDialog(QDialog):
             channels_setup=channels_setup,
             start_time_ms=start_time_ms,
             end_time_ms=end_time_ms,
+            overlay_channel_data=overlay_channel_data,
+            channel_cut_traces=channel_cut_traces,
             parent=self,
         )
         root.addWidget(self.signal_view, 1)
 
         controls = QHBoxLayout()
-        self.btn_screenshot = QPushButton("Screenshot", self)
+        self.btn_screenshot = QPushButton("Export Canvas", self)
         self.status_label = QLabel("", self)
         self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         controls.addWidget(self.btn_screenshot)

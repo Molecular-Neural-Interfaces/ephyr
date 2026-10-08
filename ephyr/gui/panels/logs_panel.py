@@ -33,7 +33,7 @@ class LogsPanel(QWidget):
 
         # Header with controls
         header_layout = QHBoxLayout()
-        title_label = QLabel("Application Logs")
+        title_label = QLabel("Application logs")
         title_label.setStyleSheet("font-weight: bold;")
 
         # Control buttons - make them compact

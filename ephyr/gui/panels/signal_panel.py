@@ -423,6 +423,12 @@ class SignalWidget(QWidget):
         self._font_metrics = QFontMetrics(self._font)
 
         self._processed_data = {}
+        self._overlay_processed_data: Dict[int, Dict[int, np.ndarray]] = {}
+        self._overlay_data_version = 0
+        # Gray sweeps live on their own cached layer, so switching the active sweep only
+        # repaints the black trace on top of it.
+        self._overlay_pixmap = QPixmap()
+        self._overlay_pixmap_sig: Optional[Tuple] = None
         self._visible_channel_indexes = []
         self._channel_names = []
         self._voltage_scale = 0.0
@@ -484,6 +490,8 @@ class SignalWidget(QWidget):
             channel_names,
             voltage_scale,
             *,
+            overlay_processed_data: Optional[Dict[int, Dict[int, np.ndarray]]] = None,
+            overlay_data_version: int = 0,
             group_layouts: Optional[List[ChannelGroup]] = None,
             channels_setup: Optional[Dict[int, ChannelSetup]] = None,
             start_point: int,
@@ -504,6 +512,8 @@ class SignalWidget(QWidget):
     ):
         # SETUP VARIABLES
         self._processed_data = processed_data
+        self._overlay_processed_data = dict(overlay_processed_data or {})
+        self._overlay_data_version = int(overlay_data_version)
         self._visible_channel_indexes = visible_channel_indexes
         self._voltage_scale = voltage_scale
         self._axis_start_point = max(0, start_point)
@@ -539,10 +549,12 @@ class SignalWidget(QWidget):
             self._reset_geometry()
             self._geometry_signature = None
             self.pixmap_cache = QPixmap()
+            self._discard_overlay_pixmap()
             self.update()
             return
 
         self._compute_geometry()
+        self._refresh_overlay_pixmap()
 
         # DRAW
         self.pixmap_cache = QPixmap(self._axis_width, self._draw_area_height)
@@ -555,9 +567,13 @@ class SignalWidget(QWidget):
             for channel_idx, cell_rect, enabled, _count in self._cell_rects:
                 if enabled:
                     self._draw_middle_line(painter, cell_rect)
+            self._draw_auxiliary_center_lines(painter)
 
         self._draw_add_ons(ViewEntitiesZIndexEnum.MIDDLE_LINE.value, ViewEntitiesZIndexEnum.TRACES.value, painter)
         if self._traces_are_visible:
+            if not self._overlay_pixmap.isNull():
+                painter.drawPixmap(0, 0, self._overlay_pixmap)
+
             cur_draw_idx = 0
             for channel_idx, cell_rect, enabled, _count in self._cell_rects:
                 if not enabled:
@@ -968,14 +984,101 @@ class SignalWidget(QWidget):
             return color
         return QColor("#00AA55")
 
+    def _discard_overlay_pixmap(self):
+        self._overlay_pixmap = QPixmap()
+        self._overlay_pixmap_sig = None
+
+    def _overlay_render_sig(self) -> Tuple:
+        """Everything the gray layer depends on: geometry, per-channel scaling and the data itself."""
+        channels_sig = []
+        for group in self._group_layouts:
+            for channel_idx in group.channel_indexes:
+                setup = self._channels_setup.get(channel_idx)
+                channels_sig.append((
+                    channel_idx,
+                    float(getattr(setup, "scale", 1.0) or 1.0),
+                    float(getattr(setup, "y_offset", 0.0)),
+                    bool(self._channel_cut_traces.get(channel_idx, False)),
+                ))
+        return (
+            self._geometry_signature,
+            self._overlay_data_version,
+            tuple(sorted(self._overlay_processed_data.keys())),
+            tuple(channels_sig),
+        )
+
+    def _refresh_overlay_pixmap(self):
+        """Rebuild the cached gray sweep layer only when its inputs changed."""
+        if not self._overlay_processed_data or not self._traces_are_visible:
+            self._discard_overlay_pixmap()
+            return
+
+        sig = self._overlay_render_sig()
+        if sig == self._overlay_pixmap_sig and not self._overlay_pixmap.isNull():
+            return
+
+        pixmap = QPixmap(self._axis_width, self._draw_area_height)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
+        for sweep_data in self._overlay_processed_data.values():
+            cur_draw_idx = 0
+            for channel_idx, cell_rect, enabled, _count in self._cell_rects:
+                if not enabled:
+                    continue
+                channel_data = sweep_data.get(channel_idx)
+                if channel_data is not None:
+                    self._draw_trace(
+                        painter,
+                        channel_data,
+                        cell_rect,
+                        0.0,
+                        channel_idx,
+                        cur_draw_idx,
+                        color_override=overlay_color,
+                        pen_width=settings.OVERLAY_TRACE_WIDTH,
+                        buffer_namespace=2,
+                    )
+                cur_draw_idx += 1
+
+            for group_idx, group_rect in self._auxiliary_group_rects:
+                if group_rect.height() <= 0:
+                    continue
+                center_y = group_rect.top() + group_rect.height() / 2.0
+                for channel_idx in self._group_layouts[group_idx].visible_channels():
+                    channel_data = sweep_data.get(channel_idx)
+                    if channel_data is None or len(channel_data) < 2:
+                        continue
+                    setup = self._channels_setup.get(channel_idx)
+                    self._draw_auxiliary_trace(
+                        painter=painter,
+                        channel_data=channel_data,
+                        channel_idx=channel_idx,
+                        group_rect=group_rect,
+                        center_y=center_y,
+                        scale=float(getattr(setup, "scale", 1.0)),
+                        y_offset=float(getattr(setup, "y_offset", 0.0)),
+                        color_str=settings.OVERLAY_TRACE_COLOR,
+                        pen_width=settings.OVERLAY_TRACE_WIDTH,
+                        buffer_namespace=3,
+                    )
+        painter.end()
+        self._overlay_pixmap = pixmap
+        self._overlay_pixmap_sig = sig
+
+    def _draw_auxiliary_center_lines(self, painter: QPainter):
+        for _group_idx, group_rect in self._auxiliary_group_rects:
+            if group_rect.height() <= 0:
+                continue
+            center_y = int(group_rect.top() + group_rect.height() / 2.0)
+            painter.setPen(QPen(self._GRID_COLOR, 1, Qt.PenStyle.DotLine))
+            painter.drawLine(group_rect.left(), center_y, group_rect.right(), center_y)
+
     def _draw_auxiliary_groups(self, painter: QPainter, processed_data):
         for group_idx, group_rect in self._auxiliary_group_rects:
             if group_rect.height() <= 0:
                 continue
             center_y = group_rect.top() + group_rect.height() / 2.0
-            painter.setPen(QPen(self._GRID_COLOR, 1, Qt.PenStyle.DotLine))
-            painter.drawLine(group_rect.left(), int(center_y), group_rect.right(), int(center_y))
-
             channels = self._group_layouts[group_idx].visible_channels()
             for channel_idx in channels:
                 channel_data = processed_data.get(channel_idx)
@@ -1006,11 +1109,13 @@ class SignalWidget(QWidget):
         scale: float,
         y_offset: float,
         color_str: str,
+        pen_width: float = 1.2,
+        buffer_namespace: int = 1,
     ):
         color = QColor(color_str)
         if not color.isValid():
             color = self._SIGNAL_COLOR
-        painter.setPen(QPen(color, 1.2))
+        painter.setPen(QPen(color, pen_width))
 
         n_points = len(channel_data)
         left = group_rect.left()
@@ -1020,7 +1125,7 @@ class SignalWidget(QWidget):
         y_offsets = (channel_data + y_offset) * pixel_per_uv
         y_coords = center_y - y_offsets
 
-        line_buffer = self._get_line_buffer((1, channel_idx), n_points - 1)
+        line_buffer = self._get_line_buffer((buffer_namespace, channel_idx), n_points - 1)
         draw_count = 0
         for i in range(n_points - 1):
             y0 = float(y_coords[i])
@@ -1039,16 +1144,18 @@ class SignalWidget(QWidget):
         painter.drawLine(channel_rect.left(), zero_y, channel_rect.right(), zero_y)
 
     def _draw_trace(self, painter: QPainter, channel_data: np.ndarray, channel_rect: QRect,
-                    voltage_scale, channel_idx: int, cur_draw_idx: int):
+                    voltage_scale, channel_idx: int, cur_draw_idx: int,
+                    color_override: Optional[QColor] = None, pen_width: float = 1.5,
+                    buffer_namespace: int = 0):
         if channel_data is None or len(channel_data) < 2:
             return
 
         setup = self._channels_setup.get(channel_idx)
-        color = QColor(str(getattr(setup, "color", "#000000")))
+        color = color_override or QColor(str(getattr(setup, "color", "#000000")))
         if not color.isValid():
             color = self._SIGNAL_COLOR
         y_offset = float(getattr(setup, "y_offset", 0.0))
-        pen = QPen(color, 1.5)
+        pen = QPen(color, pen_width)
         painter.setPen(pen)
 
         n_points = len(channel_data)
@@ -1069,7 +1176,7 @@ class SignalWidget(QWidget):
         clip_top = clip_rect.top()
         clip_bottom = clip_rect.bottom()
 
-        line_buffer = self._get_line_buffer((0, cur_draw_idx), n_points - 1)
+        line_buffer = self._get_line_buffer((buffer_namespace, cur_draw_idx), n_points - 1)
         draw_count = 0
         for i in range(n_points - 1):
             y0 = float(y_coords[i])
@@ -1121,16 +1228,17 @@ class SignalWidget(QWidget):
                     seen.add(channel_idx)
         return selected
 
-    def is_auxiliary_y(self, y: int) -> bool:
+    def is_auxiliary_at(self, pos: QPoint) -> bool:
+        """True only when the point lies inside an auxiliary group, not its whole row."""
         for _idx, rect in self._auxiliary_group_rects:
-            if rect.top() <= y <= rect.bottom():
+            if rect.contains(pos):
                 return True
         return False
 
-    def get_scale_for_non_aux_y(self, y: int) -> Optional[float]:
-        """Return group scale for non-aux area at Y, if available."""
+    def get_scale_for_non_aux_at(self, pos: QPoint) -> Optional[float]:
+        """Return group scale for the non-aux group under the point, if available."""
         for group_idx, rect in self._non_aux_group_rects:
-            if not (rect.top() <= y <= rect.bottom()):
+            if not rect.contains(pos):
                 continue
             channels = self._group_layouts[group_idx].visible_channels()
             if not channels:
@@ -1362,7 +1470,7 @@ class OverlayWidget(QWidget):
             OverlayModeEnum.EVENT_BAD_UNSET: "Unset bad event",
             OverlayModeEnum.EVENT_REMOVE: "Remove",
             OverlayModeEnum.PERIOD_ADD: "Add period",
-            OverlayModeEnum.FULL_VIEW_SELECT: "Full view area",
+            OverlayModeEnum.FULL_VIEW_SELECT: "Select area",
         }
         label = mode_labels.get(self._overlay_mode)
         if not label:
@@ -1610,12 +1718,15 @@ class GroupNavigatorWidget(QWidget):
 class SignalPanel(QWidget):
     """High-performance EEG signal visualization panel with scrolling and optimization"""
     channel_scroll_changed = pyqtSignal()
+    interaction_modes_changed = pyqtSignal()
 
     def __init__(self, session_manager, parent=None):
         super().__init__(parent)
 
         self._session_manager: QtEphyrSessionManagerWrapper = session_manager
         self._cached_processed_data: Dict[int, np.ndarray[np.float64]] = {}
+        self._cached_overlay_processed_data: Dict[int, Dict[int, np.ndarray[np.float64]]] = {}
+        self._cached_overlay_data_version = 0
 
         # Scale bar
         self._current_overlay_mode = OverlayModeEnum.NONE
@@ -1714,6 +1825,7 @@ class SignalPanel(QWidget):
 
         # Horizontal scrollbar
         self.time_scrollbar = QScrollBar(Qt.Orientation.Horizontal)
+        self.time_scrollbar.installEventFilter(self)
         self._apply_scrollbar_style(self.time_scrollbar)
         bottom_layout.addWidget(self.time_scrollbar, 1)
 
@@ -1751,6 +1863,9 @@ class SignalPanel(QWidget):
         self._session_manager.session_loaded.connect(self.on_session_loaded)
         self._session_manager.start_point_changed.connect(self.on_start_point_changed)
         self._session_manager.duration_ms_changed.connect(lambda _duration: self._update_time_scrollbar())
+        self._session_manager.autoscroll_step_interval_ms_changed.connect(
+            self._on_autoscroll_interval_changed
+        )
         self._session_manager.current_sweep_idx_changed.connect(lambda _idx: self.on_session_loaded())
         self._session_manager.channels_groups_changed.connect(self._on_channels_groups_changed)
         self._session_manager.channel_setup_changed.connect(self._redraw_data)
@@ -1926,6 +2041,14 @@ class SignalPanel(QWidget):
                 if event.button() == Qt.MouseButton.LeftButton and self._is_signal_drag_active:
                     self._stop_signal_drag()
                     return True
+
+        if (hasattr(self, 'time_scrollbar')
+                and watched is self.time_scrollbar
+                and event.type() == QEvent.Type.Wheel
+                and isinstance(event, QWheelEvent)):
+            if self._step_time_by_wheel(event):
+                return True
+
         return super().eventFilter(watched, event)
 
     def reset_data_and_redraw(
@@ -1934,8 +2057,12 @@ class SignalPanel(QWidget):
             *,
             group_layouts: Optional[List[ChannelGroup]] = None,
             visible_channels: Optional[List[int]] = None,
+            overlay_processed_data: Optional[Dict[int, Dict[int, np.ndarray[np.float64]]]] = None,
+            overlay_data_version: int = 0,
     ):
         self._cached_processed_data = processed_data
+        self._cached_overlay_processed_data = dict(overlay_processed_data or {})
+        self._cached_overlay_data_version = int(overlay_data_version)
         self._cached_group_layouts_override = list(group_layouts) if group_layouts is not None else None
         self._cached_visible_channels_override = list(visible_channels) if visible_channels is not None else None
         self._redraw_data()
@@ -2043,6 +2170,8 @@ class SignalPanel(QWidget):
             visible_channels,
             self._session_manager.header.channel_info.name,
             settings.DEFAULT_SCALE,
+            overlay_processed_data=self._cached_overlay_processed_data,
+            overlay_data_version=self._cached_overlay_data_version,
             group_layouts=group_layouts,
             channels_setup=gui_setup.channels_setup,
             start_point=gui_setup.start_point,
@@ -2155,7 +2284,7 @@ class SignalPanel(QWidget):
             time_axis_width = 0
 
         scale_value = self._resolve_measure_scale_value(measure_cursor_pos)
-        cursor_is_aux = bool(measure_cursor_pos and self.signal_widget.is_auxiliary_y(measure_cursor_pos.y()))
+        cursor_is_aux = bool(measure_cursor_pos and self.signal_widget.is_auxiliary_at(measure_cursor_pos))
 
         # Determine selection_start_time_ms based on current mode
         selection_start_time_ms = None
@@ -2207,7 +2336,7 @@ class SignalPanel(QWidget):
     def _resolve_measure_scale_value(self, measure_cursor_pos: Optional[QPoint]) -> float:
         if measure_cursor_pos is None:
             return settings.DEFAULT_SCALE
-        scale_value = self.signal_widget.get_scale_for_non_aux_y(measure_cursor_pos.y())
+        scale_value = self.signal_widget.get_scale_for_non_aux_at(measure_cursor_pos)
         if scale_value is None or scale_value <= 0:
             return settings.DEFAULT_SCALE
         return scale_value
@@ -2227,6 +2356,7 @@ class SignalPanel(QWidget):
     def _reset_measure_bar_state(self):
         self._measure_bar_state = MeasureBarStateEnum.HIDDEN
         self._frozen_measure_pos = None
+        self.interaction_modes_changed.emit()
 
     # ---- Events helper API ----
     def start_event_add_mode(self, event_name_id: int):
@@ -2299,6 +2429,7 @@ class SignalPanel(QWidget):
         self._current_overlay_mode = OverlayModeEnum.FULL_VIEW_SELECT
         self.setCursor(Qt.CursorShape.BlankCursor)
         self._update_overlay_widget()
+        self.interaction_modes_changed.emit()
 
     def _stop_full_view_select_mode(self):
         self._full_view_first_point = None
@@ -2306,6 +2437,65 @@ class SignalPanel(QWidget):
             self._current_overlay_mode = OverlayModeEnum.NONE
         self.unsetCursor()
         self._update_overlay_widget()
+        self.interaction_modes_changed.emit()
+
+    def scalebar_is_active(self) -> bool:
+        return self._measure_bar_state != MeasureBarStateEnum.HIDDEN
+
+    def zoom_to_area_is_active(self) -> bool:
+        return self._current_overlay_mode == OverlayModeEnum.FULL_VIEW_SELECT
+
+    def cycle_scalebar(self) -> bool:
+        """Cycle the scalebar the same way as the M key: follow, freeze, off."""
+        if self._current_overlay_mode not in (OverlayModeEnum.NONE, OverlayModeEnum.TIME_VOLTAGE_BAR):
+            return False
+        if self._measure_bar_state == MeasureBarStateEnum.HIDDEN:
+            return self._set_scalebar_following()
+        if self._measure_bar_state == MeasureBarStateEnum.FOLLOW_CURSOR:
+            self._measure_bar_state = MeasureBarStateEnum.FROZEN
+            self._frozen_measure_pos = QPoint(self._current_mouse_pos) if self._current_mouse_pos else None
+            self.unsetCursor()
+            self._update_overlay_widget()
+            self.interaction_modes_changed.emit()
+            return True
+        return self._set_scalebar_hidden()
+
+    def toggle_scalebar(self) -> bool:
+        """Turn the following scalebar on or off. The toolbar button does not freeze it."""
+        if self._current_overlay_mode not in (OverlayModeEnum.NONE, OverlayModeEnum.TIME_VOLTAGE_BAR):
+            return False
+        if self.scalebar_is_active():
+            return self._set_scalebar_hidden()
+        return self._set_scalebar_following()
+
+    def _set_scalebar_following(self) -> bool:
+        self._measure_bar_state = MeasureBarStateEnum.FOLLOW_CURSOR
+        self._current_overlay_mode = OverlayModeEnum.TIME_VOLTAGE_BAR
+        self._frozen_measure_pos = None
+        self.setCursor(Qt.CursorShape.BlankCursor)
+        self._update_overlay_widget()
+        self.interaction_modes_changed.emit()
+        return True
+
+    def _set_scalebar_hidden(self) -> bool:
+        self._measure_bar_state = MeasureBarStateEnum.HIDDEN
+        self._frozen_measure_pos = None
+        if self._current_overlay_mode == OverlayModeEnum.TIME_VOLTAGE_BAR:
+            self._current_overlay_mode = OverlayModeEnum.NONE
+        self.unsetCursor()
+        self._update_overlay_widget()
+        self.interaction_modes_changed.emit()
+        return True
+
+    def toggle_zoom_to_area(self) -> bool:
+        """Toggle area selection the same way as the V key."""
+        if self._current_overlay_mode == OverlayModeEnum.FULL_VIEW_SELECT:
+            self._stop_full_view_select_mode()
+            return True
+        if self._current_overlay_mode != OverlayModeEnum.NONE:
+            return False
+        self.start_full_view_select_mode()
+        return True
 
     def _is_point_inside_signal_area(self, pos: QPoint) -> bool:
         left = self._LEFT_MARGIN
@@ -2350,23 +2540,43 @@ class SignalPanel(QWidget):
             return
 
         duration_ms = max(1e-9, self._end_time_ms - self._start_time_ms)
-        data_subset: Dict[int, np.ndarray[np.float64]] = {}
-        for ch_idx in selected_channels:
-            data = self._cached_processed_data.get(ch_idx)
+
+        def time_slice(data: Optional[np.ndarray]) -> Optional[np.ndarray]:
             if data is None or len(data) < 2:
-                continue
+                return None
             n = len(data)
             left_idx = int(((start_ms - self._start_time_ms) / duration_ms) * (n - 1))
             right_idx = int(((end_ms - self._start_time_ms) / duration_ms) * (n - 1))
             left_idx = max(0, min(n - 2, left_idx))
             right_idx = max(left_idx + 1, min(n - 1, right_idx))
-            data_subset[ch_idx] = data[left_idx:right_idx + 1]
+            return data[left_idx:right_idx + 1]
+
+        data_subset: Dict[int, np.ndarray[np.float64]] = {}
+        for ch_idx in selected_channels:
+            channel_slice = time_slice(self._cached_processed_data.get(ch_idx))
+            if channel_slice is not None:
+                data_subset[ch_idx] = channel_slice
 
         selected_channels = [ch for ch in selected_channels if ch in data_subset]
         if not selected_channels:
             return
 
+        overlay_subset: Dict[int, Dict[int, np.ndarray[np.float64]]] = {}
+        for sweep_idx, sweep_data in self._cached_overlay_processed_data.items():
+            sweep_subset = {}
+            for ch_idx in selected_channels:
+                channel_slice = time_slice(sweep_data.get(ch_idx))
+                if channel_slice is not None:
+                    sweep_subset[ch_idx] = channel_slice
+            if sweep_subset:
+                overlay_subset[sweep_idx] = sweep_subset
+
         gui_setup = self._session_manager.gui_setup
+        channel_cut_traces = {
+            ch: bool(group.cut_traces)
+            for group in gui_setup.channels_groups
+            for ch in group.channel_indexes
+        }
         dialog = FullViewSelectedAreaDialog(
             channel_indexes=selected_channels,
             channel_names=self._session_manager.header.channel_info.name,
@@ -2374,6 +2584,8 @@ class SignalPanel(QWidget):
             channels_setup=gui_setup.channels_setup,
             start_time_ms=start_ms,
             end_time_ms=end_ms,
+            overlay_channel_data=overlay_subset,
+            channel_cut_traces=channel_cut_traces,
             parent=self,
         )
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
@@ -2726,6 +2938,10 @@ class SignalPanel(QWidget):
             return 0
         return int((self._session_manager.gui_setup.time_step_ms * 1000) / interval)
 
+    def _on_autoscroll_interval_changed(self, interval_ms: int):
+        if int(interval_ms) > 0:
+            self._auto_scroll_timer.setInterval(int(interval_ms))
+
     def _toggle_auto_scroll(self, direction: int):
         if self._auto_scroll_timer.isActive() and self._auto_scroll_direction == direction:
             self._auto_scroll_timer.stop()
@@ -2774,34 +2990,9 @@ class SignalPanel(QWidget):
                     event.accept()
                     return
             if key == Qt.Key.Key_M:
-                if self._current_overlay_mode not in (OverlayModeEnum.NONE, OverlayModeEnum.TIME_VOLTAGE_BAR):
-                    event.accept()
-                    return
-                if self._measure_bar_state == MeasureBarStateEnum.HIDDEN:
-                    self._measure_bar_state = MeasureBarStateEnum.FOLLOW_CURSOR
-                    self._current_overlay_mode = OverlayModeEnum.TIME_VOLTAGE_BAR
-                    self._frozen_measure_pos = None
-                elif self._measure_bar_state == MeasureBarStateEnum.FOLLOW_CURSOR:
-                    self._measure_bar_state = MeasureBarStateEnum.FROZEN
-                    self._frozen_measure_pos = QPoint(self._current_mouse_pos) if self._current_mouse_pos else None
-                else:
-                    self._measure_bar_state = MeasureBarStateEnum.HIDDEN
-                    self._frozen_measure_pos = None
-                    self._current_overlay_mode = OverlayModeEnum.NONE
-
-                if self._should_hide_cursor():
-                    self.setCursor(Qt.CursorShape.BlankCursor)
-                else:
-                    self.unsetCursor()
+                self.cycle_scalebar()
             elif key == Qt.Key.Key_V:
-                if self._current_overlay_mode == OverlayModeEnum.FULL_VIEW_SELECT:
-                    self._stop_full_view_select_mode()
-                    event.accept()
-                    return
-                if self._current_overlay_mode != OverlayModeEnum.NONE:
-                    event.accept()
-                    return
-                self.start_full_view_select_mode()
+                self.toggle_zoom_to_area()
 
             self._update_overlay_widget()
             event.accept()
@@ -2822,11 +3013,22 @@ class SignalPanel(QWidget):
         if self._session_manager.gui_setup:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 self.__zoom(event)
-            else:
-                pass
-                # self.__scroll_horizontally(event)
+            elif not self._step_time_by_wheel(event):
+                super().wheelEvent(event)
         else:
             super().wheelEvent(event)
+
+    def _step_time_by_wheel(self, event: QWheelEvent) -> bool:
+        """Move the visible window by one time_step_ms, same as the time scrollbar."""
+        delta = event.angleDelta().y() or event.angleDelta().x()
+        if delta > 0:
+            self.on_single_right_click()
+        elif delta < 0:
+            self.on_single_left_click()
+        else:
+            return False
+        event.accept()
+        return True
 
     def __zoom(self, event):
         cursor_x = event.position().x()
@@ -2855,15 +3057,3 @@ class SignalPanel(QWidget):
             self._redraw_data()
 
         event.accept()
-
-    def __scroll_horizontally(self, event):
-        cursor_x = event.position().x()
-        widget_width = self.width()
-        if cursor_x < 0 or cursor_x > widget_width:
-            return
-
-        delta = event.angleDelta().y()
-        if delta > 0:  # go right
-            self.on_single_right_click()
-        else:  # go left
-            self.on_single_left_click()

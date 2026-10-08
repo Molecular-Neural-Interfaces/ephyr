@@ -1,0 +1,13 @@
+{% for entry in entries %}
+## Version {{ entry.version }} ({{ entry.date | format_date }})
+
+{% set ordered_sections = ['Features', 'Bug Fixes', 'Performance Improvements', 'Documentation'] %}
+{% for section_name in ordered_sections %}
+  {% if section_name in entry.sections %}
+### {{ section_name }}
+    {% for commit in entry.sections[section_name] %}
+- {{ commit.description }}{% if commit.scope %} ({{ commit.scope }}){% endif %}
+    {% endfor %}
+  {% endif %}
+{% endfor %}
+{% endfor %}

@@ -15,22 +15,23 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QMessageBox,
-    QColorDialog,
 )
 
 from ephyr.core.ephyr_session import PeriodVocabularyEntry
+from ephyr.gui._utils import pick_saturated_color
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 
 
 class PeriodsVocabularyDialog(QDialog):
     """Dialog that manages period vocabulary entries and lets user select one."""
 
-    def __init__(self, session_manager: QtEphyrSessionManagerWrapper, parent=None):
+    def __init__(self, session_manager: QtEphyrSessionManagerWrapper, parent=None, *, allow_add: bool = True):
         super().__init__(parent)
         self.setWindowTitle("Periods")
         self.resize(440, 320)
 
         self._session_manager = session_manager
+        self._allow_add = allow_add
         self._selected_period_vocabulary_id: Optional[int] = None
         self._pending_selection_id: Optional[int] = None
         self._is_updating_table = False
@@ -177,7 +178,7 @@ class PeriodsVocabularyDialog(QDialog):
             return
         period_vocabulary_id = int(id_item.text())
         initial_color = QColor(color_item.text())
-        selected = QColorDialog.getColor(initial_color, self, "Select period color")
+        selected = pick_saturated_color(initial_color, self, "Select period color")
         if not selected.isValid():
             return
         self._session_manager.set_period_vocabulary_color(period_vocabulary_id, selected.name())
@@ -196,7 +197,7 @@ class PeriodsVocabularyDialog(QDialog):
     def _update_buttons_state(self):
         has_selection = self._current_selected_period_vocabulary_id() is not None
         self.btn_remove.setEnabled(has_selection)
-        self.btn_select.setEnabled(has_selection)
+        self.btn_select.setEnabled(self._allow_add and has_selection)
 
     def get_selected_period_vocabulary_id(self) -> Optional[int]:
         return self._selected_period_vocabulary_id

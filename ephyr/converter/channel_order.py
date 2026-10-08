@@ -69,6 +69,8 @@ def resolve_source_path(ephyr_folder: Optional[Path], header: Optional[Header]) 
                 parent / stem,
             ]
         )
+    elif src_type == "mcs_mcd":
+        candidates.append(parent / f"{stem}.mcd")
     elif src_type == "mcs_raw":
         candidates.extend([parent / f"{stem}.raw", parent / f"{stem}.mcsraw"])
     elif src_type == "mcs_h5":
@@ -100,6 +102,8 @@ def source_file_dialog_filter(src_type: str) -> Tuple[str, bool]:
         return "DAQ files (*.daq);;All files (*)", False
     if src_type == "xdat":
         return "XDAT metadata (*.xdat.json *.json);;All files (*)", False
+    if src_type == "mcs_mcd":
+        return "MC_Rack MCD files (*.mcd);;All files (*)", False
     if src_type == "mcs_raw":
         return "Multi Channel Systems RAW files (*.raw *.mcsraw);;All files (*)", False
     if src_type == "mcs_h5":
@@ -132,6 +136,7 @@ def preferred_channel_order(
         "edf": lambda: _order_from_names(header, n_channels, "EDF signal labels"),
         "abf": lambda: _order_from_names(header, n_channels, "ABF ADC names"),
         "openephys": lambda: _order_from_names(header, n_channels, "Open Ephys channel names"),
+        "mcs_mcd": lambda: _order_from_mcd_labels(header, n_channels),
         "mcs_raw": lambda: _order_from_names(header, n_channels, "MCS channel labels"),
         "mcs_h5": lambda: _order_from_names(header, n_channels, "MCS electrode labels"),
         "mcs_cmcr": lambda: _order_from_names(header, n_channels, "CMOS-MEA sensor coordinates"),
@@ -173,6 +178,21 @@ def _order_from_names(header: Header, n_channels: int, method: str) -> Tuple[Lis
         names.append(f"ch_{len(names)}")
     order = sorted(range(n_channels), key=lambda idx: natural_key(names[idx]))
     return order, method
+
+
+def _order_from_mcd_labels(header: Header, n_channels: int) -> Tuple[List[int], str]:
+    # MC_Rack labels carry the amplifier/MEA letter as a suffix ("47A", "47B"); keep each MEA together.
+    names = list(header.channel_info.name or [])
+    while len(names) < n_channels:
+        names.append(f"ch_{len(names)}")
+
+    def key(idx: int) -> Tuple:
+        match = re.fullmatch(r"(.*?)([A-Za-z])", names[idx])
+        if match is None:
+            return ("", natural_key(names[idx]))
+        return (match.group(2).upper(), natural_key(match.group(1)))
+
+    return sorted(range(n_channels), key=key), "MC_Rack electrode labels"
 
 
 def _order_from_nwb(source_path: Optional[Path], n_channels: int) -> Optional[Tuple[List[int], str]]:
