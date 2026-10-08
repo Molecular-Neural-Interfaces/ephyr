@@ -1,12 +1,8 @@
 # Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
 # SPDX-License-Identifier: GPL-3.0-only
 
-import base64
-import mimetypes
-import urllib.request
-
-from PyQt6.QtCore import Qt, QUrl, QTimer
-from PyQt6.QtGui import QColor, QPixmap, QDesktopServices
+from PyQt6.QtCore import Qt, QTimer, QSize
+from PyQt6.QtGui import QColor
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -17,17 +13,15 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QCheckBox,
-    QGroupBox,
     QPushButton,
     QFormLayout,
     QMessageBox,
-    QColorDialog,
     QAbstractItemView, QLineEdit,
+    QApplication,
     QDialog,
     QFileDialog,
     QScrollArea,
     QScrollBar,
-    QInputDialog,
     QTabWidget,
     QGridLayout,
     QSizePolicy,
@@ -35,6 +29,7 @@ from PyQt6.QtWidgets import (
 from typing import Dict, List, Optional, Set, Tuple
 
 from ephyr import settings
+from ephyr.gui._utils import pick_saturated_color
 from ephyr.converter.channel_order import (
     import_channel_order,
     resolve_source_path,
@@ -759,49 +754,197 @@ class LayoutSettingsDialog(QDialog):
         )
 
 
+class _GroupsLayoutBoard(QWidget):
+    """NxN placement grid.
+
+    Occupied rows and columns share the free space in proportion to their ratios.
+    Empty rows and columns stay at a fixed size and are left out of that split.
+    """
+
+    _HEADER_W = 74
+    _HEADER_H = 32
+    _COL_MIN = 74
+    _ROW_MIN = 32
+    _GAP = 4
+
+    def __init__(
+        self,
+        cells: List[List[Optional[int]]],
+        row_spins: List[QSpinBox],
+        col_spins: List[QSpinBox],
+        cell_buttons: List[List[QPushButton]],
+        parent=None,
+    ):
+        super().__init__(parent)
+        self._cells = cells
+        self._row_spins = row_spins
+        self._col_spins = col_spins
+        self._buttons = cell_buttons
+        self._corner = QLabel("H ↓\nW →", self)
+        self._corner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._corner.setStyleSheet("color: gray; font-size: 8pt;")
+        for widget in [*row_spins, *col_spins, *(btn for row in cell_buttons for btn in row)]:
+            widget.setParent(self)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumSize(self.minimumSizeHint())
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        n = len(self._cells)
+        gaps = self._GAP * max(0, n - 1)
+        return QSize(
+            self._HEADER_W + self._GAP + n * self._COL_MIN + gaps,
+            self._HEADER_H + self._GAP + n * self._ROW_MIN + gaps,
+        )
+
+    def reposition(self) -> None:
+        n = len(self._cells)
+        if n == 0:
+            return
+        self._corner.setGeometry(0, 0, self._HEADER_W, self._HEADER_H)
+        grid_w = max(0, self.width() - self._HEADER_W - self._GAP)
+        grid_h = max(0, self.height() - self._HEADER_H - self._GAP)
+        gaps = self._GAP * max(0, n - 1)
+        row_active = [any(cell is not None for cell in row) for row in self._cells]
+        col_active = [any(self._cells[r][c] is not None for r in range(n)) for c in range(n)]
+        row_ratios = [spin.value() for spin in self._row_spins]
+        col_ratios = [spin.value() for spin in self._col_spins]
+        row_h = self._distribute(max(0, grid_h - gaps), row_active, row_ratios, self._ROW_MIN)
+        col_w = self._distribute(max(0, grid_w - gaps), col_active, col_ratios, self._COL_MIN)
+
+        y = self._HEADER_H + self._GAP
+        for r in range(n):
+            spin_h = min(26, row_h[r])
+            spin_y = y + max(0, (row_h[r] - spin_h) // 2)
+            self._row_spins[r].setGeometry(0, spin_y, self._HEADER_W, spin_h)
+            y += row_h[r] + self._GAP
+
+        x = self._HEADER_W + self._GAP
+        for c in range(n):
+            spin_w = min(self._HEADER_W, col_w[c])
+            spin_x = x + max(0, (col_w[c] - spin_w) // 2)
+            self._col_spins[c].setGeometry(spin_x, 3, spin_w, self._HEADER_H - 6)
+            x += col_w[c] + self._GAP
+
+        y = self._HEADER_H + self._GAP
+        for r in range(n):
+            x = self._HEADER_W + self._GAP
+            for c in range(n):
+                self._buttons[r][c].setGeometry(x, y, col_w[c], row_h[r])
+                x += col_w[c] + self._GAP
+            y += row_h[r] + self._GAP
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.reposition()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.reposition()
+
+    @staticmethod
+    def _distribute(usable: int, active: List[bool], ratios: List[int], track_min: int) -> List[int]:
+        n = len(active)
+        sizes = [track_min] * n
+        active_idxs = [i for i, flag in enumerate(active) if flag]
+        if not active_idxs:
+            return sizes
+        inactive = n - len(active_idxs)
+        flex = usable - inactive * track_min
+        if flex <= 0:
+            return sizes
+        weight = sum(max(1, int(ratios[i])) for i in active_idxs) or 1
+        shares: List[int] = []
+        consumed = 0
+        for k, i in enumerate(active_idxs):
+            if k == len(active_idxs) - 1:
+                shares.append(flex - consumed)
+            else:
+                add = int(flex * max(1, int(ratios[i])) / weight)
+                shares.append(add)
+                consumed += add
+        if all(share >= track_min for share in shares):
+            for i, share in zip(active_idxs, shares):
+                sizes[i] = share
+            return sizes
+        extra = flex - track_min * len(active_idxs)
+        if extra <= 0:
+            return sizes
+        consumed = 0
+        for k, i in enumerate(active_idxs):
+            if k == len(active_idxs) - 1:
+                sizes[i] += extra - consumed
+            else:
+                add = int(extra * max(1, int(ratios[i])) / weight)
+                sizes[i] += add
+                consumed += add
+        return sizes
+
+
 class GroupsLayoutDialog(QDialog):
+    _GROUP_COLORS = (
+        "#4C78A8", "#F58518", "#54A24B", "#E45756", "#72B7B2",
+        "#B279A2", "#FF9DA6", "#9D755D", "#BAB0AC", "#EECA3B",
+    )
+
     def __init__(self, groups: List[ChannelGroup], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Groups layout")
-        self.resize(560, 420)
-        self._rows: List[Tuple[QSpinBox, QSpinBox, QSpinBox, QSpinBox]] = []
+        self.resize(860, 640)
+        self._names = [group.name or f"Group {i + 1}" for i, group in enumerate(groups)]
+        self._colors = [self._GROUP_COLORS[i % len(self._GROUP_COLORS)] for i in range(len(groups))]
+        self._cells, row_ratios, col_ratios = self._seed_cells(groups)
+        self._n = len(groups)
+        self._selected = -1
+        self._row_spins: List[QSpinBox] = []
+        self._col_spins: List[QSpinBox] = []
+        self._cell_buttons: List[List[QPushButton]] = []
 
         root = QVBoxLayout(self)
         caption = QLabel(
-            "Arrange groups relative to each other. Groups sharing the same Row "
-            "are placed side by side; each Row's height uses the maximum Height "
-            "ratio among its groups, and Width ratio splits the horizontal space."
+            "Click a group on the board, then click the cell to move it to. "
+            "Clicking an occupied cell swaps the two groups. After a move, select a group again. "
+            "Click the selected group once more to cancel the selection. "
+            "The spin box to the left of a row is its height ratio, and the spin box above a column "
+            "is its width ratio. Occupied rows and columns grow and shrink with those ratios. "
+            "Empty rows and columns stay small and are not counted."
         )
         caption.setWordWrap(True)
         root.addWidget(caption)
+        packing = QLabel(
+            "Unoccupied cells are filled along the row: groups in the same row sit side by side, "
+            "and a group alone in its row stretches to the full width. Two groups in the top row "
+            "and one in the row below means the lower group spans the whole row."
+        )
+        packing.setWordWrap(True)
+        packing.setStyleSheet("color: gray;")
+        root.addWidget(packing)
 
+        for r in range(self._n):
+            self._row_spins.append(self._make_ratio_spin(row_ratios[r], "Height ratio"))
+        for c in range(self._n):
+            self._col_spins.append(self._make_ratio_spin(col_ratios[c], "Width ratio"))
+        for r in range(self._n):
+            row_buttons: List[QPushButton] = []
+            for c in range(self._n):
+                button = QPushButton()
+                button.setAutoDefault(False)
+                button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                button.setCursor(Qt.CursorShape.PointingHandCursor)
+                button.clicked.connect(lambda _checked=False, rr=r, cc=c: self._on_cell_clicked(rr, cc))
+                row_buttons.append(button)
+            self._cell_buttons.append(row_buttons)
+
+        self._board = _GroupsLayoutBoard(
+            self._cells, self._row_spins, self._col_spins, self._cell_buttons, self,
+        )
+        for spin in [*self._row_spins, *self._col_spins]:
+            spin.valueChanged.connect(self._board.reposition)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        container = QWidget()
-        grid = QGridLayout(container)
-        grid.setSpacing(4)
-        for col, header in enumerate(["Group", "Row", "Height ratio", "Column", "Width ratio"]):
-            label = QLabel(header)
-            label.setStyleSheet("font-weight: bold;")
-            grid.addWidget(label, 0, col)
-
-        for row_idx, group in enumerate(groups, start=1):
-            grid.addWidget(QLabel(group.name or f"Group {row_idx}"), row_idx, 0)
-            row_spin = QSpinBox(); row_spin.setRange(0, 999)
-            row_spin.setValue(int(group.group_layout.layout_row_idx))
-            height_spin = QSpinBox(); height_spin.setRange(1, 1000)
-            height_spin.setValue(group.group_layout.height_ratio)
-            col_spin = QSpinBox(); col_spin.setRange(0, 999)
-            col_spin.setValue(int(group.group_layout.layout_column_idx))
-            width_spin = QSpinBox(); width_spin.setRange(1, 1000)
-            width_spin.setValue(group.group_layout.width_ratio)
-            grid.addWidget(row_spin, row_idx, 1)
-            grid.addWidget(height_spin, row_idx, 2)
-            grid.addWidget(col_spin, row_idx, 3)
-            grid.addWidget(width_spin, row_idx, 4)
-            self._rows.append((row_spin, height_spin, col_spin, width_spin))
-
-        scroll.setWidget(container)
+        scroll.setWidget(self._board)
         root.addWidget(scroll, 1)
 
         actions = QHBoxLayout()
@@ -810,6 +953,7 @@ class GroupsLayoutDialog(QDialog):
         actions.addStretch(1)
         self.cancel_btn = QPushButton("Cancel")
         self.save_btn = QPushButton("Save")
+        self.save_btn.setDefault(True)
         actions.addWidget(self.cancel_btn)
         actions.addWidget(self.save_btn)
         root.addLayout(actions)
@@ -817,53 +961,225 @@ class GroupsLayoutDialog(QDialog):
         self.reset_btn.clicked.connect(self._reset)
         self.cancel_btn.clicked.connect(self.reject)
         self.save_btn.clicked.connect(self.accept)
+        self._restyle_cells()
 
-    def _reset(self):
-        for row_spin, height_spin, col_spin, width_spin in self._rows:
-            row_spin.setValue(0)
-            height_spin.setValue(1)
-            col_spin.setValue(0)
-            width_spin.setValue(1)
+    @staticmethod
+    def _make_ratio_spin(value: int, tooltip: str) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(1, 1000)
+        spin.setValue(max(1, int(value)))
+        spin.setToolTip(tooltip)
+        spin.setFixedWidth(70)
+        return spin
+
+    @staticmethod
+    def _text_on(color: str) -> str:
+        parsed = QColor(color)
+        luma = 0.299 * parsed.red() + 0.587 * parsed.green() + 0.114 * parsed.blue()
+        return "#111111" if luma > 160 else "#ffffff"
+
+    @classmethod
+    def _seed_cells(
+        cls, groups: List[ChannelGroup],
+    ) -> Tuple[List[List[Optional[int]]], List[int], List[int]]:
+        """Place each group into one cell of an N×N grid.
+
+        Unique in-range coordinates are kept. The classic stack (every group on the
+        same cell) is shown as one group per row, which is how it is drawn.
+        """
+        n = len(groups)
+        cells: List[List[Optional[int]]] = [[None] * n for _ in range(n)]
+        row_ratios = [1] * n
+        col_ratios = [1] * n
+        if n == 0:
+            return cells, row_ratios, col_ratios
+
+        coords = [
+            (int(group.group_layout.layout_row_idx), int(group.group_layout.layout_column_idx))
+            for group in groups
+        ]
+        all_same = len({row for row, _col in coords}) == 1 and len({col for _row, col in coords}) == 1
+        unique = len(set(coords)) == n
+        in_range = all(0 <= row < n and 0 <= col < n for row, col in coords)
+        if unique and in_range:
+            for i, group in enumerate(groups):
+                row, col = coords[i]
+                cells[row][col] = i
+                row_ratios[row] = max(row_ratios[row], max(1, int(group.group_layout.height_ratio)))
+                col_ratios[col] = max(col_ratios[col], max(1, int(group.group_layout.width_ratio)))
+            return cells, row_ratios, col_ratios
+
+        if all_same:
+            for i, group in enumerate(groups):
+                cells[i][0] = i
+                row_ratios[i] = max(1, int(group.group_layout.height_ratio))
+            if n == 1:
+                col_ratios[0] = max(1, int(groups[0].group_layout.width_ratio))
+            return cells, row_ratios, col_ratios
+
+        arranged = cls._arranged_rows(groups)
+        col_keys = sorted({col for _row, col in coords})
+        col_map = {key: index for index, key in enumerate(col_keys)}
+        for visual_row, row in enumerate(arranged):
+            if visual_row >= n:
+                break
+            row_ratios[visual_row] = max(
+                max(1, int(group.group_layout.height_ratio)) for _i, group in row
+            )
+            used: Set[int] = set()
+            for group_idx, group in row:
+                visual_col = col_map.get(int(group.group_layout.layout_column_idx), 0)
+                while visual_col < n and visual_col in used:
+                    visual_col += 1
+                if visual_col >= n:
+                    visual_col = cls._first_free_column(cells, visual_row)
+                if visual_col is None or visual_col >= n:
+                    continue
+                cells[visual_row][visual_col] = group_idx
+                used.add(visual_col)
+                col_ratios[visual_col] = max(
+                    col_ratios[visual_col], max(1, int(group.group_layout.width_ratio)),
+                )
+        placed = {cell for row in cells for cell in row if cell is not None}
+        for group_idx, group in enumerate(groups):
+            if group_idx in placed:
+                continue
+            for row in range(n):
+                col = cls._first_free_column(cells, row)
+                if col is None:
+                    continue
+                cells[row][col] = group_idx
+                row_ratios[row] = max(row_ratios[row], max(1, int(group.group_layout.height_ratio)))
+                col_ratios[col] = max(col_ratios[col], max(1, int(group.group_layout.width_ratio)))
+                break
+        return cells, row_ratios, col_ratios
+
+    @staticmethod
+    def _arranged_rows(groups: List[ChannelGroup]) -> List[List[Tuple[int, ChannelGroup]]]:
+        rows_map: Dict[int, List[Tuple[int, ChannelGroup]]] = {}
+        for index, group in enumerate(groups):
+            rows_map.setdefault(int(group.group_layout.layout_row_idx), []).append((index, group))
+        arranged: List[List[Tuple[int, ChannelGroup]]] = []
+        for row_key in sorted(rows_map):
+            row = sorted(
+                rows_map[row_key],
+                key=lambda pair: (int(pair[1].group_layout.layout_column_idx), pair[0]),
+            )
+            arranged.append(row)
+        return arranged
+
+    @staticmethod
+    def _first_free_column(cells: List[List[Optional[int]]], row: int) -> Optional[int]:
+        for col, group_idx in enumerate(cells[row]):
+            if group_idx is None:
+                return col
+        return None
+
+    def _select_group(self, index: int) -> None:
+        if not (0 <= index < self._n):
+            return
+        self._selected = index
+        self._restyle_cells()
+
+    def _clear_group_selection(self) -> None:
+        self._selected = -1
+        self._restyle_cells()
+
+    def _restyle_cells(self) -> None:
+        has_selection = self._selected >= 0
+        for r in range(self._n):
+            for c in range(self._n):
+                group_idx = self._cells[r][c]
+                button = self._cell_buttons[r][c]
+                if group_idx is None:
+                    button.setText("")
+                    button.setToolTip(
+                        "Place the selected group here" if has_selection else "Select a group first"
+                    )
+                    button.setStyleSheet(
+                        "QPushButton { background-color: #f3f3f3; border: 1px dashed #bbbbbb; }"
+                        "QPushButton:hover { background-color: #e7e7e7; }"
+                    )
+                    continue
+                name = self._names[group_idx]
+                bg = self._colors[group_idx]
+                fg = self._text_on(bg)
+                selected = group_idx == self._selected
+                border = "3px solid #222222" if selected else "1px solid #666666"
+                if selected:
+                    tooltip = "Selected. Click another cell to move it, or click again to cancel"
+                elif has_selection:
+                    tooltip = "Swap with the selected group"
+                else:
+                    tooltip = "Select this group"
+                button.setText(name)
+                button.setToolTip(tooltip)
+                button.setStyleSheet(
+                    f"QPushButton {{ background-color: {bg}; color: {fg}; border: {border}; "
+                    f"font-weight: bold; padding: 2px; }}"
+                )
+
+    def _on_cell_clicked(self, row: int, col: int) -> None:
+        occupant = self._cells[row][col]
+        if self._selected < 0:
+            if occupant is not None:
+                self._select_group(occupant)
+            return
+        if occupant == self._selected:
+            self._clear_group_selection()
+            return
+        self._move_group(self._selected, row, col)
+
+    def _find_group(self, group_idx: int) -> Optional[Tuple[int, int]]:
+        for r in range(self._n):
+            for c in range(self._n):
+                if self._cells[r][c] == group_idx:
+                    return r, c
+        return None
+
+    def _move_group(self, group_idx: int, row: int, col: int) -> None:
+        current = self._find_group(group_idx)
+        if current == (row, col):
+            return
+        occupant = self._cells[row][col]
+        if current is not None:
+            old_row, old_col = current
+            self._cells[old_row][old_col] = occupant if occupant not in (None, group_idx) else None
+        self._cells[row][col] = group_idx
+        self._clear_group_selection()
+        self._board.reposition()
+
+    def _reset(self) -> None:
+        n = self._n
+        for r in range(n):
+            for c in range(n):
+                self._cells[r][c] = None
+        for i in range(n):
+            self._cells[i][0] = i
+        for spin in [*self._row_spins, *self._col_spins]:
+            spin.blockSignals(True)
+            spin.setValue(1)
+            spin.blockSignals(False)
+        self._restyle_cells()
+        self._board.reposition()
 
     def get_group_layouts(self) -> List[GroupLayout]:
-        return [
-            GroupLayout(
-                layout_row_idx=row_spin.value(),
-                layout_column_idx=col_spin.value(),
-                height_ratio=height_spin.value(),
-                width_ratio=width_spin.value(),
-            )
-            for row_spin, height_spin, col_spin, width_spin in self._rows
-        ]
-
-
-class ClickableImageLabel(QLabel):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._original_pixmap: Optional[QPixmap] = None
-
-    def set_pixmap(self, pixmap: Optional[QPixmap], display_pixmap: Optional[QPixmap] = None):
-        self._original_pixmap = pixmap
-        if pixmap is None:
-            self.clear()
-            return
-        self.setPixmap(display_pixmap or pixmap)
-
-    def mouseDoubleClickEvent(self, event):
-        if self._original_pixmap is None:
-            return
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Visual attachment")
-        layout = QVBoxLayout(dialog)
-        scroll = QScrollArea()
-        label = QLabel()
-        label.setPixmap(self._original_pixmap)
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        scroll.setWidget(label)
-        scroll.setWidgetResizable(True)
-        layout.addWidget(scroll)
-        dialog.resize(800, 600)
-        dialog.exec()
+        found: Dict[int, Tuple[int, int]] = {}
+        for r in range(self._n):
+            for c in range(self._n):
+                group_idx = self._cells[r][c]
+                if group_idx is not None:
+                    found[group_idx] = (r, c)
+        layouts: List[GroupLayout] = []
+        for group_idx in range(self._n):
+            row, col = found[group_idx]
+            layouts.append(GroupLayout(
+                layout_row_idx=row,
+                layout_column_idx=col,
+                height_ratio=self._row_spins[row].value(),
+                width_ratio=self._col_spins[col].value(),
+            ))
+        return layouts
 
 
 class ChannelManagementPanel(QWidget):
@@ -872,14 +1188,13 @@ class ChannelManagementPanel(QWidget):
         self._session_manager = session_manager
         self._group_list_widgets: Dict[int, QListWidget] = {}
         self._group_move_checkboxes: Dict[Tuple[int, int], QCheckBox] = {}
+        self._move_checkbox_anchor: Dict[int, int] = {}
         self._group_channel_labels: Dict[Tuple[int, int], QLabel] = {}
         self._last_groups_structure_signature: Tuple = tuple()
         self._rebuilding_groups = False
-        self._mapping_pixmap: Optional[QPixmap] = None
-        self._mapping_text: str = ""
-        self._mapping_link_url: str = ""
         self._group_tabs_updating = False
         self._pending_group_tab_move: Optional[Tuple[int, int]] = None
+        self._is_expert = False
         self.setup_ui()
         self.connect_signals()
 
@@ -888,48 +1203,12 @@ class ChannelManagementPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(8)
 
-        title = QLabel("Channel Management")
+        title = QLabel("Channel management")
         title.setStyleSheet("font-weight: bold;")
         layout.addWidget(title)
 
-        self.number_of_dots_spinbox = QSpinBox()
-        self.number_of_dots_spinbox.setRange(
-            settings.MIN_NUMBER_OF_DOTS_TO_DISPLAY,
-            settings.MAX_NUMBER_OF_DOTS_TO_DISPLAY,
-        )
-        self.number_of_dots_spinbox.setSingleStep(100)
-        self.number_of_dots_label = QLabel("Number of dots to display:")
-
-        dots_row = QHBoxLayout()
-        dots_row.addWidget(self.number_of_dots_label)
-        dots_row.addWidget(self.number_of_dots_spinbox)
-        dots_row.addStretch(1)
-        layout.addLayout(dots_row)
-
-        self.mapping_group = QGroupBox("Visual attachment")
-        mapping_layout = QVBoxLayout(self.mapping_group)
-        buttons_layout = QHBoxLayout()
-        self.btn_attach_link = QPushButton("Attach link")
-        self.btn_attach_file = QPushButton("Attach file")
-        buttons_layout.addWidget(self.btn_attach_link)
-        buttons_layout.addWidget(self.btn_attach_file)
-        buttons_layout.addStretch(1)
-        mapping_layout.addLayout(buttons_layout)
-
-        self.mapping_text_label = QLabel("")
-        self.mapping_text_label.setWordWrap(True)
-        self.mapping_text_label.setTextFormat(Qt.TextFormat.RichText)
-        self.mapping_text_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
-        self.mapping_text_label.setOpenExternalLinks(False)
-        mapping_layout.addWidget(self.mapping_text_label)
-
-        self.mapping_image_label = ClickableImageLabel()
-        self.mapping_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.mapping_image_label.setMinimumWidth(settings.VISUAL_ATTACHMENT_DEFAULT_WIDTH)
-        mapping_layout.addWidget(self.mapping_image_label)
-        layout.addWidget(self.mapping_group)
-
         instructions = QLabel("Drag&drop tabs to reorder groups. Tick channels, then Move checked to target group. "
+                              "Shift-click ticks every channel from the previous checkbox to the new one. "
                               "Channel order and enabling are edited in Layout.")
         instructions.setWordWrap(True)
         instructions.setStyleSheet("color: gray; font-size: 9pt;")
@@ -953,33 +1232,30 @@ class ChannelManagementPanel(QWidget):
 
     def apply_gui_mode(self, gui_mode: GuiMode):
         is_expert = gui_mode == GuiMode.EXPERT
-        self.number_of_dots_label.setVisible(is_expert)
-        self.number_of_dots_spinbox.setVisible(is_expert)
-        self.mapping_group.setVisible(is_expert)
+        mode_changed = is_expert != self._is_expert
+        self._is_expert = is_expert
+        self.create_group_btn.setEnabled(is_expert)
+        self.groups_layout_btn.setEnabled(is_expert)
+        self.set_units_btn.setEnabled(is_expert)
+        if mode_changed and self._session_manager.gui_setup:
+            self.rebuild_groups_ui()
 
     def connect_signals(self):
-        self.number_of_dots_spinbox.valueChanged.connect(self._session_manager.set_number_of_dots_to_display)
         self.create_group_btn.clicked.connect(lambda: self._session_manager.add_channel_group("Group"))
         self.groups_layout_btn.clicked.connect(self.on_groups_layout_clicked)
         self.set_units_btn.clicked.connect(self.on_set_units_clicked)
-        self.btn_attach_link.clicked.connect(self.on_attach_link_clicked)
-        self.btn_attach_file.clicked.connect(self.on_attach_file_clicked)
-        self.mapping_text_label.linkActivated.connect(self.on_mapping_link_activated)
         self.groups_tabs.tabCloseRequested.connect(self._on_group_tab_close_requested)
         self.groups_tabs.tabBar().tabMoved.connect(self._on_group_tab_moved)
 
         self._session_manager.session_loaded.connect(self.on_session_loaded)
         self._session_manager.channels_groups_changed.connect(self._on_channels_groups_changed)
-        self._session_manager.number_of_dots_to_display_changed.connect(self._sync_number_of_dots)
         self._session_manager.filters_changed.connect(self.on_filters_changed)
-        self._session_manager.visual_attachment_changed.connect(self.on_visual_attachment_changed)
         self._session_manager.header_units_changed.connect(lambda _units: self.rebuild_groups_ui())
 
     def on_session_loaded(self):
         gui_setup = self._session_manager.gui_setup
         if not gui_setup:
             return
-        self._sync_number_of_dots()
         updated_groups = [g.model_copy(deep=True) for g in gui_setup.channels_groups]
         changed = False
         for group in updated_groups:
@@ -989,16 +1265,7 @@ class ChannelManagementPanel(QWidget):
                 changed = True
         if changed:
             self._session_manager.set_channels_groups(updated_groups)
-        self._update_mapping_display(gui_setup.visual_attachment)
         self.rebuild_groups_ui()
-
-    def _sync_number_of_dots(self, *_args):
-        gui_setup = self._session_manager.gui_setup
-        if not gui_setup:
-            return
-        self.number_of_dots_spinbox.blockSignals(True)
-        self.number_of_dots_spinbox.setValue(gui_setup.number_of_dots_to_display)
-        self.number_of_dots_spinbox.blockSignals(False)
 
     def on_filters_changed(self):
         # Do not rebuild filter form here. This signal can be emitted from
@@ -1012,15 +1279,20 @@ class ChannelManagementPanel(QWidget):
             return
 
         filter_layout = QVBoxLayout()
-        title = QLabel("Group filters")
+        title = QLabel("Filters")
         title.setStyleSheet("font-weight: bold;")
         filter_layout.addWidget(title)
 
-        add_row = QHBoxLayout()
-        add_row.addWidget(QLabel("Choose filter:"))
+        enabled_label = QLabel()
+        filter_layout.addWidget(enabled_label)
+
         selector = QComboBox()
         for flt in filters:
             selector.addItem(flt.filter_name)
+        enable_checkbox = QCheckBox("Enable")
+        add_row = QHBoxLayout()
+        add_row.addWidget(enable_checkbox)
+        add_row.addWidget(QLabel("Filter:"))
         add_row.addWidget(selector, 1)
         filter_layout.addLayout(add_row)
 
@@ -1030,9 +1302,6 @@ class ChannelManagementPanel(QWidget):
         params_layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft)
         params_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         filter_layout.addWidget(params_widget)
-
-        enabled_label = QLabel()
-        filter_layout.addWidget(enabled_label)
 
         disable_btn = QPushButton("Disable all")
         filter_layout.addWidget(disable_btn)
@@ -1074,14 +1343,9 @@ class ChannelManagementPanel(QWidget):
                 return
             flt = local_filters[index]
             clear_form()
-            enabled_checkbox = QCheckBox()
-            enabled_checkbox.setChecked(bool(flt.enabled))
-            enabled_checkbox.stateChanged.connect(
-                lambda state, idx=index: update_filter_param(
-                    idx, "enabled", Qt.CheckState(state) == Qt.CheckState.Checked
-                )
-            )
-            params_layout.addRow("Enabled:", enabled_checkbox)
+            enable_checkbox.blockSignals(True)
+            enable_checkbox.setChecked(bool(flt.enabled))
+            enable_checkbox.blockSignals(False)
             if isinstance(flt, ButterworthLowPassFilter):
                 cutoff = QDoubleSpinBox(); cutoff.setRange(0.1, 1e6); cutoff.setSingleStep(1.0); cutoff.setValue(float(flt.cutoff_hz))
                 cutoff.valueChanged.connect(lambda value, idx=index: update_filter_param(idx, "cutoff_hz", value))
@@ -1123,6 +1387,13 @@ class ChannelManagementPanel(QWidget):
             sync_label(local_filters)
 
         selector.currentIndexChanged.connect(build_form)
+        enable_checkbox.stateChanged.connect(
+            lambda state: update_filter_param(
+                selector.currentIndex(),
+                "enabled",
+                Qt.CheckState(state) == Qt.CheckState.Checked,
+            )
+        )
 
         def disable_all():
             updated_filters = []
@@ -1155,23 +1426,24 @@ class ChannelManagementPanel(QWidget):
                 tab.deleteLater()
         self._group_list_widgets.clear()
         self._group_move_checkboxes.clear()
+        self._move_checkbox_anchor.clear()
         self._group_channel_labels.clear()
 
         for group_idx, group in enumerate(gui_setup.channels_groups):
             box = QWidget()
             box_layout = QVBoxLayout(box)
 
-            form = QFormLayout()
-            form.setFormAlignment(Qt.AlignmentFlag.AlignLeft)
-            form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+            scale_spin = y_offset_spin = color_btn = None
+            if not group.is_auxiliary:
+                scale_spin, y_offset_spin, color_btn = self._build_group_common_setup(
+                    group.channel_indexes, gui_setup.channels_setup
+                )
 
             name_edit = QLineEdit()
             name_edit.setText(group.name)
             name_edit.editingFinished.connect(
                 lambda idx=group_idx, w=name_edit: self._on_group_name_editing_finished(idx, w)
             )
-            form.addRow("Name:", name_edit)
-
             shown = QCheckBox()
             shown.setChecked(group.is_shown)
             shown.stateChanged.connect(
@@ -1179,7 +1451,10 @@ class ChannelManagementPanel(QWidget):
                     idx, is_shown=(Qt.CheckState(state) == Qt.CheckState.Checked)
                 )
             )
-            form.addRow("View:", shown)
+            name_row_cells = [self._labeled_stretch_cell("Name:", name_edit)]
+            if color_btn is not None:
+                name_row_cells.append(self._labeled_stretch_cell("Color:", color_btn))
+            self._add_stretch_row(box_layout, name_row_cells)
 
             cut_traces = QCheckBox()
             cut_traces.setChecked(group.cut_traces)
@@ -1188,22 +1463,32 @@ class ChannelManagementPanel(QWidget):
                     idx, Qt.CheckState(state) == Qt.CheckState.Checked
                 )
             )
-            form.addRow("Cut traces:", cut_traces)
+            self._add_stretch_row(box_layout, [
+                self._labeled_stretch_cell("View:", shown),
+                self._labeled_stretch_cell("Clip traces:", cut_traces),
+            ])
 
-            aux_checkbox = QCheckBox()
-            aux_checkbox.setChecked(group.is_auxiliary)
-            aux_checkbox.stateChanged.connect(
-                lambda state, idx=group_idx: self._on_aux_changed(
-                    idx, Qt.CheckState(state) == Qt.CheckState.Checked
+            if scale_spin is not None:
+                self._add_stretch_row(box_layout, [self._labeled_stretch_cell("Scale (uV):", scale_spin)])
+
+            aux_row_cells = []
+            if self._is_expert:
+                aux_checkbox = QCheckBox()
+                aux_checkbox.setChecked(group.is_auxiliary)
+                aux_checkbox.stateChanged.connect(
+                    lambda state, idx=group_idx: self._on_aux_changed(
+                        idx, Qt.CheckState(state) == Qt.CheckState.Checked
+                    )
                 )
-            )
-            form.addRow("Auxiliary channels:", aux_checkbox)
-            box_layout.addLayout(form)
-
-            self._build_group_filters_setup(box_layout, group_idx, group)
-
-            if not group.is_auxiliary:
-                self._build_group_common_setup(box_layout, group.channel_indexes, gui_setup.channels_setup)
+                aux_row_cells.append(self._labeled_stretch_cell("Auxiliary channels:", aux_checkbox))
+            if y_offset_spin is not None:
+                if self._is_expert:
+                    aux_row_cells.append(self._labeled_stretch_cell("Y offset:", y_offset_spin))
+                else:
+                    y_offset_spin.setParent(box)
+                    y_offset_spin.hide()
+            if aux_row_cells:
+                self._add_stretch_row(box_layout, aux_row_cells)
 
             channel_list = QListWidget()
             channel_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -1214,13 +1499,6 @@ class ChannelManagementPanel(QWidget):
             for channel_idx in group.channel_indexes:
                 self._add_channel_row(channel_list, group_idx, group, channel_idx, gui_setup.channels_setup)
             box_layout.addWidget(channel_list)
-
-            btn_row = QHBoxLayout()
-            reorder_btn = QPushButton("Layout")
-            reorder_btn.clicked.connect(lambda _c=False, idx=group_idx: self._open_reorder_dialog(idx))
-            btn_row.addWidget(reorder_btn)
-            btn_row.addStretch(1)
-            box_layout.addLayout(btn_row)
 
             move_row = QHBoxLayout()
             move_row.addWidget(QLabel("Move checked to"))
@@ -1237,7 +1515,13 @@ class ChannelManagementPanel(QWidget):
             )
             move_row.addWidget(move_combo, 1)
             move_row.addWidget(move_btn)
+            reorder_btn = QPushButton("Channels layout")
+            reorder_btn.setEnabled(self._is_expert)
+            reorder_btn.clicked.connect(lambda _c=False, idx=group_idx: self._open_reorder_dialog(idx))
+            move_row.addWidget(reorder_btn)
             box_layout.addLayout(move_row)
+
+            self._build_group_filters_setup(box_layout, group_idx, group)
             self.groups_tabs.addTab(box, group.name or f"Group {group_idx + 1}")
         if self.groups_tabs.count():
             self.groups_tabs.setCurrentIndex(min(max(prev_tab_idx, 0), self.groups_tabs.count() - 1))
@@ -1286,31 +1570,31 @@ class ChannelManagementPanel(QWidget):
                     label.setText(f"{channel_idx} [{channel_name}] (disabled)")
                     label.setStyleSheet("color: gray;")
 
-    def _build_group_common_setup(self, layout: QVBoxLayout, channel_indexes: List[int], channels_setup):
+    def _build_group_common_setup(self, channel_indexes: List[int], channels_setup):
         if not channel_indexes:
-            return
+            return None, None, None
         sample = channels_setup.get(channel_indexes[0])
         scale_val = float(getattr(sample, "scale", settings.DEFAULT_SCALE))
         y_offset_val = float(getattr(sample, "y_offset", 0.0))
         color_val = str(getattr(sample, "color", "#000000"))
 
-        form = QFormLayout()
-        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         scale_spin = QDoubleSpinBox()
         scale_spin.setRange(settings.MIN_SCALE, settings.MAX_SCALE)
         scale_spin.setKeyboardTracking(False)
         scale_spin.setSingleStep(settings.SCALE_STEP)
         scale_spin.setValue(scale_val)
+        scale_spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         y_offset_spin = QDoubleSpinBox()
         y_offset_spin.setRange(-1_000_000.0, 1_000_000.0)
         y_offset_spin.setKeyboardTracking(False)
         y_offset_spin.setSingleStep(10.0)
         y_offset_spin.setValue(y_offset_val)
+        y_offset_spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         color_btn = QPushButton()
         color_btn.setProperty("color_str", color_val)
         color_btn.setStyleSheet(f"background-color: {color_val};")
-        color_btn.setMaximumWidth(30)
+        color_btn.setMinimumWidth(30)
+        color_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         def apply_to_all():
             color_str = color_btn.property("color_str") or "#000000"
@@ -1325,10 +1609,8 @@ class ChannelManagementPanel(QWidget):
         y_offset_spin.valueChanged.connect(lambda _v: apply_to_all())
 
         def on_pick_color():
-            cur = QColor(color_btn.property("color_str"))
-            if not cur.isValid():
-                cur = QColor("#000000")
-            new = QColorDialog.getColor(cur, self, "Select color")
+            cur = QColor(color_btn.property("color_str") or "")
+            new = pick_saturated_color(cur, self, "Select color")
             if not new.isValid():
                 return
             color_btn.setProperty("color_str", new.name())
@@ -1336,10 +1618,27 @@ class ChannelManagementPanel(QWidget):
             apply_to_all()
 
         color_btn.clicked.connect(on_pick_color)
-        form.addRow("Scale (uV):", scale_spin)
-        form.addRow("Y offset:", y_offset_spin)
-        form.addRow("Color:", color_btn)
-        layout.addLayout(form)
+        return scale_spin, y_offset_spin, color_btn
+
+    @staticmethod
+    def _labeled_stretch_cell(text: str, widget: QWidget) -> QWidget:
+        cell = QWidget()
+        layout = QHBoxLayout(cell)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        if text:
+            layout.addWidget(QLabel(text))
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        layout.addWidget(widget, 1)
+        return cell
+
+    @staticmethod
+    def _add_stretch_row(parent: QVBoxLayout, cells: List[QWidget]):
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        for cell in cells:
+            row.addWidget(cell, 1)
+        parent.addLayout(row)
 
     def _add_channel_row(self, channel_list: QListWidget, group_idx: int, group, channel_idx: int, channels_setup):
         channel_name = self.get_channel_name(channel_idx)
@@ -1354,7 +1653,13 @@ class ChannelManagementPanel(QWidget):
         row.setSpacing(2)
 
         move_cb = QCheckBox()
-        move_cb.setToolTip("Check to move this channel to another group")
+        move_cb.setToolTip(
+            "Check to move this channel to another group. "
+            "Shift-click checks every channel from the previous checkbox to this one."
+        )
+        move_cb.clicked.connect(
+            lambda _checked=False, g=group_idx, c=channel_idx: self._on_move_checkbox_clicked(g, c)
+        )
         self._group_move_checkboxes[(group_idx, channel_idx)] = move_cb
         row.addWidget(move_cb)
         row.addSpacing(10)
@@ -1391,7 +1696,7 @@ class ChannelManagementPanel(QWidget):
             scale_spin = QDoubleSpinBox(); scale_spin.setRange(settings.MIN_SCALE, settings.MAX_SCALE)
             scale_spin.setKeyboardTracking(False)
             scale_spin.setSingleStep(settings.SCALE_STEP); scale_spin.setValue(scale)
-            y_spin = QDoubleSpinBox(); y_spin.setRange(-1_000_000.0, 1_000_000.0)
+            y_spin = QDoubleSpinBox(widget); y_spin.setRange(-1_000_000.0, 1_000_000.0)
             y_spin.setKeyboardTracking(False)
             y_spin.setSingleStep(10.0); y_spin.setValue(y_offset)
             color_btn = QPushButton(); color_btn.setProperty("color_str", color)
@@ -1408,8 +1713,8 @@ class ChannelManagementPanel(QWidget):
             y_spin.valueChanged.connect(lambda _v: apply())
 
             def pick_color():
-                cur = QColor(color_btn.property("color_str"))
-                new = QColorDialog.getColor(cur, self, "Select color")
+                cur = QColor(color_btn.property("color_str") or "")
+                new = pick_saturated_color(cur, self, "Select color")
                 if not new.isValid():
                     return
                 color_btn.setProperty("color_str", new.name())
@@ -1420,8 +1725,11 @@ class ChannelManagementPanel(QWidget):
             aux_row = QHBoxLayout()
             aux_row.addWidget(QLabel("S"))
             aux_row.addWidget(scale_spin)
-            aux_row.addWidget(QLabel("Y"))
-            aux_row.addWidget(y_spin)
+            if self._is_expert:
+                aux_row.addWidget(QLabel("Y"))
+                aux_row.addWidget(y_spin)
+            else:
+                y_spin.hide()
             aux_row.addWidget(QLabel("C"))
             aux_row.addWidget(color_btn)
             aux_row.addStretch(1)
@@ -1491,6 +1799,37 @@ class ChannelManagementPanel(QWidget):
                 f"Channels of group #{group_idx} '{group.name}' enabled={newly_enabled} "
                 f"disabled={newly_disabled}"
             )
+
+    def _on_move_checkbox_clicked(self, group_idx: int, channel_idx: int) -> None:
+        shift = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier)
+        anchor = self._move_checkbox_anchor.get(group_idx)
+        if shift and anchor is not None and anchor != channel_idx:
+            self._check_move_checkbox_range(group_idx, anchor, channel_idx)
+            return
+        self._move_checkbox_anchor[group_idx] = channel_idx
+
+    def _check_move_checkbox_range(self, group_idx: int, start_idx: int, end_idx: int) -> None:
+        channel_list = self._group_list_widgets.get(group_idx)
+        if channel_list is None:
+            return
+        order: List[int] = []
+        for row in range(channel_list.count()):
+            item = channel_list.item(row)
+            if item is None:
+                continue
+            order.append(int(item.data(Qt.ItemDataRole.UserRole)))
+        try:
+            start_row = order.index(start_idx)
+            end_row = order.index(end_idx)
+        except ValueError:
+            self._move_checkbox_anchor[group_idx] = end_idx
+            return
+        lo, hi = sorted((start_row, end_row))
+        for idx in order[lo:hi + 1]:
+            checkbox = self._group_move_checkboxes.get((group_idx, idx))
+            if checkbox is None:
+                continue
+            checkbox.setChecked(True)
 
     def _move_checked_to_group(self, from_group_idx: int, to_group_idx: int):
         if to_group_idx < 0:
@@ -1632,107 +1971,8 @@ class ChannelManagementPanel(QWidget):
             text = f"{val:.2f}".rstrip("0").rstrip(".")
         return f"{text} {units[idx]}"
 
-    def on_visual_attachment_changed(self, visual_attachment: str):
-        self._update_mapping_display(visual_attachment)
-
     def on_set_units_clicked(self):
         if not self._session_manager.header:
             return
         HeaderUnitsManagementDialog(self._session_manager, self).exec()
-
-    def on_attach_link_clicked(self):
-        link, ok = QInputDialog.getText(self, "Attach link", "Paste image link:")
-        if not ok:
-            return
-        self._session_manager.set_visual_attachment(link.strip())
-
-    def on_attach_file_clicked(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select image",
-            "",
-            "Images (*.png *.jpg *.jpeg *.bmp *.gif);;All Files (*)",
-        )
-        if not file_path:
-            return
-        try:
-            with open(file_path, "rb") as file:
-                data = file.read()
-        except OSError:
-            return
-        mime, _ = mimetypes.guess_type(file_path)
-        mime = mime or "image/png"
-        encoded = base64.b64encode(data).decode("ascii")
-        self._session_manager.set_visual_attachment(f"data:{mime};base64,{encoded}")
-
-    def _update_mapping_display(self, visual_attachment: str):
-        self._mapping_text = visual_attachment or ""
-        self._mapping_pixmap = None
-        self._mapping_link_url = ""
-        self.mapping_image_label.set_pixmap(None)
-        if not self._mapping_text:
-            self.mapping_text_label.setText("")
-            return
-
-        if self._mapping_text.startswith("http://") or self._mapping_text.startswith("https://"):
-            self._mapping_link_url = self._mapping_text
-            self.mapping_text_label.setText('<a href="mapping">Attached link (click)</a> (double click to view)')
-            try:
-                with urllib.request.urlopen(self._mapping_text, timeout=5) as response:
-                    raw = response.read()
-            except Exception:
-                self.mapping_text_label.setText('<a href="mapping">Attached link (click)</a><br>Failed to load image')
-                return
-            pixmap = QPixmap()
-            if pixmap.loadFromData(raw):
-                self._set_mapping_pixmap(pixmap)
-            else:
-                self.mapping_text_label.setText('<a href="mapping">Attached link (click)</a><br>Failed to decode image')
-            return
-
-        if self._mapping_text.startswith("data:"):
-            self.mapping_text_label.setText("Attached file (double click to view)")
-            parts = self._mapping_text.split(",", 1)
-            if len(parts) != 2:
-                self.mapping_text_label.setText("Failed to decode attached file")
-                return
-            try:
-                raw = base64.b64decode(parts[1])
-            except Exception:
-                self.mapping_text_label.setText("Failed to decode attached file")
-                return
-            pixmap = QPixmap()
-            if pixmap.loadFromData(raw):
-                self._set_mapping_pixmap(pixmap)
-            else:
-                self.mapping_text_label.setText("Failed to decode attached file")
-            return
-
-        self.mapping_text_label.setText(self._mapping_text)
-
-    def on_mapping_link_activated(self, _link: str):
-        if self._mapping_link_url:
-            QDesktopServices.openUrl(QUrl(self._mapping_link_url))
-
-    def _set_mapping_pixmap(self, pixmap: QPixmap):
-        self._mapping_pixmap = pixmap
-        self._apply_scaled_pixmap()
-
-    def _apply_scaled_pixmap(self):
-        if self._mapping_pixmap is None:
-            self.mapping_image_label.set_pixmap(None)
-            return
-        target_width = self.mapping_image_label.width()
-        if target_width <= 1:
-            target_width = settings.VISUAL_ATTACHMENT_DEFAULT_WIDTH
-        display = self._mapping_pixmap.scaledToWidth(
-            target_width,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self.mapping_image_label.set_pixmap(self._mapping_pixmap, display)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self._mapping_pixmap is not None:
-            self._apply_scaled_pixmap()
 

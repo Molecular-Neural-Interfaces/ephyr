@@ -4,7 +4,8 @@
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from ephyr import settings
-from ephyr.gui._utils import milliseconds_to_readable, sample_rate_to_readable
+from ephyr.core.global_storage import GuiMode
+from ephyr.gui._utils import milliseconds_to_readable
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 from ephyr.gui.widgets import FocusWheelSpinBox as QSpinBox
 
@@ -14,6 +15,8 @@ class TimeSettingsPanel(QWidget):
         super().__init__(parent)
         self._session_manager = session_manager
         self._updating = False
+        self._is_expert = False
+        self._expert_only_rows = []
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.setup_ui()
         self.connect_signals()
@@ -23,26 +26,24 @@ class TimeSettingsPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(8)
 
-        title = QLabel("Time Settings")
+        title = QLabel("Timeline settings")
         title.setStyleSheet("font-weight: bold;")
         layout.addWidget(title)
 
         self.start_point_spinbox = QSpinBox()
         self.start_point_spinbox.setRange(0, settings.MAX_START_POINT)
-        self.start_point_spinbox.setSingleStep(1000)
-
-        self.current_sweep_spinbox = QSpinBox()
-        self.current_sweep_spinbox.setRange(1, 1)
-        self.current_sweep_spinbox.setSingleStep(1)
-        self.current_sweep_spinbox.setSuffix(" sweep")
+        self.start_point_spinbox.setSingleStep(1)
+        self.start_point_spinbox.setSuffix(" ms")
 
         self.duration_spinbox = QSpinBox()
         self.duration_spinbox.setRange(settings.MIN_DURATION, settings.MAX_DURATION)
         self.duration_spinbox.setSingleStep(100)
         self.duration_spinbox.setSuffix(" ms")
+        # Commit the typed value on Enter or focus-out, not on every keystroke.
+        self.duration_spinbox.setKeyboardTracking(False)
 
         self.time_step_spinbox = QSpinBox()
-        self.time_step_spinbox.setRange(settings.MIN_TIME_STEP, settings.MAX_TIME_STEP)
+        self.time_step_spinbox.setRange(settings.MIN_TIME_STEP, settings.MAX_DURATION)
         self.time_step_spinbox.setSingleStep(100)
         self.time_step_spinbox.setSuffix(" ms")
 
@@ -51,38 +52,55 @@ class TimeSettingsPanel(QWidget):
         self.autoscroll_step_interval_spinbox.setSingleStep(50)
         self.autoscroll_step_interval_spinbox.setSuffix(" ms")
 
-        self.duration_label = QLabel("Duration to show:")
-        self.time_step_label = QLabel("Auto-scroll time step:")
-        self.sweep_info_label = QLabel("")
-        self.sweep_info_label.setStyleSheet("color: gray; font-size: 9pt;")
-        self.sweep_info_label.setWordWrap(True)
+        self.number_of_dots_spinbox = QSpinBox()
+        self.number_of_dots_spinbox.setRange(
+            settings.MIN_NUMBER_OF_DOTS_TO_DISPLAY,
+            settings.MAX_NUMBER_OF_DOTS_TO_DISPLAY,
+        )
+        self.number_of_dots_spinbox.setSingleStep(100)
 
-        rows = [
-            ("Current sweep:", self.current_sweep_spinbox),
-            ("Start point index:", self.start_point_spinbox),
-            (self.duration_label, self.duration_spinbox),
-            (self.time_step_label, self.time_step_spinbox),
-            ("Auto-scroll interval:", self.autoscroll_step_interval_spinbox),
-        ]
-        for label, widget in rows:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(label) if isinstance(label, str) else label)
-            row.addWidget(widget)
-            row.addStretch(1)
-            layout.addLayout(row)
-            if widget is self.current_sweep_spinbox:
-                layout.addWidget(self.sweep_info_label)
+        self.duration_label = QLabel("Duration to show:")
+        self.start_point_label = QLabel("Start point:")
+        self.time_step_label = QLabel("Timebar step:")
+
+        self._add_control_row(layout, self.duration_label, self.duration_spinbox)
+        self._add_control_row(layout, self.start_point_label, self.start_point_spinbox, expert_only=True)
+        self._add_control_row(layout, self.time_step_label, self.time_step_spinbox, expert_only=True)
+        self._add_control_row(
+            layout, "Auto-scroll frame delay:", self.autoscroll_step_interval_spinbox, expert_only=True
+        )
+        self._add_control_row(
+            layout, "Number of points to display:", self.number_of_dots_spinbox, expert_only=True
+        )
+
+    def _add_control_row(self, layout, label, widget, trailing=None, expert_only=False):
+        row_widget = QWidget()
+        row = QHBoxLayout(row_widget)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(label if not isinstance(label, str) else QLabel(label))
+        row.addWidget(widget)
+        if trailing is not None:
+            row.addWidget(trailing)
+        row.addStretch(1)
+        layout.addWidget(row_widget)
+        if expert_only:
+            self._expert_only_rows.append(row_widget)
+            row_widget.setVisible(False)
+
+    def apply_gui_mode(self, gui_mode: GuiMode):
+        self._is_expert = gui_mode == GuiMode.EXPERT
+        for row in self._expert_only_rows:
+            row.setVisible(self._is_expert)
+        self._sync_time_controls()
 
     def connect_signals(self):
-        self.current_sweep_spinbox.valueChanged.connect(
-            lambda value: self._session_manager.set_current_sweep_idx(value - 1)
-        )
-        self.start_point_spinbox.valueChanged.connect(self._session_manager.set_start_point)
-        self.duration_spinbox.valueChanged.connect(self._on_duration_changed)
+        self.start_point_spinbox.valueChanged.connect(self._on_start_point_ms_changed)
+        self.duration_spinbox.editingFinished.connect(self._commit_duration)
         self.time_step_spinbox.valueChanged.connect(self._session_manager.set_time_step_ms)
         self.autoscroll_step_interval_spinbox.valueChanged.connect(
             self._session_manager.set_autoscroll_step_interval_ms
         )
+        self.number_of_dots_spinbox.valueChanged.connect(self._session_manager.set_number_of_dots_to_display)
 
         self._session_manager.session_loaded.connect(self._sync_time_controls)
         self._session_manager.start_point_changed.connect(self._sync_time_controls)
@@ -90,12 +108,58 @@ class TimeSettingsPanel(QWidget):
         self._session_manager.current_sweep_idx_changed.connect(self._sync_time_controls)
         self._session_manager.time_step_ms_changed.connect(self._sync_time_controls)
         self._session_manager.autoscroll_step_interval_ms_changed.connect(self._sync_time_controls)
+        self._session_manager.number_of_dots_to_display_changed.connect(self._sync_time_controls)
+
+    def _sample_rate(self) -> float:
+        header = self._session_manager.header
+        if not header:
+            return 0.0
+        return float(header.sample_rate)
+
+    def _start_ms_from_idx(self, start_point: int) -> int:
+        sample_rate = self._sample_rate()
+        if sample_rate <= 0:
+            return 0
+        return int(int(start_point) * 1000.0 / sample_rate)
+
+    def _start_idx_from_ms(self, start_ms: int) -> int:
+        sample_rate = self._sample_rate()
+        if sample_rate <= 0:
+            return 0
+        return int(int(start_ms) * sample_rate / 1000.0)
+
+    def _max_start_point_ms(self) -> int:
+        gui_setup = self._session_manager.gui_setup
+        header = self._session_manager.header
+        sample_rate = self._sample_rate()
+        if not gui_setup or not header or sample_rate <= 0:
+            return settings.MAX_START_POINT
+        visible_points = int((int(gui_setup.duration_ms) / 1000.0) * sample_rate)
+        points_per_sweep = list(header.number_of_points_per_sweep)
+        if not points_per_sweep:
+            return 0
+        sweep_idx = max(0, min(int(gui_setup.current_sweep_idx), len(points_per_sweep) - 1))
+        max_start_idx = max(0, int(points_per_sweep[sweep_idx]) - max(0, visible_points))
+        return self._start_ms_from_idx(max_start_idx)
+
+    def _on_start_point_ms_changed(self, start_ms: int):
+        if self._updating:
+            return
+        self._session_manager.set_start_point(self._start_idx_from_ms(start_ms))
+
+    def _commit_duration(self):
+        """Apply duration when Enter is pressed or the field loses focus."""
+        if self._updating:
+            return
+        self._on_duration_changed(int(self.duration_spinbox.value()))
 
     def _on_duration_changed(self, duration_ms: int):
         """Keep the time-window center fixed when duration changes."""
         if self._updating:
             return
         gui_setup = self._session_manager.gui_setup
+        if gui_setup is not None and int(gui_setup.duration_ms) == duration_ms:
+            return
         header = self._session_manager.header
         if not gui_setup or not header or float(header.sample_rate) <= 0:
             self._session_manager.set_duration_ms(duration_ms)
@@ -111,54 +175,51 @@ class TimeSettingsPanel(QWidget):
         half_visible = int((new_duration_ms / 2000.0) * sample_rate)
         self._session_manager.set_start_point(center_sample - half_visible)
 
+    def _beginner_time_step_ms(self, duration_ms: int) -> int:
+        return max(settings.MIN_TIME_STEP, int(duration_ms) // 2)
+
+    def _apply_beginner_time_step(self):
+        gui_setup = self._session_manager.gui_setup
+        if self._is_expert or not gui_setup:
+            return
+        self._session_manager.set_beginner_time_step_ms(
+            self._beginner_time_step_ms(gui_setup.duration_ms)
+        )
+
     def _sync_time_controls(self, *_args):
+        if self._updating:
+            return
         gui_setup = self._session_manager.gui_setup
         if not gui_setup:
             return
 
         self._updating = True
+        if not self._is_expert:
+            self._apply_beginner_time_step()
         controls = (
-            self.current_sweep_spinbox,
             self.start_point_spinbox,
             self.duration_spinbox,
             self.time_step_spinbox,
             self.autoscroll_step_interval_spinbox,
+            self.number_of_dots_spinbox,
         )
         for control in controls:
             control.blockSignals(True)
 
-        current_sweep_idx = int(gui_setup.current_sweep_idx)
-        sweeps_num = int(self._session_manager.header.number_of_sweeps) if self._session_manager.header else 1
-        self.current_sweep_spinbox.setRange(1, max(1, sweeps_num))
-        self.current_sweep_spinbox.setValue(min(max(1, current_sweep_idx + 1), max(1, sweeps_num)))
-        self.start_point_spinbox.setValue(gui_setup.start_point)
+        self.start_point_spinbox.setRange(0, self._max_start_point_ms())
+        self.start_point_spinbox.setValue(self._start_ms_from_idx(gui_setup.start_point))
         self.duration_spinbox.setValue(gui_setup.duration_ms)
         self.time_step_spinbox.setValue(gui_setup.time_step_ms)
         self.autoscroll_step_interval_spinbox.setValue(gui_setup.autoscroll_step_interval_ms)
+        self.number_of_dots_spinbox.setValue(gui_setup.number_of_dots_to_display)
 
         for control in controls:
             control.blockSignals(False)
         self._updating = False
 
+        start_ms = self._start_ms_from_idx(gui_setup.start_point)
+        self.start_point_label.setText(f"Start point {milliseconds_to_readable(start_ms)}")
         self.duration_label.setText(f"Duration window {milliseconds_to_readable(gui_setup.duration_ms)}")
         self.time_step_label.setText(
-            f"Auto-scroll time step {milliseconds_to_readable(gui_setup.time_step_ms)}"
-        )
-        self._update_sweep_info_label(current_sweep_idx)
-
-    def _update_sweep_info_label(self, current_sweep_idx: int):
-        header = self._session_manager.header
-        if not header or float(header.sample_rate) <= 0:
-            self.sweep_info_label.setText("")
-            return
-        points_per_sweep = list(header.number_of_points_per_sweep)
-        if not points_per_sweep:
-            self.sweep_info_label.setText("")
-            return
-        sweep_idx = max(0, min(current_sweep_idx, len(points_per_sweep) - 1))
-        sweep_duration_ms = (header.sample_interval_microseconds / 10 ** 3) * points_per_sweep[sweep_idx]
-        sample_rate_text = sample_rate_to_readable(float(header.sample_rate))
-        duration_text = milliseconds_to_readable(int(round(sweep_duration_ms)))
-        self.sweep_info_label.setText(
-            f"Sample rate {sample_rate_text}  Sweep duration {duration_text}"
+            f"Timebar step {milliseconds_to_readable(gui_setup.time_step_ms)}"
         )

@@ -26,6 +26,7 @@ from ephyr.converter.ephyr_io import EphyrIO
 
 
 class RightPanelWidgetEnum(Enum):
+    RECORDING_NAVIGATION = "recording_navigation"
     TIME_SETTINGS = "time_settings"
     CHANNEL_MANAGEMENT = "channel_management"
     INFORMATION = "information"
@@ -37,11 +38,22 @@ class RightPanelWidgetEnum(Enum):
     @staticmethod
     def widgets_order():
         return [
+            RightPanelWidgetEnum.RECORDING_NAVIGATION,
             RightPanelWidgetEnum.TIME_SETTINGS,
+            RightPanelWidgetEnum.INFORMATION,
             RightPanelWidgetEnum.CHANNEL_MANAGEMENT,
             RightPanelWidgetEnum.ANALYSIS,
-            RightPanelWidgetEnum.INFORMATION,
             RightPanelWidgetEnum.LOGS,
+        ]
+
+    @staticmethod
+    def default_widgets():
+        return [
+            RightPanelWidgetEnum.RECORDING_NAVIGATION,
+            RightPanelWidgetEnum.TIME_SETTINGS,
+            RightPanelWidgetEnum.INFORMATION,
+            RightPanelWidgetEnum.CHANNEL_MANAGEMENT,
+            RightPanelWidgetEnum.ANALYSIS,
         ]
 
 
@@ -195,7 +207,7 @@ class ChannelGroup(BaseModel):
 
 class GuiSetup(BaseModel):
     right_panel_widgets: List[RightPanelWidgetEnum] = Field(
-        default_factory=lambda: RightPanelWidgetEnum.widgets_order())
+        default_factory=lambda: RightPanelWidgetEnum.default_widgets())
     add_ons: Dict[str, AddOnSetup] = Field(default_factory=dict)
 
     traces_are_shown: bool = True
@@ -204,6 +216,7 @@ class GuiSetup(BaseModel):
     periods_are_shown: bool = True
 
     current_sweep_idx: int = 0
+    overlay_sweep_idxs: List[int] = Field(default_factory=list)
     start_point: int = 0
     duration_ms: int = settings.DEFAULT_DURATION
     time_step_ms: int = settings.DEFAULT_TIME_STEP
@@ -523,6 +536,13 @@ class UserSession(BaseModel):
             )
 
     @property
+    def session_name(self):
+        if self.session_filename.endswith(settings.SESSION_EXTENSION):
+            return self.session_filename[: -len(settings.SESSION_EXTENSION)]
+
+        return self.session_filename
+
+    @property
     def events_table(self, table_format: EventsTableFormat = EventsTableFormat.DICT):
         result = []
         for event in self.events:
@@ -565,6 +585,25 @@ class ExperimentData(BaseModel):
         Process data pipeline using multithreading for each visible channel.
         Returns array of shape (len(visible_channel_indexes), number_of_time_points)
         """
+        per_sweep = self.process_data_pipeline_multi_sweep(
+            params=params,
+            sweep_indexes=[sweep_idx],
+            channel_indexes=channel_indexes,
+            output_number_of_dots=output_number_of_dots,
+            transformation_add_ons=transformation_add_ons,
+        )
+        return per_sweep.get(sweep_idx, {})
+
+    def process_data_pipeline_multi_sweep(self, params: GuiSetup, sweep_indexes: List[int],
+                                          channel_indexes: List[int],
+                                          output_number_of_dots: int,
+                                          transformation_add_ons: Optional[List[BaseAddOn]] = None) -> Dict[
+        int, Dict[int, np.ndarray[np.float64]]]:
+        """
+        Run the same pipeline for several sweeps at once, sharing a single thread pool.
+        Sweeps that do not fully cover the requested time window are skipped, because
+        resampling a partial window would distort the time axis.
+        """
         start_sample = params.start_point
         end_sample = params.start_point + int(params.duration_ms * 1000 / self.header.sample_interval_microseconds)
         channel_filters: Dict[int, List[FilterConfig]] = {}
@@ -577,26 +616,47 @@ class ExperimentData(BaseModel):
                                                                (transformation_add_ons or [])
                                                                if transformation_add_on.applicable(channel_idx)]
 
-        # Collect results by waiting for each future to complete
-        results = {}
-        if channel_indexes:
-            # Use ThreadPoolExecutor to process channels in parallel
-            with ThreadPoolExecutor(max_workers=len(channel_indexes)) as executor:
-                # Submit all tasks and store futures
-                future_to_channel = {}
-                for channel_idx in channel_indexes:
-                    filters_for_channel = channel_filters.get(channel_idx, [])
-                    transformation_add_ons_for_channel = channel_transformation_add_ons.get(channel_idx, [])
-                    required_sample_rate = max(
-                        required_sample_rate_for_filters(filters_for_channel),
-                        required_sample_rate_for_transformations(transformation_add_ons_for_channel)
-                    )
-                    points_for_rate = int(params.duration_ms * 1_000_000 * required_sample_rate)
-                    target_points = max(int(output_number_of_dots), int(points_for_rate), 1)
-                    each_point = max(1, int((end_sample - start_sample) / target_points))
-                    effective_sample_rate = (
-                        self.header.sample_rate / each_point if each_point > 0 else self.header.sample_rate
-                    )
+        points_per_sweep = list(self.header.number_of_points_per_sweep)
+        # The window length is derived from duration_ms here and from sample_rate when the GUI
+        # clamps start_point, so allow the single sample those two roundings may disagree on.
+        min_required_points = max(0, end_sample - 1)
+        sweeps_to_process: List[int] = []
+        for sweep_idx in sweep_indexes:
+            if not (0 <= sweep_idx < len(self.data_memmaps)):
+                continue
+            if sweep_idx in sweeps_to_process:
+                continue
+            available_points = points_per_sweep[sweep_idx] if sweep_idx < len(points_per_sweep) else end_sample
+            if available_points < min_required_points:
+                ephyr_logger().debug(
+                    f"Sweep {sweep_idx} is shorter than the requested window "
+                    f"({available_points} < {end_sample} samples), skipped"
+                )
+                continue
+            sweeps_to_process.append(sweep_idx)
+
+        results: Dict[int, Dict[int, np.ndarray[np.float64]]] = {sweep_idx: {} for sweep_idx in sweeps_to_process}
+        if not channel_indexes or not sweeps_to_process:
+            return results
+
+        tasks_num = len(channel_indexes) * len(sweeps_to_process)
+        max_workers = min(tasks_num, (os.cpu_count() or 4) * 4)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_task = {}
+            for channel_idx in channel_indexes:
+                filters_for_channel = channel_filters.get(channel_idx, [])
+                transformation_add_ons_for_channel = channel_transformation_add_ons.get(channel_idx, [])
+                required_sample_rate = max(
+                    required_sample_rate_for_filters(filters_for_channel),
+                    required_sample_rate_for_transformations(transformation_add_ons_for_channel)
+                )
+                points_for_rate = int(params.duration_ms * 1_000_000 * required_sample_rate)
+                target_points = max(int(output_number_of_dots), int(points_for_rate), 1)
+                each_point = max(1, int((end_sample - start_sample) / target_points))
+                effective_sample_rate = (
+                    self.header.sample_rate / each_point if each_point > 0 else self.header.sample_rate
+                )
+                for sweep_idx in sweeps_to_process:
                     future = executor.submit(
                         self.process_single_channel,
                         channel_idx,
@@ -609,15 +669,17 @@ class ExperimentData(BaseModel):
                         output_number_of_dots,
                         transformation_add_ons_for_channel,
                     )
-                    future_to_channel[future] = channel_idx
+                    future_to_task[future] = (sweep_idx, channel_idx)
 
-                for future, channel_idx in future_to_channel.items():
-                    try:
-                        channel_data = future.result()  # This blocks until the thread completes
-                        results[channel_idx] = channel_data
-                    except Exception as exc:
-                        ephyr_logger().error(f"Channel {channel_idx} generated an exception: {exc}")
-                        raise
+            for future, (sweep_idx, channel_idx) in future_to_task.items():
+                try:
+                    channel_data = future.result()  # This blocks until the thread completes
+                    results[sweep_idx][channel_idx] = channel_data
+                except Exception as exc:
+                    ephyr_logger().error(
+                        f"Channel {channel_idx} of sweep {sweep_idx} generated an exception: {exc}"
+                    )
+                    raise
 
         return results
 

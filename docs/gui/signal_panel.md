@@ -10,7 +10,7 @@ Signal samples are loaded from the Ephyr experiment folder (`data/sweep_*/*.samp
 Each group can show a classic single-column stack of channels or a custom electrode grid (see
 [Channel Management](settings_panel.md#channel-management)). Per-channel scale, color, Y offset, and
 optional clipping apply when drawing. Channel name labels on each cell can be hidden with
-**View → Channel names**.
+**View → Channel names**. Global waveform visibility is **View → Channel Traces**.
 
 ## Data panel navigation
 

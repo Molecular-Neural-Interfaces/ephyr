@@ -52,9 +52,3 @@ Reference implementations include:
 - **LFP utils** — current-source density (CSD) visualization
 
 Use those packages together with the generated template as a starting point for your own tools.
-
-## Related tools
-
-**Add-ons → Generate script** creates a Python script that loads a Ephyr folder and session through
-`EphyrSessionManager`. That path is aimed at post-annotation analysis rather than GUI add-ons; see
-[Using Labeled Data](../analysis/labeled_data.md).

@@ -1,9 +1,8 @@
 # Using Labeled Data
 
 After you annotate an experiment in Ephyr, you can load the same `*_ephyr` folder from Python and work
-with signals, sessions, events, periods, and add-on outputs. You can also generate a starter script
-from the GUI (**Add-ons → Generate script**); it uses the same API as the example at the bottom of this
-page.
+with signals, sessions, events, periods, and add-on outputs. The example at the bottom of this page
+shows the same API.
 
 ## Main objects
 
@@ -12,7 +11,7 @@ page.
 | `EphyrSessionManager` | Entry point: load an experiment folder, switch sessions, access `experiment_data` and `user_session` |
 | `ExperimentData` | `header` plus `data_memmaps[sweep_idx][channel_idx]` and voltage conversion helpers |
 | `Header` | Sample rate, sweep/channel counts, channel names, units, ranges, and source provenance |
-| `UserSession` | Events, periods, vocabularies, experiment description, and `gui_setup` |
+| `UserSession` | Events, periods, vocabularies, recording description, and `gui_setup` |
 | `GuiSetup` | View state: current sweep/window, channel groups, filters, visibility flags, add-on toggles |
 | `events_table` | Convenience view of events with names and overlapping period names |
 
@@ -86,6 +85,7 @@ Loading API:
 | `data_memmaps` | `Tuple[Tuple[np.memmap, ...], ...]` | Raw int16 samples, indexed `[sweep_idx][channel_idx]` |
 | `from_int16_to_voltage_val(data, channel_idx)` | method | Scale raw samples to voltage using the channel's ranges and units |
 | `process_data_pipeline(...)` / `process_single_channel(...)` | methods | The same filtering / decimation pipeline the GUI draws with |
+| `process_data_pipeline_multi_sweep(...)` | method | Same pipeline for several sweeps at once, returns `Dict[sweep_idx, Dict[channel_idx, ndarray]]` |
 
 ### `UserSession`
 
@@ -97,7 +97,7 @@ Loading API:
 | `events_vocabulary` | `Dict[int, EventVocabularyEntry]` | Event names and colors by id |
 | `periods` | `List[Period]` | Interval labels |
 | `periods_vocabulary` | `Dict[int, PeriodVocabularyEntry]` | Period names and colors by id |
-| `experiment_description` | `str` | Free-text notes for the experiment |
+| `experiment_description` | `str` | Free-text recording description |
 | `gui_setup` | `GuiSetup` | View state |
 | `events_table` | property | Events joined with their names and the periods they fall into |
 
@@ -116,10 +116,11 @@ Vocabulary helpers: `add_event_vocabulary`, `get_event_vocabulary_name`, `get_ev
 | `events_are_shown` | `bool` | Draw events |
 | `periods_are_shown` | `bool` | Draw periods |
 | `current_sweep_idx` | `int` | Sweep on screen |
+| `overlay_sweep_idxs` | `List[int]` | Sweeps drawn in gray behind the current one (empty = overlay off) |
 | `start_point` | `int` | First sample of the visible window |
 | `duration_ms` | `int` | Width of the visible window |
-| `time_step_ms` | `int` | Step used by navigation |
-| `autoscroll_step_interval_ms` | `int` | Autoscroll timer interval |
+| `time_step_ms` | `int` | Timebar step in milliseconds. In Beginner mode the GUI sets this to half of `duration_ms`. |
+| `autoscroll_step_interval_ms` | `int` | How often auto-scroll advances, in milliseconds. New sessions default to 1000. |
 | `number_of_dots_to_display` | `int` | Target point count per trace (decimation) |
 | `channels_groups` | `List[ChannelGroup]` | Channel groups in display order |
 | `channels_setup` | `Dict[int, ChannelSetup]` | Per-channel style |
@@ -160,10 +161,12 @@ Helpers: `effective_grid()`, `grid_dims()`, `visible_window()`, `visible_cells()
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `layout_row_idx` | `int` | Row of the group on the panel |
-| `layout_column_idx` | `int` | Column of the group on the panel |
-| `height_ratio` | `int` | Relative share of the row height |
-| `width_ratio` | `int` | Relative share of the row width |
+| `layout_row_idx` | `int` | Row of the group on the panel. Groups with the same row are placed side by side. |
+| `layout_column_idx` | `int` | Position of the group within that row. |
+| `height_ratio` | `int` | Relative height of the row. The row uses the maximum height ratio among its groups. |
+| `width_ratio` | `int` | Relative width of the group among the groups that share its row. |
+
+Unoccupied cells are not reserved: space is packed along the row. A group that is the only one in its row takes the full width. Two groups in the top row and one group in the row below means the lower group spans the whole row.
 
 ### `ChannelSetup`
 

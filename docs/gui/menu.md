@@ -35,20 +35,20 @@ The new session receives default channel groups and GUI setup, and becomes the a
 Saves the current user session to `sessions/<name>.json` in the experiment folder.
 Shortcut: **Ctrl+S** (Windows/Linux) or **Cmd+S** (macOS).
 
-#### Import → session
+#### Import → Full Session
 
 Imports a session JSON file into the current experiment. If the session name already exists, you can rename it.
 
-#### Import → events
+#### Import → Events
 
 Imports events and their vocabulary from another session JSON file, or from a WEEGIT `.mat` events file.
 Imported times are validated against the experiment’s sweeps and duration.
 
-#### Import → periods
+#### Import → Periods
 
 Imports periods and their vocabulary from another session JSON file.
 
-#### Import → settings
+#### Import → Settings
 
 Imports GUI setup (channel groups, time window defaults, visibility flags, and related view settings)
 from another session. Sweep index and start point are reset as needed; duration is clamped to valid bounds.
@@ -130,12 +130,12 @@ enabled when a type is selected: it places you in interactive mode so you can cl
 
 Defines a two-click range that deletes events within the range. Right-click or **Esc** cancels.
 
-### Set bad event
+### Set Bad
 
 Defines an interactive two-click range on the signal; events within the range are marked as bad.
 Right-click or **Esc** cancels.
 
-### Unset bad event
+### Unset Bad
 
 Defines an interactive two-click range on the signal; clears the bad flag on events within the range.
 
@@ -163,16 +163,15 @@ See [Add-ons Usage](../add_ons/usage.md).
 Opens the template generator that scaffolds a development add-on under `./add_on_development`.
 See [Add-on Development](../add_ons/development.md).
 
-### Generate script
-
-Opens a dialog that writes a starter Python script for loading the current (or selected) Ephyr folder
-and session via `EphyrSessionManager`. See [Using Labeled Data](../analysis/labeled_data.md).
-
 ## Help
+
+### Guide
+
+Opens the Ephyr guide at [https://ephyr.readthedocs.io/en/latest/](https://ephyr.readthedocs.io/en/latest/).
 
 ### About
 
-Shows the application name, version, description, and a link to the documentation site.
+Shows the application name, version, and description.
 
 ### Hotkeys
 
@@ -182,7 +181,7 @@ Lists the built-in keyboard shortcuts:
 |----------|--------|
 | **Ctrl/Cmd + S** | Save current session |
 | **Ctrl/Cmd + scroll** | Zoom the visible time window in or out |
-| **M** | Cycle the measurement (time/voltage) bar |
-| **V** | Select an area for full-view inspection |
+| **M** | Cycle the scalebar (time/voltage) |
+| **V** | Select an area (**Select area**) |
 | **Esc** | Cancel the current interactive overlay mode |
 | **Right-click** | Cancel the current interactive overlay mode |

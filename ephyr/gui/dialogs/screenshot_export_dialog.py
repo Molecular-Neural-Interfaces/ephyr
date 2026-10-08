@@ -4,23 +4,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any, Callable, Tuple
 
 import numpy as np
-from PyQt6.QtCore import QByteArray, QBuffer, QIODevice, QPoint, QRect, QSize, Qt, QMimeData
-from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap, QRegion, QPen
+from PyQt6.QtCore import QByteArray, QBuffer, QIODevice, QPoint, QPointF, QRect, QSize, Qt, QMimeData
+from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap, QPolygonF, QRegion, QPen
 from PyQt6.QtSvg import QSvgGenerator
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from ephyr import settings
 from ephyr.core.ephyr_session import ChannelGroup
 
 
@@ -52,7 +54,7 @@ class ScreenshotExportResult:
 class ScreenshotExportDialog(QDialog):
     """Reusable dialog for screenshot export options."""
 
-    def __init__(self, parent=None, *, title: str = "Screenshot options"):
+    def __init__(self, parent=None, *, title: str = "Export Options"):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
@@ -69,15 +71,19 @@ class ScreenshotExportDialog(QDialog):
         self.format_combo.addItems(["png", "svg"])
         layout.addWidget(self.format_combo)
 
-        buttons = QDialogButtonBox(self)
-        self.copy_button = buttons.addButton("Copy to clipboard", QDialogButtonBox.ButtonRole.ActionRole)
-        self.save_button = buttons.addButton("Save as file", QDialogButtonBox.ButtonRole.AcceptRole)
-        buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
-        layout.addWidget(buttons)
+        buttons = QHBoxLayout()
+        cancel_button = QPushButton("Cancel", self)
+        self.copy_button = QPushButton("Copy to clipboard", self)
+        self.save_button = QPushButton("Save as file", self)
+        buttons.addWidget(cancel_button)
+        buttons.addStretch(1)
+        buttons.addWidget(self.copy_button)
+        buttons.addWidget(self.save_button)
+        layout.addLayout(buttons)
 
         self.copy_button.clicked.connect(self._on_copy_clicked)
         self.save_button.clicked.connect(self._on_save_clicked)
-        buttons.rejected.connect(self.reject)
+        cancel_button.clicked.connect(self.reject)
 
     def _on_copy_clicked(self):
         self._selected_action = "copy"
@@ -373,6 +379,9 @@ class ScreenshotExportDialog(QDialog):
 
         digital_rects = list(getattr(sw, "_digital_channel_rects", []))
         processed_data = dict(getattr(sw, "_processed_data", {}))
+        overlay_processed_data = dict(getattr(sw, "_overlay_processed_data", {}))
+        channel_cut_traces = dict(getattr(sw, "_channel_cut_traces", {}))
+        channel_group_rects = dict(getattr(sw, "_channel_group_rects", {}))
         channels_setup = dict(getattr(sw, "_channels_setup", {}))
         traces_are_visible = bool(getattr(sw, "_traces_are_visible", True))
         group_layouts = list(getattr(sw, "_group_layouts", []))
@@ -390,9 +399,30 @@ class ScreenshotExportDialog(QDialog):
         painter.translate(left_margin, 0)
         painter.setClipping(False)
         sw._draw_group_titles(painter)
+        def clip_rect_for(channel_idx: int, channel_rect: QRect) -> QRect:
+            # Mirrors SignalWidget._draw_trace: only a cut group is clipped to its own cell.
+            if channel_cut_traces.get(channel_idx, False):
+                return channel_rect
+            return channel_group_rects.get(channel_idx, channel_rect)
+
         if traces_are_visible:
             for _channel_idx, channel_rect in digital_rects:
                 sw._draw_middle_line(painter, channel_rect)
+            overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
+            for sweep_data in overlay_processed_data.values():
+                for channel_idx, channel_rect in digital_rects:
+                    cls._draw_trace_resampled(
+                        painter=painter,
+                        channel_data=sweep_data.get(channel_idx),
+                        channel_rect=channel_rect,
+                        channel_idx=channel_idx,
+                        channels_setup=channels_setup,
+                        default_color=signal_default_color,
+                        target_dots=target_svg_dots,
+                        color_override=overlay_color,
+                        pen_width=settings.OVERLAY_TRACE_WIDTH,
+                        clip_rect=clip_rect_for(channel_idx, channel_rect),
+                    )
             for draw_idx, (channel_idx, channel_rect) in enumerate(digital_rects):
                 channel_data = processed_data.get(channel_idx)
                 if channel_data is None:
@@ -405,6 +435,7 @@ class ScreenshotExportDialog(QDialog):
                     channels_setup=channels_setup,
                     default_color=signal_default_color,
                     target_dots=target_svg_dots,
+                    clip_rect=clip_rect_for(channel_idx, channel_rect),
                 )
         cls._draw_auxiliary_groups_resampled(
             painter=painter,
@@ -415,6 +446,7 @@ class ScreenshotExportDialog(QDialog):
             grid_color=QColor(getattr(sw, "_GRID_COLOR", QColor(200, 200, 200))),
             default_color=signal_default_color,
             target_dots=target_svg_dots,
+            overlay_processed_data=overlay_processed_data,
         )
         if bool(getattr(sw, "_periods_are_visible", True)):
             sw._draw_periods(painter)
@@ -475,6 +507,28 @@ class ScreenshotExportDialog(QDialog):
         new_x = np.linspace(0.0, 1.0, target_dots, dtype=np.float64)
         return np.interp(new_x, old_x, data).astype(np.float64)
 
+    @staticmethod
+    def draw_polyline_trace(
+        painter: QPainter,
+        x_coords: np.ndarray,
+        y_coords: np.ndarray,
+        color: QColor,
+        pen_width: float,
+        clip_rect: QRect,
+    ):
+        """Emit one SVG element per trace.
+
+        Vector editors such as Corel choke on a separate line element per sample, so the
+        trace goes out as a single polyline and the rect is applied as a clip instead of
+        dropping the out-of-range segments one by one.
+        """
+        polyline = QPolygonF([QPointF(float(x), float(y)) for x, y in zip(x_coords, y_coords)])
+        painter.save()
+        painter.setClipRect(clip_rect)
+        painter.setPen(QPen(color, pen_width))
+        painter.drawPolyline(polyline)
+        painter.restore()
+
     @classmethod
     def _draw_trace_resampled(
         cls,
@@ -486,11 +540,14 @@ class ScreenshotExportDialog(QDialog):
         channels_setup: Dict[int, Any],
         default_color: QColor,
         target_dots: int,
+        color_override: Optional[QColor] = None,
+        pen_width: float = 1.2,
+        clip_rect: Optional[QRect] = None,
     ):
         if channel_data is None or len(channel_data) < 2:
             return
         setup = channels_setup.get(channel_idx)
-        color = QColor(str(getattr(setup, "color", "#000000")))
+        color = color_override or QColor(str(getattr(setup, "color", "#000000")))
         if not color.isValid():
             color = default_color
         scale = float(getattr(setup, "scale", 1.0) or 1.0)
@@ -504,19 +561,9 @@ class ScreenshotExportDialog(QDialog):
         pixel_per_uv = channel_rect.height() / max(scale, 1e-12)
         y_mid = channel_rect.top() + channel_rect.height() / 2.0
         y_coords = y_mid - (data + y_offset) * pixel_per_uv
-        top = channel_rect.top()
-        bottom = channel_rect.bottom()
 
-        painter.setPen(QPen(color, 1.2))
-        prev_x = float(x_coords[0])
-        prev_y = float(y_coords[0])
-        for i in range(1, n):
-            cur_x = float(x_coords[i])
-            cur_y = float(y_coords[i])
-            if top <= prev_y <= bottom and top <= cur_y <= bottom:
-                painter.drawLine(int(prev_x), int(prev_y), int(cur_x), int(cur_y))
-            prev_x = cur_x
-            prev_y = cur_y
+        cls.draw_polyline_trace(painter, x_coords, y_coords, color, pen_width,
+                                clip_rect if clip_rect is not None else channel_rect)
 
     @classmethod
     def _draw_auxiliary_groups_resampled(
@@ -530,7 +577,16 @@ class ScreenshotExportDialog(QDialog):
         grid_color: QColor,
         default_color: QColor,
         target_dots: int,
+        overlay_processed_data: Optional[Dict[int, Dict[int, np.ndarray]]] = None,
     ):
+        overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
+        # Overlay sweeps first so the current sweep stays on top.
+        draw_passes: List[Tuple[Dict[int, np.ndarray], Optional[QColor], float]] = [
+            (sweep_data, overlay_color, settings.OVERLAY_TRACE_WIDTH)
+            for sweep_data in (overlay_processed_data or {}).values()
+        ]
+        draw_passes.append((processed_data, None, 1.1))
+
         for group_idx, group_rect in aux_group_rects:
             if group_rect.height() <= 0:
                 continue
@@ -541,37 +597,26 @@ class ScreenshotExportDialog(QDialog):
             channels = []
             if 0 <= int(group_idx) < len(group_layouts):
                 channels = group_layouts[int(group_idx)].visible_channels()
-            for channel_idx in channels:
-                data = processed_data.get(channel_idx)
-                if data is None or len(data) < 2:
-                    continue
-                setup = channels_setup.get(channel_idx)
-                color = QColor(str(getattr(setup, "color", "#000000")))
-                if not color.isValid():
-                    color = default_color
-                scale = float(getattr(setup, "scale", 1.0) or 1.0)
-                y_offset = float(getattr(setup, "y_offset", 0.0))
-                data_rs = cls._resample_data_to_dots(data, target_dots)
-                n = len(data_rs)
-                if n < 2:
-                    continue
+            for data_by_channel, color_override, pen_width in draw_passes:
+                for channel_idx in channels:
+                    data = data_by_channel.get(channel_idx)
+                    if data is None or len(data) < 2:
+                        continue
+                    setup = channels_setup.get(channel_idx)
+                    color = color_override or QColor(str(getattr(setup, "color", "#000000")))
+                    if not color.isValid():
+                        color = default_color
+                    scale = float(getattr(setup, "scale", 1.0) or 1.0)
+                    y_offset = float(getattr(setup, "y_offset", 0.0))
+                    data_rs = cls._resample_data_to_dots(data, target_dots)
+                    n = len(data_rs)
+                    if n < 2:
+                        continue
 
-                x_coords = np.linspace(group_rect.left(), group_rect.right(), n, dtype=np.float64)
-                pixel_per_uv = group_rect.height() / max(scale, 1e-12)
-                y_coords = center_y - (data_rs + y_offset) * pixel_per_uv
-                top = group_rect.top()
-                bottom = group_rect.bottom()
-
-                painter.setPen(QPen(color, 1.1))
-                prev_x = float(x_coords[0])
-                prev_y = float(y_coords[0])
-                for i in range(1, n):
-                    cur_x = float(x_coords[i])
-                    cur_y = float(y_coords[i])
-                    if top <= prev_y <= bottom and top <= cur_y <= bottom:
-                        painter.drawLine(int(prev_x), int(prev_y), int(cur_x), int(cur_y))
-                    prev_x = cur_x
-                    prev_y = cur_y
+                    x_coords = np.linspace(group_rect.left(), group_rect.right(), n, dtype=np.float64)
+                    pixel_per_uv = group_rect.height() / max(scale, 1e-12)
+                    y_coords = center_y - (data_rs + y_offset) * pixel_per_uv
+                    cls.draw_polyline_trace(painter, x_coords, y_coords, color, pen_width, group_rect)
 
     @classmethod
     def _build_svg_bytes_from_pixmap(cls, pixmap: QPixmap) -> bytes:

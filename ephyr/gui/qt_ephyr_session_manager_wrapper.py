@@ -26,7 +26,7 @@ from ephyr.core.ephyr_session import (
     PeriodVocabularyEntry,
 )
 from ephyr.core.add_ons.base import BaseAddOn
-from ephyr.logger import ephyr_logger
+from ephyr.logger import ephyr_logger, set_log_experiment, set_log_session_name
 
 from ephyr.gui.commands.base import BaseCommand
 from ephyr.gui.commands.events import (
@@ -85,6 +85,7 @@ class QtEphyrSessionManagerWrapper(QObject):
     autoscroll_step_interval_ms_changed = pyqtSignal(int)
     number_of_dots_to_display_changed = pyqtSignal(int)
     current_sweep_idx_changed = pyqtSignal(int)
+    overlay_sweep_idxs_changed = pyqtSignal(list)
 
     # Signals for strings
     experiment_description_changed = pyqtSignal(str)
@@ -368,9 +369,23 @@ class QtEphyrSessionManagerWrapper(QObject):
         
         return False
 
-    @user_session_modification
     def set_time_step_ms(self, time_step_ms: int):
-        self._session_manager.current_user_session.gui_setup.time_step_ms = time_step_ms
+        self._write_time_step_ms(time_step_ms, mark_modified=True)
+
+    def set_beginner_time_step_ms(self, time_step_ms: int):
+        """Apply the Beginner-mode timebar step without marking the session unsaved."""
+        self._write_time_step_ms(time_step_ms, mark_modified=False)
+
+    def _write_time_step_ms(self, time_step_ms: int, mark_modified: bool):
+        session = self._session_manager.current_user_session
+        if session is None:
+            return
+        time_step_ms = max(settings.MIN_TIME_STEP, int(time_step_ms))
+        if int(session.gui_setup.time_step_ms) == time_step_ms:
+            return
+        if mark_modified:
+            session.changes_saved = False
+        session.gui_setup.time_step_ms = time_step_ms
         self.time_step_ms_changed.emit(time_step_ms)
 
     @user_session_modification
@@ -393,6 +408,29 @@ class QtEphyrSessionManagerWrapper(QObject):
         self.set_start_point(self.gui_setup.start_point)
         self.set_duration_ms(self.gui_setup.duration_ms)
         self.current_sweep_idx_changed.emit(sweep_idx)
+
+    @property
+    def overlay_sweep_idxs(self) -> List[int]:
+        if self.gui_setup:
+            return list(self.gui_setup.overlay_sweep_idxs)
+        return []
+
+    @user_session_modification
+    def set_overlay_sweep_idxs(self, sweep_idxs: List[int]):
+        if not self.header:
+            return
+        sweeps_num = self.header.number_of_sweeps
+        normalized = sorted({
+            int(sweep_idx) for sweep_idx in (sweep_idxs or [])
+            if 0 <= int(sweep_idx) < sweeps_num
+        })
+        if self.gui_setup.overlay_sweep_idxs == normalized:
+            return
+        self._session_manager.current_user_session.gui_setup.overlay_sweep_idxs = normalized
+        ephyr_logger().info(
+            f"Overlay sweeps set to {[idx + 1 for idx in normalized]}" if normalized else "Overlay sweeps disabled"
+        )
+        self.overlay_sweep_idxs_changed.emit(normalized)
 
     @user_session_modification
     def set_channels_groups(self, groups: List[ChannelGroup]):
@@ -855,6 +893,7 @@ class QtEphyrSessionManagerWrapper(QObject):
     # Session management methods
     def new_user_session(self, session_filename: str):
         self._session_manager.new_user_session(session_filename)
+        self._sync_logging_context()
         self._clear_undo_redo_history()
         self.refresh_runtime_add_ons()
         self.session_loaded.emit()
@@ -869,7 +908,10 @@ class QtEphyrSessionManagerWrapper(QObject):
         self.session_loaded.emit()
 
     def switch_sessions(self, session_filename: str):
-        self._session_manager.switch_sessions(session_filename)
+        try:
+            self._session_manager.switch_sessions(session_filename)
+        finally:
+            self._sync_logging_context()
         self._clear_undo_redo_history()
         self.refresh_runtime_add_ons()
         self.session_loaded.emit()
@@ -881,8 +923,16 @@ class QtEphyrSessionManagerWrapper(QObject):
         self.session_saved.emit()
 
     def init_from_folder(self, ephyr_experiment_folder: Path):
-        self._session_manager.init_from_folder(ephyr_experiment_folder)
+        try:
+            self._session_manager.init_from_folder(ephyr_experiment_folder)
+        finally:
+            self._sync_logging_context()
         self._clear_undo_redo_history()
+
+    def _sync_logging_context(self) -> None:
+        session = self._session_manager.current_user_session
+        set_log_session_name(session.session_filename if session else None)
+        set_log_experiment(self._session_manager.ephyr_experiment_folder)
 
     def session_name_already_exists(self, session_name: str):
         return self._session_manager.session_name_already_exists(session_name)

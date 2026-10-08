@@ -37,7 +37,7 @@ STEP_KINDS: Dict[str, str] = {
     "highpass": "Butterworth high-pass",
     "lowpass": "Butterworth low-pass",
     "bandpass": "Butterworth band-pass",
-    "notch": "Notch (line noise)",
+    "notch": "Notch",
     "artifact_removal": "Artifact removal (robust-z blanking)",
 }
 
