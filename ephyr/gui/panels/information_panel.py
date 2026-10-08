@@ -117,7 +117,8 @@ class InformationPanel(QWidget):
         self._session_manager.visual_attachment_changed.connect(self.on_visual_attachment_changed)
 
     def apply_gui_mode(self, gui_mode: GuiMode):
-        self.mapping_group.setVisible(gui_mode == GuiMode.EXPERT)
+        # self.mapping_group.setVisible(gui_mode == GuiMode.EXPERT)
+        pass
 
     def on_text_changed(self):
         self._session_manager.set_experiment_description(experiment_description=self.text_edit.toPlainText())

@@ -144,7 +144,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.btn_zoom_to_area.setCheckable(True)
 
         self.btn_screenshot = QToolButton(header)
-        self.btn_screenshot.setText("Export Canvas")
+        self.btn_screenshot.setText("Export canvas")
 
         self.btn_right_panel_toggle = QToolButton(header)
         self.btn_right_panel_toggle.setText("Show session panel")

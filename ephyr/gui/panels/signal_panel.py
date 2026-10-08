@@ -1364,6 +1364,36 @@ class MeasureBarStateEnum(Enum):
     FROZEN = 2
 
 
+# Measure-bar durations are shown as an integer from MEASURE_BAR_TIME_VALUES
+# in ms, s, m, or h. 1 m = 60 s, 1 h = 60 m.
+_MEASURE_BAR_TIME_UNITS = (
+    (1, "ms"),
+    (1_000, "s"),
+    (60_000, "m"),
+    (3_600_000, "h"),
+)
+
+
+def snap_measure_bar_time(time_ms: float) -> Tuple[float, str]:
+    """Snap a duration to the nearest measure-bar step.
+
+    Steps are MEASURE_BAR_TIME_VALUES in each unit (ms/s/m/h). On a tie the
+    larger step wins: 750 ms -> 1 s, 749 ms -> 500 ms.
+    """
+    best_ms = float(settings.MEASURE_BAR_TIME_VALUES[0])
+    best_label = f"{settings.MEASURE_BAR_TIME_VALUES[0]} ms"
+    best_dist = abs(best_ms - time_ms)
+    for unit_ms, unit_name in _MEASURE_BAR_TIME_UNITS:
+        for value in settings.MEASURE_BAR_TIME_VALUES:
+            candidate_ms = float(value * unit_ms)
+            dist = abs(candidate_ms - time_ms)
+            if dist < best_dist or (dist == best_dist and candidate_ms > best_ms):
+                best_ms = candidate_ms
+                best_dist = dist
+                best_label = f"{value} {unit_name}"
+    return best_ms, best_label
+
+
 class OverlayWidget(QWidget):
     """Transparent overlay that draws time/voltage scale bars at the cursor."""
 
@@ -1552,17 +1582,17 @@ class OverlayWidget(QWidget):
             return
 
         time_bar_pixels = max(10, min(axis_width // 10, 120))
+        time_value_ms = (time_bar_pixels / axis_width) * self._duration_ms
+        snapped_ms, label_text = snap_measure_bar_time(time_value_ms)
+        # Width tracks the snapped label: 749 ms -> 500 ms shrinks the bar,
+        # 750 ms -> 1 s grows it by the same ratio the value changed.
+        time_bar_pixels = max(1, int(round(axis_width * snapped_ms / self._duration_ms)))
+
         y = self._cursor_pos.y() - self._bar_width
         x = self._cursor_pos.x()
         x = max(0, min(x, self.width() - self._right_margin - time_bar_pixels))
 
         painter.fillRect(int(x), int(y), time_bar_pixels, self._bar_width, QColor(255, 0, 0))
-
-        time_value_ms = (time_bar_pixels / axis_width) * self._duration_ms
-        if time_value_ms < 1000:
-            label_text = f"{time_value_ms:.1f} ms"
-        else:
-            label_text = f"{time_value_ms / 1000:.2f} s"
 
         # Draw the full label (don't clip to the tick width); clamp inside widget.
         text_width = self._font_metrics.horizontalAdvance(label_text) + 10
