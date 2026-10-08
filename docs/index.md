@@ -1,14 +1,15 @@
 # Getting Started
 
-**Ephyr** is a cross-platform desktop application for viewing and labeling electrophysiology data
-(EEG, patch-clamp, multielectrode recordings, and similar signals). It supports Windows, macOS, and Linux.
+**Ephyr** is a cross-platform desktop application for viewing and labeling electrophysiology data 
+(EEG, patch-clamp, multielectrode, and similar signals) on Windows, macOS, and Linux. It offers a 
+lightweight yet powerful environment for multimodal annotation, with an adaptive interface and performance 
+scaling for stable real-time operation under load. EphyR is open-source, Python-based, providing a flexible 
+API for post-annotation data access and an add-on architecture that extends functionality without core-code modification.
 
-This application is a lightweight yet powerful environment for multimodal annotation of electrophysiological data.
-It combines an adaptive interface with intelligent performance scaling to match your machine’s resources,
-ensuring stable real-time operation even under heavy loads.
-
-Fully open-source and built in Python, the platform provides a flexible API for post-annotation data access.
-Its add-on architecture lets you extend functionality seamlessly without modifying the core codebase.
+EphyR addresses file-format diversity through a unified conversion pipeline supporting ABF, EDF, Intan RHD/RHS, Neuralynx, 
+Open Ephys, XDAT, and NWB. Conversion preserves metadata including channel names, sampling rates, units, and electrode 
+positions when available. It supports interdisciplinary collaboration and provides a simple starting point for beginners 
+and neurobiologists and clinical neurophysiologists.
 
 After installation, launch the app with the `ephyr` command. The About dialog (Help → About) shows the
 installed version as `Ephyr v…`.
