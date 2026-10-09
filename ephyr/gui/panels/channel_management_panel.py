@@ -1476,8 +1476,8 @@ class ChannelManagementPanel(QWidget):
                 aux_checkbox = QCheckBox()
                 aux_checkbox.setChecked(group.is_auxiliary)
                 aux_checkbox.stateChanged.connect(
-                    lambda state, idx=group_idx: self._on_aux_changed(
-                        idx, Qt.CheckState(state) == Qt.CheckState.Checked
+                    lambda state, idx=group_idx, checkbox=aux_checkbox: self._on_aux_changed(
+                        idx, Qt.CheckState(state) == Qt.CheckState.Checked, checkbox
                     )
                 )
                 aux_row_cells.append(self._labeled_stretch_cell("Auxiliary channels:", aux_checkbox))
@@ -1913,7 +1913,7 @@ class ChannelManagementPanel(QWidget):
             group.channels_layout.cur_column_idx = 0
         self._session_manager.set_channels_groups(groups)
 
-    def _on_aux_changed(self, group_idx: int, is_auxiliary: bool):
+    def _on_aux_changed(self, group_idx: int, is_auxiliary: bool, checkbox: Optional[QCheckBox] = None):
         gui_setup = self._session_manager.gui_setup
         if not gui_setup or not (0 <= group_idx < len(gui_setup.channels_groups)):
             return
@@ -1926,6 +1926,13 @@ class ChannelManagementPanel(QWidget):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if answer != QMessageBox.StandardButton.Yes:
+                if checkbox is not None:
+                    # Inside stateChanged, Qt skips checkStateSet(), so a synchronous
+                    # setChecked leaves the published state stale. The next click then
+                    # unchecks the box without emitting the signal. Restore now for the
+                    # visual, and again after the click finishes so the signal fires.
+                    self._restore_aux_checkbox(checkbox)
+                    QTimer.singleShot(0, lambda cb=checkbox: self._restore_aux_checkbox(cb))
                 return
             self._session_manager.set_channels_setup(
                 current.channel_indexes,
@@ -1934,6 +1941,12 @@ class ChannelManagementPanel(QWidget):
                 color="#000000",
             )
         self._session_manager.set_channel_group_field(group_idx, is_auxiliary=is_auxiliary)
+
+    @staticmethod
+    def _restore_aux_checkbox(checkbox: QCheckBox):
+        checkbox.blockSignals(True)
+        checkbox.setChecked(True)
+        checkbox.blockSignals(False)
 
     def get_channel_name(self, channel_idx: int) -> str:
         header = self._session_manager.header
