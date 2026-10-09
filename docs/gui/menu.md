@@ -91,6 +91,7 @@ Checkable items that show or hide layers on the signal panel (and related naviga
 |------|---------|
 | **Channel Traces** | Show or hide waveform traces. |
 | **Channel names** | Show or hide channel name labels drawn on each channel cell. |
+| **Channel Info** | Show or hide `ChannelSetup.info` on each channel cell. When names are also shown and info is not empty, the two are separated by a vertical bar. |
 | **Events** | Show or hide event markers. |
 | **Periods** | Show or hide period intervals and labels. |
 

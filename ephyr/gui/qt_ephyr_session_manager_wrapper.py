@@ -74,6 +74,7 @@ class QtEphyrSessionManagerWrapper(QObject):
     # Signals for boolean flags
     traces_are_shown_changed = pyqtSignal(bool)
     channel_names_are_shown_changed = pyqtSignal(bool)
+    channel_infos_are_shown_changed = pyqtSignal(bool)
     events_are_shown_changed = pyqtSignal(bool)
     periods_are_shown_changed = pyqtSignal(bool)
     cut_traces_changed = pyqtSignal(bool)
@@ -198,6 +199,11 @@ class QtEphyrSessionManagerWrapper(QObject):
     def set_channel_names_shown(self, shown: bool):
         self._session_manager.current_user_session.gui_setup.channel_names_are_shown = shown
         self.channel_names_are_shown_changed.emit(shown)
+
+    @user_session_modification
+    def set_channel_infos_shown(self, shown: bool):
+        self._session_manager.current_user_session.gui_setup.channel_infos_are_shown = shown
+        self.channel_infos_are_shown_changed.emit(shown)
 
     @user_session_modification
     def set_add_on(

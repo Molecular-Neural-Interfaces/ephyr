@@ -113,6 +113,7 @@ Vocabulary helpers: `add_event_vocabulary`, `get_event_vocabulary_name`, `get_ev
 | `add_ons` | `Dict[str, AddOnSetup]` | Per-add-on view / transform toggles |
 | `traces_are_shown` | `bool` | Draw signal traces |
 | `channel_names_are_shown` | `bool` | Draw channel names |
+| `channel_infos_are_shown` | `bool` | Draw `ChannelSetup.info` on each channel cell |
 | `events_are_shown` | `bool` | Draw events |
 | `periods_are_shown` | `bool` | Draw periods |
 | `current_sweep_idx` | `int` | Sweep on screen |

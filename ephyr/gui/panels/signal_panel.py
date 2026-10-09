@@ -449,6 +449,7 @@ class SignalWidget(QWidget):
         self._current_sweep_idx: int = 0
         self._traces_are_visible = True
         self._channel_names_are_visible = True
+        self._channel_infos_are_visible = True
         self._events_are_visible = True
         self._periods_are_visible = True
         self._viewable_add_ons: List[BaseAddOn] = []
@@ -507,6 +508,7 @@ class SignalWidget(QWidget):
             periods_are_visible: bool = True,
             traces_are_visible: bool = True,
             channel_names_are_visible: bool = True,
+            channel_infos_are_visible: bool = True,
             viewable_add_ons: Optional[List[BaseAddOn]] = None,
             add_ons_data_dir: Optional[Path] = None,
     ):
@@ -530,6 +532,7 @@ class SignalWidget(QWidget):
         self._periods_are_visible = periods_are_visible
         self._traces_are_visible = traces_are_visible
         self._channel_names_are_visible = channel_names_are_visible
+        self._channel_infos_are_visible = channel_infos_are_visible
         self._viewable_add_ons = list(viewable_add_ons or [])
         self._add_ons_data_dir = add_ons_data_dir
         self._channel_names = channel_names or []
@@ -601,7 +604,7 @@ class SignalWidget(QWidget):
         if self._events_are_visible:
             self._draw_events(painter)
 
-        if self._channel_names_are_visible:
+        if self._channel_names_are_visible or self._channel_infos_are_visible:
             self._draw_channel_names(painter)
         self._draw_cell_borders(painter)
         painter.end()
@@ -786,9 +789,25 @@ class SignalWidget(QWidget):
             base = str(channel_idx)
         return base[:10]
 
+    def _channel_display_info(self, channel_idx: int) -> str:
+        setup = self._channels_setup.get(channel_idx)
+        if setup is None:
+            return ""
+        return str(getattr(setup, "info", "") or "").strip()
+
+    def _channel_label(self, channel_idx: int) -> str:
+        name = self._channel_display_name(channel_idx) if self._channel_names_are_visible else ""
+        info = self._channel_display_info(channel_idx) if self._channel_infos_are_visible else ""
+        if name and info:
+            return f"{name} | {info}"
+        return name or info
+
     def _draw_channel_names(self, painter: QPainter):
         for channel_idx, cell_rect, enabled, count in self._cell_rects:
             if cell_rect.height() < 8:
+                continue
+            label = self._channel_label(channel_idx)
+            if not label:
                 continue
             font, fm = self._font_for_count(count)
             painter.setFont(font)
@@ -802,7 +821,7 @@ class SignalWidget(QWidget):
             painter.drawText(
                 text_rect,
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-                self._channel_display_name(channel_idx),
+                label,
             )
 
     def _draw_group_titles(self, painter: QPainter):
@@ -2217,6 +2236,7 @@ class SignalPanel(QWidget):
             periods_are_visible=gui_setup.periods_are_shown,
             traces_are_visible=gui_setup.traces_are_shown,
             channel_names_are_visible=gui_setup.channel_names_are_shown,
+            channel_infos_are_visible=gui_setup.channel_infos_are_shown,
             viewable_add_ons=viewable_add_ons,
             add_ons_data_dir=add_ons_data_dir,
         )

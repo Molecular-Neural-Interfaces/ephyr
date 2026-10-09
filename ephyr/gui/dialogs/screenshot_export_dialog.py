@@ -452,7 +452,10 @@ class ScreenshotExportDialog(QDialog):
             sw._draw_periods(painter)
         if bool(getattr(sw, "_events_are_visible", True)):
             sw._draw_events(painter)
-        if bool(getattr(sw, "_channel_names_are_visible", True)):
+        if (
+            bool(getattr(sw, "_channel_names_are_visible", True))
+            or bool(getattr(sw, "_channel_infos_are_visible", True))
+        ):
             sw._draw_channel_names(painter)
         sw._draw_cell_borders(painter)
         painter.restore()
