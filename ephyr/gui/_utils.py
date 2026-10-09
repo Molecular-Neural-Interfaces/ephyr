@@ -10,19 +10,24 @@ from PyQt6.QtGui import QColor, QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QColorDialog, QFileDialog, QWidget
 
 
-def resolve_app_icon_path() -> Path | None:
+def resolve_gui_asset_path(filename: str) -> Path | None:
+    """Packaged GUI asset, then a frozen bundle, then the distribute copy."""
     candidates: list[Path] = [
-        Path(__file__).resolve().parent / "assets" / "ephyr.png",
+        Path(__file__).resolve().parent / "assets" / filename,
     ]
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
-        candidates.append(Path(meipass) / "ephyr_assets" / "ephyr.png")
+        candidates.append(Path(meipass) / "ephyr_assets" / filename)
     repo_root = Path(__file__).resolve().parents[2]
-    candidates.append(repo_root / "devtools" / "distribute" / "assets" / "ephyr.png")
+    candidates.append(repo_root / "devtools" / "distribute" / "assets" / filename)
     for path in candidates:
         if path.is_file():
             return path
     return None
+
+
+def resolve_app_icon_path() -> Path | None:
+    return resolve_gui_asset_path("ephyr.png")
 
 
 def apply_application_icon(app: QApplication, window: QWidget | None = None) -> None:

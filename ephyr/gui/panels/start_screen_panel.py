@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout
 
 from ephyr import version
+from ephyr.gui._utils import resolve_app_icon_path
 from ephyr.gui.hotkeys import get_hotkey_descriptions
+
+_LOGO_SIZE = 192
 
 
 class StartScreenPanel(QWidget):
@@ -28,6 +32,10 @@ class StartScreenPanel(QWidget):
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(10)
+
+        logo = self._logo_label()
+        if logo is not None:
+            content_layout.addWidget(logo)
 
         title = QLabel(f"Ephyr v{version.__version__}")
         title_font = title.font()
@@ -67,6 +75,25 @@ class StartScreenPanel(QWidget):
 
         main_layout.addLayout(content_row)
         main_layout.addStretch(1)
+
+    def _logo_label(self) -> QLabel | None:
+        icon_path = resolve_app_icon_path()
+        if icon_path is None:
+            return None
+        pixmap = QPixmap(str(icon_path))
+        if pixmap.isNull():
+            return None
+        logo = QLabel(self)
+        logo.setPixmap(
+            pixmap.scaled(
+                _LOGO_SIZE,
+                _LOGO_SIZE,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        logo.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        return logo
 
     def _on_open_link_clicked(self, _link: str):
         self.open_requested.emit()
