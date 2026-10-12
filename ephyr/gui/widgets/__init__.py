@@ -14,5 +14,16 @@ class FocusWheelDoubleSpinBox(WheelRequiresFocusMixin, QDoubleSpinBox):
     pass
 
 
+class TrimmedDoubleSpinBox(FocusWheelDoubleSpinBox):
+    """Keeps many decimals for precision but hides trailing zeros: 1000 instead of 1000.000000000."""
+
+    def textFromValue(self, value: float) -> str:
+        text = super().textFromValue(value)
+        decimal_point = self.locale().decimalPoint()
+        if decimal_point in text:
+            text = text.rstrip("0").rstrip(decimal_point)
+        return text
+
+
 class FocusWheelComboBox(WheelRequiresFocusMixin, QComboBox):
     pass

@@ -8,7 +8,7 @@ from typing import Tuple
 
 from ._exceptions import WrongSourceReaderError
 from .abstract_source_reader import AbstractSourceReader, AbstractDataWriter
-from ephyr.core.header import Header, ChannelInfo
+from ephyr.core.header import Header, ChannelInfo, canonical_unit_label
 
 
 class WeegitDataWriter(AbstractDataWriter):
@@ -107,7 +107,7 @@ class WeegitSourceReader(AbstractSourceReader):
         channel_info = ChannelInfo(
             name=header["channelinfo"]["name"],
             probe=header["channelinfo"]["probe"],
-            units=header["channelinfo"]["units"],
+            units=[canonical_unit_label(unit) for unit in header["channelinfo"]["units"]],
             analog_min=header["channelinfo"]["analogmin"],
             analog_max=header["channelinfo"]["analogmax"],
             digital_min=header["channelinfo"]["digitalmin"],

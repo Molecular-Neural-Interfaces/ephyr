@@ -17,8 +17,26 @@ from PyQt6.QtWidgets import (
     QLabel,
 )
 
-from ephyr.core.header import VoltageUnitEnum
+from ephyr.core.header import PhysicalQuantityEnum, SignalUnitEnum, canonical_unit_label
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
+
+
+def _make_units_combo(current_unit: str = "") -> QComboBox:
+    """Editable combo with known units grouped by quantity; arbitrary labels can be typed in."""
+    combo = QComboBox()
+    combo.setEditable(True)
+    combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+    for quantity in (PhysicalQuantityEnum.VOLTAGE, PhysicalQuantityEnum.CURRENT):
+        if combo.count():
+            combo.insertSeparator(combo.count())
+        for unit in SignalUnitEnum.of_quantity(quantity):
+            combo.addItem(unit.value)
+    current = canonical_unit_label(current_unit)
+    if current and combo.findText(current) < 0:
+        combo.insertSeparator(combo.count())
+        combo.addItem(current)
+    combo.setCurrentText(current)
+    return combo
 
 
 class HeaderUnitsManagementDialog(QDialog):
@@ -26,7 +44,6 @@ class HeaderUnitsManagementDialog(QDialog):
         super().__init__(parent)
         self._session_manager = session_manager
         self._row_combos: Dict[int, QComboBox] = {}
-        self._units_values = VoltageUnitEnum.values()
         self.setWindowTitle("Header units management")
         self.resize(760, 520)
         self._build_ui()
@@ -35,7 +52,10 @@ class HeaderUnitsManagementDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        info = QLabel("Set units for channels. Select rows to apply one unit to many channels at once.")
+        info = QLabel(
+            "Set units for channels. Select rows to apply one unit to many channels at once. "
+            "Changing a unit only relabels the channel: signal values are not rescaled."
+        )
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -49,8 +69,7 @@ class HeaderUnitsManagementDialog(QDialog):
 
         bulk_layout = QHBoxLayout()
         bulk_layout.addWidget(QLabel("Selected rows unit:"))
-        self.bulk_units_combo = QComboBox()
-        self.bulk_units_combo.addItems(self._units_values)
+        self.bulk_units_combo = _make_units_combo(SignalUnitEnum.MICROVOLT.value)
         bulk_layout.addWidget(self.bulk_units_combo)
         self.bulk_set_btn = QPushButton("Set")
         self.bulk_set_btn.clicked.connect(self._on_bulk_set_clicked)
@@ -73,9 +92,6 @@ class HeaderUnitsManagementDialog(QDialog):
         if not header:
             return
         channel_names = list(header.channel_info.name or [])
-        units = list(header.channel_info.units or [])
-        if len(units) < header.number_of_channels:
-            units.extend([VoltageUnitEnum.MICROVOLT.value] * (header.number_of_channels - len(units)))
 
         self.table.setRowCount(0)
         self._row_combos.clear()
@@ -91,10 +107,7 @@ class HeaderUnitsManagementDialog(QDialog):
             name_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             self.table.setItem(channel_idx, 1, name_item)
 
-            combo = QComboBox()
-            combo.addItems(self._units_values)
-            normalized = VoltageUnitEnum.normalize(units[channel_idx]).value
-            combo.setCurrentText(normalized)
+            combo = _make_units_combo(header.channel_unit_label(channel_idx))
             self.table.setCellWidget(channel_idx, 2, combo)
             self._row_combos[channel_idx] = combo
 
@@ -102,7 +115,7 @@ class HeaderUnitsManagementDialog(QDialog):
         selected_rows = sorted({index.row() for index in self.table.selectedIndexes()})
         if not selected_rows:
             return
-        selected_unit = self.bulk_units_combo.currentText()
+        selected_unit = canonical_unit_label(self.bulk_units_combo.currentText())
         for row in selected_rows:
             combo = self._row_combos.get(row)
             if combo is None:
@@ -115,10 +128,10 @@ class HeaderUnitsManagementDialog(QDialog):
             combo = self._row_combos.get(row)
             if combo is None:
                 continue
-            unit = VoltageUnitEnum.normalize(combo.currentText()).value
+            unit = canonical_unit_label(combo.currentText())
             grouped_indexes.setdefault(unit, []).append(row)
 
         for unit, indexes in grouped_indexes.items():
-            self._session_manager.set_header_channel_units(indexes, VoltageUnitEnum.normalize(unit))
+            self._session_manager.set_header_channel_units(indexes, unit)
 
         self.accept()

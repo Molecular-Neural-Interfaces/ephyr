@@ -43,7 +43,7 @@ Every list is indexed by channel index.
 |-------|------|---------|
 | `name` | `List[str]` | Channel names |
 | `probe` | `List[str]` | Probe / port label |
-| `units` | `List[str]` | Voltage unit per channel (`kV`, `V`, `mV`, `uV`, `nV`, `pV`) |
+| `units` | `List[str]` | Unit per channel: voltage (`kV`, `V`, `mV`, `uV`, `nV`, `pV`), current (`A`, `mA`, `uA`, `nA`, `pA`, `fA`), or any other label kept as is |
 | `analog_min` / `analog_max` | `List[float]` | Analog range used for int16 → voltage scaling |
 | `digital_min` / `digital_max` | `List[int]` | Digital range used for int16 → voltage scaling |
 | `prefiltering` | `List[str]` | Hardware filtering description from the source |
@@ -83,7 +83,7 @@ Loading API:
 |--------|------|---------|
 | `header` | `Header` | Header of the experiment |
 | `data_memmaps` | `Tuple[Tuple[np.memmap, ...], ...]` | Raw int16 samples, indexed `[sweep_idx][channel_idx]` |
-| `from_int16_to_voltage_val(data, channel_idx)` | method | Scale raw samples to voltage using the channel's ranges and units |
+| `from_int16_to_physical(data, channel_idx)` | method | Scale raw samples to physical values in the channel's header unit (`header.channel_unit_label(channel_idx)`) |
 | `process_data_pipeline(...)` / `process_single_channel(...)` | methods | The same filtering / decimation pipeline the GUI draws with |
 | `process_data_pipeline_multi_sweep(...)` | method | Same pipeline for several sweeps at once, returns `Dict[sweep_idx, Dict[channel_idx, ndarray]]` |
 
@@ -173,7 +173,7 @@ Unoccupied cells are not reserved: space is packed along the row. A group that i
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `scale` | `float` | Vertical scale in µV |
+| `scale` | `float` | Full cell-height amplitude, in the channel's header unit |
 | `y_offset` | `float` | Vertical offset |
 | `color` | `str` | Trace color |
 | `info` | `str` | Free-text note, e.g. the brain area |
@@ -273,8 +273,9 @@ sweep_idx, start_point, end_point = 0, 0, 10_000
 for ch_idx in range(session.experiment_data.header.number_of_channels):
     channel_data = session.experiment_data.data_memmaps[sweep_idx][ch_idx][start_point:end_point]
     print(
-        f"Channel {session.experiment_data.header.channel_info.name[ch_idx]} max voltage val: ",
-        max(session.experiment_data.from_int16_to_voltage_val(channel_data, ch_idx)),
+        f"Channel {session.experiment_data.header.channel_info.name[ch_idx]} max value: ",
+        max(session.experiment_data.from_int16_to_physical(channel_data, ch_idx)),
+        session.experiment_data.header.channel_unit_label(ch_idx),
     )
 
 # Work with GUI session
@@ -319,7 +320,7 @@ if spike_sets_root.exists():
 ## Notes
 
 - Indexing for memmaps is `[sweep_idx][channel_idx]`, then a sample slice.
-- `from_int16_to_voltage_val` scales using the channel’s analog/digital range and units (results in µV-oriented values used by the GUI pipeline).
+- `from_int16_to_physical` scales using the channel’s analog/digital range only: values are in the channel's header unit (for example `uV`, `mV`, `pA`), exactly as the GUI pipeline draws them.
 - `session.user_session` and `session.current_user_session` refer to the active session after `switch_sessions` / `new_user_session`.
 - Development add-ons write to `dev_`-prefixed folders, so spike sets of a development build live in `add_ons/data/dev_spike_sets/`.
 - Run analysis scripts in the same Python environment where `ephyr` is installed (`pip install ephyr`).

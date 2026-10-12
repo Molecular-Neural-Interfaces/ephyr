@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import h5py
 import numpy as np
 
-from ephyr.core.header import ChannelInfo, Header, VoltageUnitEnum
+from ephyr.core.header import ChannelInfo, Header, SignalUnitEnum, canonical_unit_label
 
 from ._exceptions import WrongSourceReaderError
 from .abstract_source_reader import AbstractDataWriter, AbstractSourceReader
@@ -123,7 +123,7 @@ def _parse_mcs_raw(path: Path) -> MCSRecordingInfo:
     if split_at == 0 or split_at == len(electrode_scale):
         raise ValueError(f"Invalid MCS RAW electrode scale: {electrode_scale}")
     gain = float(electrode_scale[:split_at])
-    unit = VoltageUnitEnum.normalize(electrode_scale[split_at:].replace("µ", "u")).value
+    unit = canonical_unit_label(electrode_scale[split_at:])
 
     dtype = np.dtype("<u2")
     data_bytes = path.stat().st_size - header_size
@@ -179,7 +179,7 @@ def _parse_mcs_h5(path: Path, stream_id: int) -> MCSRecordingInfo:
         if len(set(channel_names)) != len(channel_names):
             channel_names = [f"{name}__{index}" for index, name in enumerate(channel_names)]
 
-        units = [VoltageUnitEnum.normalize(_decode_text(value)).value for value in info["Unit"]]
+        units = [canonical_unit_label(_decode_text(value)) for value in info["Unit"]]
         gains = np.asarray(info["ConversionFactor"], dtype=np.float64) * np.power(
             10.0, np.asarray(info["Exponent"], dtype=np.float64)
         )
@@ -301,7 +301,7 @@ def _parse_cmos_sensor_stream(path: Path, stream: h5py.Group) -> MCSRecordingInf
             raise ValueError(f"CMOS-MEA conversion-factor count does not match region: {dataset.name}")
         exponent = int(row["Exponent"])
         gains.extend((factors * (10.0 ** exponent)).tolist())
-        unit = VoltageUnitEnum.normalize(_decode_text(row["Unit"])).value
+        unit = canonical_unit_label(_decode_text(row["Unit"]))
         units.extend([unit] * factors.size)
 
         region_label = _decode_text(row["Label"]).strip() or f"ROI_{region_id}"
@@ -361,7 +361,7 @@ def _parse_cmos_channel_stream(path: Path, stream: h5py.Group) -> MCSRecordingIn
         _decode_text(row["Label"]).strip() or f"Ch{int(row['ChannelID'])}"
         for row in metadata
     ]
-    units = [VoltageUnitEnum.normalize(_decode_text(row["Unit"])).value for row in metadata]
+    units = [canonical_unit_label(_decode_text(row["Unit"])) for row in metadata]
     gains = np.asarray(metadata["ConversionFactor"], dtype=np.float64) * np.power(
         10.0, np.asarray(metadata["Exponent"], dtype=np.float64)
     )
@@ -563,7 +563,7 @@ def _parse_mcs_mcd(path: Path, options: Dict[str, Any]) -> MCSRecordingInfo:
         path=path,
         source_type="mcs_mcd",
         channel_names=channel_names,
-        units=[VoltageUnitEnum.MICROVOLT.value] * len(channel_names),
+        units=[SignalUnitEnum.MICROVOLT.value] * len(channel_names),
         gains=gains,
         adc_zero=zeros,
         digital_min=digital_min,
@@ -760,6 +760,8 @@ class MCSSourceReader(AbstractSourceReader):
             prefiltering=[""] * info.channel_count,
             number_of_points_per_channel=[info.sample_count] * info.channel_count,
         )
+        # MCS devices are extracellular MEAs: show voltage channels in µV regardless of the stored prefix.
+        channel_info.rescale_units(range(info.channel_count), SignalUnitEnum.MICROVOLT)
 
         points_per_sweep = list(info.sweep_sample_counts) or [info.sample_count]
         created = datetime.fromtimestamp(path.stat().st_mtime)

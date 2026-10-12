@@ -11,6 +11,7 @@ from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout, QWidget, QHBoxLayout
 
 from ephyr import settings
+from ephyr.gui._utils import format_amplitude
 from ephyr.gui.dialogs.screenshot_export_dialog import ScreenshotExportDialog
 
 
@@ -25,6 +26,7 @@ class SelectedAreaSignalWidget(QWidget):
         end_time_ms: float,
         overlay_channel_data: Dict[int, Dict[int, np.ndarray]] | None = None,
         channel_cut_traces: Dict[int, bool] | None = None,
+        channel_units: Dict[int, str] | None = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -36,6 +38,7 @@ class SelectedAreaSignalWidget(QWidget):
         self._end_time_ms = end_time_ms
         self._overlay_channel_data = dict(overlay_channel_data or {})
         self._channel_cut_traces = dict(channel_cut_traces or {})
+        self._channel_units = dict(channel_units or {})
 
         self._LEFT_MARGIN = 90
         self._RIGHT_MARGIN = 16
@@ -102,7 +105,7 @@ class SelectedAreaSignalWidget(QWidget):
         color = QColor(str(getattr(setup, "color", "#000000")))
         if not color.isValid():
             color = QColor(0, 0, 0)
-        scale_uv = float(getattr(setup, "scale", 1.0) or 1.0)
+        scale = float(getattr(setup, "scale", 1.0) or 1.0)
         y_offset = float(getattr(setup, "y_offset", 0.0))
 
         painter.setPen(QPen(self._GRID_COLOR, 1, Qt.PenStyle.DotLine))
@@ -121,12 +124,12 @@ class SelectedAreaSignalWidget(QWidget):
         overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
         for sweep_data in self._overlay_channel_data.values():
             self._draw_trace(painter, sweep_data.get(channel_idx), rect, clip_rect,
-                             scale_uv, y_offset, overlay_color, settings.OVERLAY_TRACE_WIDTH, target_dots)
+                             scale, y_offset, overlay_color, settings.OVERLAY_TRACE_WIDTH, target_dots)
         self._draw_trace(painter, self._channel_data.get(channel_idx), rect, clip_rect,
-                         scale_uv, y_offset, color, 1.2, target_dots)
+                         scale, y_offset, color, 1.2, target_dots)
 
     def _draw_trace(self, painter: QPainter, data: np.ndarray | None, rect: QRect, clip_rect: QRect,
-                    scale_uv: float, y_offset: float, color: QColor, pen_width: float,
+                    scale: float, y_offset: float, color: QColor, pen_width: float,
                     target_dots: int | None):
         if data is None or len(data) < 2:
             return
@@ -136,8 +139,8 @@ class SelectedAreaSignalWidget(QWidget):
         if n < 2:
             return
         x = np.linspace(rect.left(), rect.right(), n, dtype=np.float64)
-        pixel_per_uv = rect.height() / max(scale_uv, 1e-12)
-        y = (rect.top() + rect.height() / 2.0) - (data + y_offset) * pixel_per_uv
+        pixel_per_unit = rect.height() / max(scale, 1e-12)
+        y = (rect.top() + rect.height() / 2.0) - (data + y_offset) * pixel_per_unit
         ScreenshotExportDialog.draw_polyline_trace(painter, x, y, color, pen_width, clip_rect)
 
     def _draw_time_axis(self, painter: QPainter, draw_height: int):
@@ -165,30 +168,32 @@ class SelectedAreaSignalWidget(QWidget):
         panel_rect = QRect(self._LEFT_MARGIN, panel_top, axis_width, self._SCALE_PANEL_HEIGHT)
 
         # Scale bars similar to Measure bar:
-        # - Voltage bar height: 1/10 of current channel height
+        # - Amplitude bar height: 1/10 of current channel height
         # - Time bar width: 1/10 of selected interval width
-        voltage_bar_height = max(6, channel_height // 10)
+        amplitude_bar_height = max(6, channel_height // 10)
         time_bar_width = max(20, axis_width // 10)
         duration_ms = max(0.0, self._end_time_ms - self._start_time_ms)
 
         representative_scale = 1.0
+        representative_unit = ""
         if self._channel_indexes:
             first_setup = self._channels_setup.get(self._channel_indexes[0])
             representative_scale = float(getattr(first_setup, "scale", 1.0) or 1.0)
-        voltage_value = representative_scale / 10.0
+            representative_unit = self._channel_units.get(self._channel_indexes[0], "")
+        amplitude_value = representative_scale / 10.0
         time_value_ms = duration_ms / 10.0
 
         # Left-bottom corner placement (just above time bar)
         vx = panel_rect.left() + 10
         vy = panel_rect.top() + 8
-        painter.fillRect(vx, vy, 4, voltage_bar_height, QColor(255, 0, 0))
+        painter.fillRect(vx, vy, 4, amplitude_bar_height, QColor(255, 0, 0))
         painter.setPen(self._TEXT_COLOR)
         painter.drawText(QRect(vx + 8, vy - 8, 120, 20), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                         f"{voltage_value:.2f} uV")
+                         format_amplitude(amplitude_value, representative_unit))
 
-        # Time bar next to voltage bar in left-bottom corner
+        # Time bar next to amplitude bar in left-bottom corner
         tx = min(panel_rect.right() - time_bar_width - 8, vx + 130)
-        ty = vy + max(voltage_bar_height // 2, 8)
+        ty = vy + max(amplitude_bar_height // 2, 8)
         painter.fillRect(tx, ty, time_bar_width, 4, QColor(255, 0, 0))
         if time_value_ms < 1000:
             time_text = f"{time_value_ms:.1f} ms"
@@ -208,6 +213,7 @@ class FullViewSelectedAreaDialog(QDialog):
         end_time_ms: float,
         overlay_channel_data: Dict[int, Dict[int, np.ndarray]] | None = None,
         channel_cut_traces: Dict[int, bool] | None = None,
+        channel_units: Dict[int, str] | None = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -225,6 +231,7 @@ class FullViewSelectedAreaDialog(QDialog):
             end_time_ms=end_time_ms,
             overlay_channel_data=overlay_channel_data,
             channel_cut_traces=channel_cut_traces,
+            channel_units=channel_units,
             parent=self,
         )
         root.addWidget(self.signal_view, 1)

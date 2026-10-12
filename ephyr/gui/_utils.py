@@ -132,6 +132,15 @@ def milliseconds_to_readable(milliseconds, wrap=True) -> str:
     return ""
 
 
+def format_amplitude(value: float, unit_label: str = "") -> str:
+    """Amplitude in the channel's own unit, without re-prefixing: 500 µV stays "500 µV"."""
+    if value == 0 or abs(value) >= 1:
+        number = f"{value:.2f}".rstrip("0").rstrip(".")
+    else:
+        number = f"{value:.3g}"
+    return f"{number} {unit_label}" if unit_label else number
+
+
 def sample_rate_to_readable(sample_rate: float, wrap=True) -> str:
     if sample_rate <= 0:
         return ""

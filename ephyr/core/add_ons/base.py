@@ -46,7 +46,7 @@ class ViewableAddOn:
 
             # DATA
             processed_data: Dict[int, np.ndarray[np.float64]],
-            voltage_scale: float,
+            amplitude_scale: float,
             start_point: int,
             duration_ms: float,
             start_time_ms: float,
@@ -61,6 +61,8 @@ class ViewableAddOn:
             visible_periods: List[Any],
             channel_groups: List[Any],
             channels_setup: Dict[int, Any],
+            # Display label of each channel header unit ("µV", "mV", "pA", or a raw unknown label)
+            channel_units: Dict[int, str],
 
             # UI
             painter: QPainter,

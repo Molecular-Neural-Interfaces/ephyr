@@ -12,7 +12,16 @@ import numpy as np
 from pynwb import NWBHDF5IO, TimeSeries
 from pynwb.ecephys import ElectricalSeries
 
-from ephyr.core.header import ChannelInfo, Header
+from pynwb.icephys import PatchClampSeries
+
+from ephyr.core.header import (
+    ChannelInfo,
+    Header,
+    PhysicalQuantityEnum,
+    SignalUnitEnum,
+    canonical_unit_label,
+    unit_quantity,
+)
 
 from .._exceptions import WrongSourceReaderError
 from ..abstract_source_reader import AbstractDataWriter, AbstractSourceReader
@@ -38,22 +47,24 @@ class NwbSeriesRef:
     probes: List[str]
     conversion: float
     offset: float
+    preferred_unit: Optional[SignalUnitEnum] = None
 
 
 def _unit_ascii(unit: str) -> str:
-    raw = (unit or "").strip().replace("µ", "u").replace("μ", "u")
-    aliases = {
-        "volt": "V",
-        "volts": "V",
-        "v": "V",
-        "millivolt": "mV",
-        "millivolts": "mV",
-        "mv": "mV",
-        "microvolt": "uV",
-        "microvolts": "uV",
-        "uv": "uV",
-    }
-    return aliases.get(raw.lower(), raw or "uV")
+    return canonical_unit_label(unit) or SignalUnitEnum.VOLT.value
+
+
+def _preferred_unit(series: TimeSeries, units: str) -> Optional[SignalUnitEnum]:
+    """Unit a physiologist reads this series in; NWB itself always stores SI units."""
+    quantity = unit_quantity(units)
+    if isinstance(series, ElectricalSeries) and quantity is PhysicalQuantityEnum.VOLTAGE:
+        return SignalUnitEnum.MICROVOLT
+    if isinstance(series, PatchClampSeries):
+        if quantity is PhysicalQuantityEnum.VOLTAGE:
+            return SignalUnitEnum.MILLIVOLT
+        if quantity is PhysicalQuantityEnum.CURRENT:
+            return SignalUnitEnum.PICOAMPERE
+    return None
 
 
 def _series_rate(series: TimeSeries) -> Optional[float]:
@@ -174,17 +185,19 @@ def _series_ref(location: str, series: TimeSeries) -> Optional[NwbSeriesRef]:
         names = [str(series.name)] if n_channels == 1 else [f"{series.name}_{idx}" for idx in range(n_channels)]
         probes = [""] * n_channels
 
+    units = _unit_ascii(str(getattr(series, "unit", "") or ""))
     return NwbSeriesRef(
         location=location,
         name=str(series.name),
         n_samples=n_samples,
         n_channels=n_channels,
         sample_rate=rate,
-        units=_unit_ascii(str(getattr(series, "unit", "") or "")),
+        units=units,
         channel_names=names,
         probes=probes,
         conversion=float(getattr(series, "conversion", 1.0) or 1.0),
         offset=float(getattr(series, "offset", 0.0) or 0.0),
+        preferred_unit=_preferred_unit(series, units),
     )
 
 
@@ -378,6 +391,8 @@ class NwbSourceReader(AbstractSourceReader):
             prefiltering=[""] * ref.n_channels,
             number_of_points_per_channel=[ref.n_samples] * ref.n_channels,
         )
+        if ref.preferred_unit is not None:
+            channel_info.rescale_units(range(ref.n_channels), ref.preferred_unit)
         header = Header(
             type_before_conversion="nwb",
             name_before_conversion=f"{self._experiment_path.name}:{ref.location}",

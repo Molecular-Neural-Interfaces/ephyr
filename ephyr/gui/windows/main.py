@@ -443,7 +443,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.__recalculate_and_redraw_necessary_signals(recalculate_data=False)
 
     def on_header_units_changed(self, _units):
-        self.__recalculate_and_redraw_necessary_signals(recalculate_data=True)
+        self.__recalculate_and_redraw_necessary_signals(recalculate_data=False)
 
     def on_time_window_changed(self):
         self.__recalculate_and_redraw_necessary_signals(recalculate_data=True, )
@@ -1107,6 +1107,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
             duration_ms=gui_setup.duration_ms,
             groups_layout=self.signal_panel.get_visible_groups_layout(),
             channels_setup=gui_setup.channels_setup,
+            channel_units=self.signal_panel.signal_widget.channel_units,
         )
         result = ScreenshotExportDialog.run_export(self, context)
         self.__set_status(result.message)

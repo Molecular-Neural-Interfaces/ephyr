@@ -12,13 +12,9 @@ import pyedflib
 
 from ._exceptions import WrongSourceReaderError
 from .abstract_source_reader import AbstractSourceReader, AbstractDataWriter
-from ephyr.core.header import Header, ChannelInfo
+from ephyr.core.header import Header, ChannelInfo, canonical_unit_label
 
 _CHUNK_SAMPLES = 512
-
-
-def _unit_ascii(unit: str) -> str:
-    return (unit or "").strip().replace("µ", "u").replace("μ", "u")
 
 
 def _same_sample_rate(sample_rates: np.ndarray) -> float:
@@ -145,7 +141,7 @@ class EdfSourceReader(AbstractSourceReader):
         for ch_idx in range(n_channels):
             signal_header = signal_headers[ch_idx]
             names.append(str(labels[ch_idx] or f"EDF {ch_idx}"))
-            units.append(_unit_ascii(str(signal_header.get("dimension", ""))))
+            units.append(canonical_unit_label(str(signal_header.get("dimension", ""))))
             probes.append(str(signal_header.get("transducer", "")))
             analog_min.append(_as_float(signal_header.get("physical_min"), reader.getPhysicalMinimum(ch_idx)))
             analog_max.append(_as_float(signal_header.get("physical_max"), reader.getPhysicalMaximum(ch_idx)))

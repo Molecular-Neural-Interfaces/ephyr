@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QGridLayout,
     QSizePolicy,
+    QAbstractSpinBox,
 )
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -48,6 +49,7 @@ from ephyr.gui.widgets import (
     FocusWheelComboBox as QComboBox,
     FocusWheelDoubleSpinBox as QDoubleSpinBox,
     FocusWheelSpinBox as QSpinBox,
+    TrimmedDoubleSpinBox,
 )
 from ephyr.logger import ephyr_logger
 from ephyr.core.conversions.filters import (
@@ -1469,7 +1471,7 @@ class ChannelManagementPanel(QWidget):
             ])
 
             if scale_spin is not None:
-                self._add_stretch_row(box_layout, [self._labeled_stretch_cell("Scale (uV):", scale_spin)])
+                self._add_stretch_row(box_layout, [self._labeled_stretch_cell("Scale factor:", scale_spin)])
 
             aux_row_cells = []
             if y_offset_spin is not None:
@@ -1574,15 +1576,11 @@ class ChannelManagementPanel(QWidget):
         if not channel_indexes:
             return None, None, None
         sample = channels_setup.get(channel_indexes[0])
-        scale_val = float(getattr(sample, "scale", settings.DEFAULT_SCALE))
+        scale_val = float(getattr(sample, "scale", self._session_manager.default_scale_for_channel(channel_indexes[0])))
         y_offset_val = float(getattr(sample, "y_offset", 0.0))
         color_val = str(getattr(sample, "color", "#000000"))
 
-        scale_spin = QDoubleSpinBox()
-        scale_spin.setRange(settings.MIN_SCALE, settings.MAX_SCALE)
-        scale_spin.setKeyboardTracking(False)
-        scale_spin.setSingleStep(settings.SCALE_STEP)
-        scale_spin.setValue(scale_val)
+        scale_spin = self._make_scale_spin(scale_val)
         scale_spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         y_offset_spin = QDoubleSpinBox()
         y_offset_spin.setRange(-1_000_000.0, 1_000_000.0)
@@ -1619,6 +1617,19 @@ class ChannelManagementPanel(QWidget):
 
         color_btn.clicked.connect(on_pick_color)
         return scale_spin, y_offset_spin, color_btn
+
+    @staticmethod
+    def _make_scale_spin(value: float, unit_label: str = "") -> QDoubleSpinBox:
+        """Scale spinbox valid for any unit prefix: from 0.001 µA to 100000 µV."""
+        scale_spin = TrimmedDoubleSpinBox()
+        scale_spin.setDecimals(settings.SCALE_DECIMALS)
+        scale_spin.setRange(settings.MIN_SCALE, settings.MAX_SCALE)
+        scale_spin.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
+        scale_spin.setKeyboardTracking(False)
+        if unit_label:
+            scale_spin.setSuffix(f" {unit_label}")
+        scale_spin.setValue(value)
+        return scale_spin
 
     @staticmethod
     def _labeled_stretch_cell(text: str, widget: QWidget) -> QWidget:
@@ -1679,7 +1690,7 @@ class ChannelManagementPanel(QWidget):
             cur_setup = self._session_manager.gui_setup.channels_setup.get(channel_idx)
             self._session_manager.set_channel_setup(
                 channel_idx,
-                scale=float(getattr(cur_setup, "scale", settings.DEFAULT_SCALE)),
+                scale=float(getattr(cur_setup, "scale", self._session_manager.default_scale_for_channel(channel_idx))),
                 y_offset=float(getattr(cur_setup, "y_offset", 0.0)),
                 color=str(getattr(cur_setup, "color", "#000000")),
                 info=info_edit.text().strip(),
@@ -1691,11 +1702,9 @@ class ChannelManagementPanel(QWidget):
 
         if group.is_auxiliary:
             color = str(getattr(setup, "color", "#000000"))
-            scale = float(getattr(setup, "scale", settings.DEFAULT_SCALE))
+            scale = float(getattr(setup, "scale", self._session_manager.default_scale_for_channel(channel_idx)))
             y_offset = float(getattr(setup, "y_offset", 0.0))
-            scale_spin = QDoubleSpinBox(); scale_spin.setRange(settings.MIN_SCALE, settings.MAX_SCALE)
-            scale_spin.setKeyboardTracking(False)
-            scale_spin.setSingleStep(settings.SCALE_STEP); scale_spin.setValue(scale)
+            scale_spin = self._make_scale_spin(scale, self._session_manager.channel_unit_display(channel_idx))
             y_spin = QDoubleSpinBox(widget); y_spin.setRange(-1_000_000.0, 1_000_000.0)
             y_spin.setKeyboardTracking(False)
             y_spin.setSingleStep(10.0); y_spin.setValue(y_offset)
@@ -1934,12 +1943,17 @@ class ChannelManagementPanel(QWidget):
                     self._restore_aux_checkbox(checkbox)
                     QTimer.singleShot(0, lambda cb=checkbox: self._restore_aux_checkbox(cb))
                 return
-            self._session_manager.set_channels_setup(
-                current.channel_indexes,
-                scale=settings.DEFAULT_SCALE,
-                y_offset=0.0,
-                color="#000000",
-            )
+            indexes_by_default_scale: Dict[float, List[int]] = {}
+            for channel_idx in current.channel_indexes:
+                default_scale = self._session_manager.default_scale_for_channel(channel_idx)
+                indexes_by_default_scale.setdefault(default_scale, []).append(channel_idx)
+            for default_scale, indexes in indexes_by_default_scale.items():
+                self._session_manager.set_channels_setup(
+                    indexes,
+                    scale=default_scale,
+                    y_offset=0.0,
+                    color="#000000",
+                )
         self._session_manager.set_channel_group_field(group_idx, is_auxiliary=is_auxiliary)
 
     @staticmethod

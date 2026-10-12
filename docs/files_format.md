@@ -77,8 +77,8 @@ Signal samples stored as read-only **int16** memory-mapped files.
 - Inside each sweep, one `*.samples` file per channel (`channel_0.samples`, `channel_1.samples`, …),
   indexed by channel index. Same 0-based numbering, no zero padding.
 
-Scripts and the GUI read these arrays through `ExperimentData.data_memmaps` and convert them to voltage
-with `from_int16_to_voltage_val` (see [Using Labeled Data](analysis/labeled_data.md)).
+Scripts and the GUI read these arrays through `ExperimentData.data_memmaps` and convert them to physical
+values in the channel's header unit with `from_int16_to_physical` (see [Using Labeled Data](analysis/labeled_data.md)).
 
 ### `sessions/`
 

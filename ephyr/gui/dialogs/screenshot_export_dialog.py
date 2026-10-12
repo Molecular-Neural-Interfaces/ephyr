@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Callable, Tuple
 
 import numpy as np
@@ -42,6 +42,7 @@ class ScreenshotRenderContext:
     duration_ms: float
     groups_layout: List[ChannelGroup]
     channels_setup: Dict[int, Any]
+    channel_units: Dict[int, str] = field(default_factory=dict)
     footer_height: int = 38
 
 
@@ -207,7 +208,7 @@ class ScreenshotExportDialog(QDialog):
 
     @classmethod
     def _format_scale(cls, value: float) -> str:
-        return f"{value:.3f}".rstrip("0").rstrip(".")
+        return f"{value:.9f}".rstrip("0").rstrip(".")
 
     @classmethod
     def _build_non_aux_group_scales_text(cls, context: ScreenshotRenderContext) -> str:
@@ -224,14 +225,17 @@ class ScreenshotExportDialog(QDialog):
                 setup = context.channels_setup.get(ch_idx)
                 scales.append(float(getattr(setup, "scale", 1.0) or 1.0))
 
-            unique_scales = sorted({round(scale, 6) for scale in scales})
+            unique_scales = sorted({round(scale, 9) for scale in scales})
+            unique_units = {context.channel_units.get(ch_idx, "") for ch_idx in channels}
+            # A mixed-unit group (e.g. mV and pA) has no single unit to print.
+            unit_suffix = f" {next(iter(unique_units))}" if len(unique_units) == 1 and "" not in unique_units else ""
             group_name = str(group.name or "group")
             if len(unique_scales) == 1:
-                parts.append(f"{group_name}: scale={cls._format_scale(unique_scales[0])} uV")
+                parts.append(f"{group_name}: scale={cls._format_scale(unique_scales[0])}{unit_suffix}")
             else:
                 parts.append(
                     f"{group_name}: scale={cls._format_scale(min(unique_scales))}.."
-                    f"{cls._format_scale(max(unique_scales))} uV"
+                    f"{cls._format_scale(max(unique_scales))}{unit_suffix}"
                 )
         return " | ".join(parts)
 
@@ -471,13 +475,13 @@ class ScreenshotExportDialog(QDialog):
             if (
                 cursor_pos is not None
                 and overlay_mode is not None
-                and getattr(overlay_mode, "name", "") == "TIME_VOLTAGE_BAR"
+                and getattr(overlay_mode, "name", "") == "TIME_AMPLITUDE_BAR"
             ):
                 painter.save()
                 painter.setPen(QPen(QColor(255, 0, 0)))
                 painter.setFont(getattr(overlay, "_font", QFont()))
-                if hasattr(overlay, "_draw_voltage_scale_bar"):
-                    overlay._draw_voltage_scale_bar(painter)
+                if hasattr(overlay, "_draw_amplitude_scale_bar"):
+                    overlay._draw_amplitude_scale_bar(painter)
                 if hasattr(overlay, "_draw_time_scale_bar"):
                     overlay._draw_time_scale_bar(painter)
                 painter.restore()
@@ -561,9 +565,9 @@ class ScreenshotExportDialog(QDialog):
             return
 
         x_coords = np.linspace(channel_rect.left(), channel_rect.right(), n, dtype=np.float64)
-        pixel_per_uv = channel_rect.height() / max(scale, 1e-12)
+        pixel_per_unit = channel_rect.height() / max(scale, 1e-12)
         y_mid = channel_rect.top() + channel_rect.height() / 2.0
-        y_coords = y_mid - (data + y_offset) * pixel_per_uv
+        y_coords = y_mid - (data + y_offset) * pixel_per_unit
 
         cls.draw_polyline_trace(painter, x_coords, y_coords, color, pen_width,
                                 clip_rect if clip_rect is not None else channel_rect)
@@ -617,8 +621,8 @@ class ScreenshotExportDialog(QDialog):
                         continue
 
                     x_coords = np.linspace(group_rect.left(), group_rect.right(), n, dtype=np.float64)
-                    pixel_per_uv = group_rect.height() / max(scale, 1e-12)
-                    y_coords = center_y - (data_rs + y_offset) * pixel_per_uv
+                    pixel_per_unit = group_rect.height() / max(scale, 1e-12)
+                    y_coords = center_y - (data_rs + y_offset) * pixel_per_unit
                     cls.draw_polyline_trace(painter, x_coords, y_coords, color, pen_width, group_rect)
 
     @classmethod

@@ -15,7 +15,7 @@ import numpy as np
 
 from ._exceptions import WrongSourceReaderError
 from .abstract_source_reader import AbstractDataWriter, AbstractSourceReader
-from ephyr.core.header import ChannelInfo, Header
+from ephyr.core.header import ChannelInfo, Header, canonical_unit_label
 
 _DAQ_SIGNATURE = b"MATLAB Data Acquisition File.\x00\x19\x00"
 _CHUNK_SAMPLES = 512
@@ -287,7 +287,7 @@ def _parse_daq_metadata(experiment_path: Path) -> DaqMetadata:
         channels.append(
             DaqChannel(
                 hw_channel=_parse_int(text, "HwChannel", idx),
-                units=_parse_string(text, "Units", ""),
+                units=canonical_unit_label(_parse_string(text, "Units", "")),
                 input_range=(float(input_range[0]), float(input_range[1])),
             )
         )

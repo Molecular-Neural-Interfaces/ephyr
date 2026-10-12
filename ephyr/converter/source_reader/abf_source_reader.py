@@ -13,15 +13,11 @@ import pyabf
 
 from ._exceptions import WrongSourceReaderError
 from .abstract_source_reader import AbstractDataWriter, AbstractSourceReader
-from ephyr.core.header import ChannelInfo, Header
+from ephyr.core.header import ChannelInfo, Header, canonical_unit_label
 
 _CHUNK_SAMPLES = 512
 _DIGITAL_MIN = -32768
 _DIGITAL_MAX = 32767
-
-
-def _unit_ascii(unit: str) -> str:
-    return (unit or "").strip().replace("µ", "u").replace("μ", "u")
 
 
 def _sweep_bounds(abf: pyabf.ABF) -> List[Tuple[int, int]]:
@@ -185,7 +181,7 @@ class AbfSourceReader(AbstractSourceReader):
         channel_info = ChannelInfo(
             name=[str(name or f"ADC {idx}") for idx, name in enumerate(abf.adcNames)],
             probe=[str(getattr(abf, "protocol", "") or "")] * int(abf.channelCount),
-            units=[_unit_ascii(unit) for unit in abf.adcUnits],
+            units=[canonical_unit_label(unit) for unit in abf.adcUnits],
             analog_min=(-analog_abs_max).tolist(),
             analog_max=analog_abs_max.tolist(),
             digital_min=[_DIGITAL_MIN] * int(abf.channelCount),

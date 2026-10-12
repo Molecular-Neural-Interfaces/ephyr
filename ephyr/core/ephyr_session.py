@@ -15,7 +15,7 @@ from ephyr.core.add_ons.base import BaseAddOn, required_sample_rate_for_transfor
 from ephyr.logger import ephyr_logger
 
 from ephyr import settings
-from ephyr.core.header import Header, VoltageUnitEnum
+from ephyr.core.header import Header, canonical_unit_label
 from ephyr.core.conversions.filters import (
     FilterConfig,
     required_sample_rate_for_filters,
@@ -697,8 +697,8 @@ class ExperimentData(BaseModel):
         # Read only the required data for this specific channel
         channel_data = self.data_memmaps[sweep_idx][channel_idx][start_sample:end_sample:each_point].astype(np.float64)
 
-        # Convert to voltage
-        channel_data = self.from_int16_to_voltage_val(channel_data, channel_idx)
+        # Convert to physical values in the channel's header unit
+        channel_data = self.from_int16_to_physical(channel_data, channel_idx)
 
         # Transform before filtration
         for add_on in transformation_add_ons:
@@ -732,29 +732,28 @@ class ExperimentData(BaseModel):
         x_new = np.linspace(0.0, 1.0, output_len)
         return np.interp(x_new, x_old, data).astype(np.float64)
 
-    def from_int16_to_voltage_val(self, data: np.ndarray, channel_idx: int):
-        units = self.header.channel_info.units or []
-        channel_units = units[channel_idx] if channel_idx < len(units) else ""
+    def from_int16_to_physical(self, data: np.ndarray, channel_idx: int):
+        """Convert stored samples into values expressed in the channel's header unit."""
         return np.multiply(self.channel_scale(self.header.channel_info.analog_max[channel_idx],
                                               self.header.channel_info.analog_min[channel_idx],
                                               self.header.channel_info.digital_max[channel_idx],
-                                              self.header.channel_info.digital_min[channel_idx],
-                                              channel_units),
+                                              self.header.channel_info.digital_min[channel_idx]),
                            data)
-        # if self.header.type_before_conversion == "rhs":
-        #     return np.multiply(0.195, data)
-        # elif self.header.type_before_conversion == "daq":
-        #     pass
-        # else:
-        #     raise NotImplementedError(f"from_int16_to_voltage_val is not implemented for "
-        #                               f"{self.header.type_before_conversion}")
 
     @staticmethod
     @lru_cache(maxsize=1024)
-    def channel_scale(analog_max, analog_min, digital_max, digital_min, units):
-        base_scale = (analog_max - analog_min) / (digital_max - digital_min)
-        unit_enum = VoltageUnitEnum.normalize(units)
-        return base_scale * unit_enum.to_uv_multiplier()
+    def channel_scale(analog_max, analog_min, digital_max, digital_min):
+        return (analog_max - analog_min) / (digital_max - digital_min)
+
+    def default_scale_for_channel(self, channel_idx: int) -> float:
+        return default_scale_for_unit(self.header.channel_unit_label(channel_idx))
+
+    def default_channel_setup(self, channel_idx: int) -> ChannelSetup:
+        return ChannelSetup(scale=self.default_scale_for_channel(channel_idx))
+
+
+def default_scale_for_unit(unit_label: Optional[str]) -> float:
+    return float(settings.DEFAULT_SCALE_BY_UNIT.get(canonical_unit_label(unit_label), settings.DEFAULT_SCALE))
 
 
 def ephyr_experiment_folder_required(method):
@@ -807,7 +806,7 @@ class EphyrSessionManager(BaseModel):
                         ),
                     )
                 ],
-                channels_setup={idx: ChannelSetup() for idx in all_channels},
+                channels_setup={idx: self.experiment_data.default_channel_setup(idx) for idx in all_channels},
             ),
         )
         self.save_user_session()

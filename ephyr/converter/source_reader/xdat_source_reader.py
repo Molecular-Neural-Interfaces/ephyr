@@ -13,7 +13,7 @@ import numpy as np
 
 from ._exceptions import WrongSourceReaderError
 from .abstract_source_reader import AbstractDataWriter, AbstractSourceReader
-from ephyr.core.header import ChannelInfo, Header
+from ephyr.core.header import ChannelInfo, Header, SignalUnitEnum, canonical_unit_label
 
 _CHUNK_SAMPLES = 512
 _DIGITAL_MIN = -32768
@@ -50,19 +50,7 @@ class XdatMetadata:
 
 
 def _unit_from_label(label: str) -> str:
-    raw = (label or "").strip().lower().replace("_", "-")
-    aliases = {
-        "micro-volts": "uV",
-        "microvolts": "uV",
-        "uv": "uV",
-        "µv": "uV",
-        "μv": "uV",
-        "volts": "V",
-        "volt": "V",
-        "v": "V",
-        "binary": "uV",
-    }
-    return aliases.get(raw, "uV")
+    return canonical_unit_label((label or "").replace("_", "-"))
 
 
 def _channel_unit(channel_name: str, metadata: dict) -> str:
@@ -75,7 +63,7 @@ def _channel_unit(channel_name: str, metadata: dict) -> str:
         return _unit_from_label(sig_units.get("sig_units_din", "binary"))
     if channel_name.startswith("dout_"):
         return _unit_from_label(sig_units.get("sig_units_dout", "binary"))
-    return "uV"
+    return SignalUnitEnum.MICROVOLT.value
 
 
 def _xdat_base_from_path(path: Path) -> Tuple[Path, str]:
