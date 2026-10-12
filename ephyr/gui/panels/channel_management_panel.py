@@ -1943,17 +1943,12 @@ class ChannelManagementPanel(QWidget):
                     self._restore_aux_checkbox(checkbox)
                     QTimer.singleShot(0, lambda cb=checkbox: self._restore_aux_checkbox(cb))
                 return
-            indexes_by_default_scale: Dict[float, List[int]] = {}
-            for channel_idx in current.channel_indexes:
-                default_scale = self._session_manager.default_scale_for_channel(channel_idx)
-                indexes_by_default_scale.setdefault(default_scale, []).append(channel_idx)
-            for default_scale, indexes in indexes_by_default_scale.items():
-                self._session_manager.set_channels_setup(
-                    indexes,
-                    scale=default_scale,
-                    y_offset=0.0,
-                    color="#000000",
-                )
+            self._session_manager.set_channels_setup(
+                current.channel_indexes,
+                scale=self._session_manager.default_scale_for_group(current.channel_indexes),
+                y_offset=0.0,
+                color="#000000",
+            )
         self._session_manager.set_channel_group_field(group_idx, is_auxiliary=is_auxiliary)
 
     @staticmethod

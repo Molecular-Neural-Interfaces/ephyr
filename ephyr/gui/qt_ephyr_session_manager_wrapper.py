@@ -129,11 +129,11 @@ class QtEphyrSessionManagerWrapper(QObject):
         header = self.header
         return header.channel_unit_display(channel_idx) if header else ""
 
-    def default_scale_for_channel(self, channel_idx: int) -> float:
-        experiment_data = self._session_manager.experiment_data
-        if experiment_data is None:
-            return float(settings.DEFAULT_SCALE)
-        return experiment_data.default_scale_for_channel(channel_idx)
+    def default_scale_for_channel(self, _channel_idx: int) -> float:
+        return float(settings.DEFAULT_SCALE)
+
+    def default_scale_for_group(self, _channel_indexes: List[int]) -> float:
+        return float(settings.DEFAULT_SCALE)
 
     @property
     def gui_setup(self) -> Optional[GuiSetup]:

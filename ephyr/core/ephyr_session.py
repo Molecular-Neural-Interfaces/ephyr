@@ -746,14 +746,10 @@ class ExperimentData(BaseModel):
         return (analog_max - analog_min) / (digital_max - digital_min)
 
     def default_scale_for_channel(self, channel_idx: int) -> float:
-        return default_scale_for_unit(self.header.channel_unit_label(channel_idx))
+        return float(settings.DEFAULT_SCALE)
 
-    def default_channel_setup(self, channel_idx: int) -> ChannelSetup:
-        return ChannelSetup(scale=self.default_scale_for_channel(channel_idx))
-
-
-def default_scale_for_unit(unit_label: Optional[str]) -> float:
-    return float(settings.DEFAULT_SCALE_BY_UNIT.get(canonical_unit_label(unit_label), settings.DEFAULT_SCALE))
+    def default_scale_for_group(self, _channel_indexes: List[int]) -> float:
+        return float(settings.DEFAULT_SCALE)
 
 
 def ephyr_experiment_folder_required(method):
@@ -793,6 +789,7 @@ class EphyrSessionManager(BaseModel):
             raise SessionAlreadyExistsError
 
         all_channels = list(range(self.experiment_data.header.number_of_channels))
+        default_scale = self.experiment_data.default_scale_for_group(all_channels)
         self.current_user_session = UserSession(
             session_filename=session_filename,
             gui_setup=GuiSetup(
@@ -806,7 +803,7 @@ class EphyrSessionManager(BaseModel):
                         ),
                     )
                 ],
-                channels_setup={idx: self.experiment_data.default_channel_setup(idx) for idx in all_channels},
+                channels_setup={idx: ChannelSetup(scale=default_scale) for idx in all_channels},
             ),
         )
         self.save_user_session()

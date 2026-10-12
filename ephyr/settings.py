@@ -28,21 +28,6 @@ MIN_SCALE = 0.000_000_001
 MAX_SCALE = 100_000_000.0
 MAX_START_POINT = 2_147_483_647  # max 32-bit integer
 DEFAULT_SCALE = 1000
-# Full cell-height amplitude, in the channel's own header unit; other units fall back to DEFAULT_SCALE.
-DEFAULT_SCALE_BY_UNIT = {
-    "kV": 0.001,
-    "V": 1,
-    "mV": 100,
-    "uV": 1000,
-    "nV": 1_000_000,
-    "pV": 1_000_000_000,
-    "A": 0.000_000_001,
-    "mA": 0.000_001,
-    "uA": 0.001,
-    "nA": 1,
-    "pA": 1000,
-    "fA": 1_000_000,
-}
 SCALE_DECIMALS = 9
 DEFAULT_DURATION = 10_000
 DEFAULT_TIME_STEP = 1000
