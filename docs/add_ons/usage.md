@@ -14,7 +14,7 @@ The dialog loads the remote catalog and shows:
 | **Details** | Module name, version (remote and installed), author, keywords, links, and description |
 | **Install** | Downloads and installs the selected package into the Ephyr environment |
 | **Update** | Upgrades an already installed package |
-| **Uninstall** | Removes the package and cleans related session toggles / experiment `add_ons/data` for that module |
+| **Uninstall** | Removes the package and cleans related session toggles / Record `add_ons/data` for that module |
 
 Use Manage when you want to add tools from the published catalog, keep them up to date, or remove ones
 you no longer need. Package sources are published in the
@@ -46,14 +46,14 @@ See [Workflow](index.md) for how the three capability types interact with signal
 ## Spike importer
 
 **Spike importer** (part of the **Spike utils** package) brings spikes detected outside Ephyr into the
-experiment. **Run** it, pick a WEEGIT `.spk` file, and the spikes are written as a new spike set in
+Record. **Run** it, pick a WEEGIT `.spk` file, and the spikes are written as a new spike set in
 `add_ons/data/spike_sets/`, with the sorting method name and the per-spike clusters from the file
 preserved. Spike viewer, Spike navigation, Aligned spikes plot and Raster plot then treat the imported
 set exactly like a set produced by Spike detection, and colour the clusters when the file contains
 more than one.
 
-The file must match the open experiment: channel numbers, sweep numbers and spike positions are
-checked against the converted header, and nothing is written if any of them is out of range. A `.spk`
+The file must match the open Record: channel numbers, segment numbers and spike positions are
+checked against the source, and nothing is written if any of them is out of range. A `.spk`
 file whose name differs from the recording name only raises a confirmation.
 
 Full format description and field reference:

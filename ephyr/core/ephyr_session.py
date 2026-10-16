@@ -3,6 +3,7 @@
 
 import json
 import os
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from functools import lru_cache
@@ -15,14 +16,30 @@ from ephyr.core.add_ons.base import BaseAddOn, required_sample_rate_for_transfor
 from ephyr.logger import ephyr_logger
 
 from ephyr import settings
-from ephyr.core.header import Header, canonical_unit_label
+from ephyr.core import layout
+from ephyr.core.annotations_io import (
+    EventRow,
+    PeriodRow,
+    read_events,
+    read_periods,
+    write_events,
+    write_periods,
+)
 from ephyr.core.conversions.filters import (
     FilterConfig,
     required_sample_rate_for_filters,
     ensure_filters_list,
 )
 from ephyr.core.exceptions import BrokenSessionFileError, SessionAlreadyExistsError
-from ephyr.converter.ephyr_io import EphyrIO
+from ephyr.core.manifests import ConfigManifest, RecordManifest
+from ephyr.core.source_view import (
+    NavigationModeEnum,
+    SourceView,
+    continuous_display_segments,
+    period_display_segments,
+    physical_display_segments,
+)
+from ephyr.core.workspace import Workspace
 
 
 class RightPanelWidgetEnum(Enum):
@@ -64,8 +81,9 @@ class EventsTableFormat(Enum):
 
 class EventTableRow(BaseModel):
     name: str
-    sweep_idx: int
-    time_ms: float
+    t_ms: float
+    segment_idx: Optional[int]
+    time_in_segment_ms: Optional[float]
     is_bad: bool
     periods: List[str]
 
@@ -205,6 +223,16 @@ class ChannelGroup(BaseModel):
                                     max(0, cols_num - layout.columns_num_to_show))
 
 
+class SourceGuiSetup(BaseModel):
+    """Channel groups and per-channel setup of a source that is not the active one."""
+    channels_groups: List[ChannelGroup] = Field(default_factory=list)
+    channels_setup: Dict[int, ChannelSetup] = Field(default_factory=dict)
+
+
+# Fields that depend on the data of a particular Record and are never copied between Records.
+RECORD_SPECIFIC_GUI_FIELDS = {"current_segment_idx", "overlay_segment_idxs", "start_point"}
+
+
 class GuiSetup(BaseModel):
     right_panel_widgets: List[RightPanelWidgetEnum] = Field(
         default_factory=lambda: RightPanelWidgetEnum.default_widgets())
@@ -216,8 +244,13 @@ class GuiSetup(BaseModel):
     events_are_shown: bool = True
     periods_are_shown: bool = True
 
-    current_sweep_idx: int = 0
-    overlay_sweep_idxs: List[int] = Field(default_factory=list)
+    active_source_id: Optional[str] = None
+    navigation_mode: NavigationModeEnum = NavigationModeEnum.SEGMENT
+    period_label_id: Optional[int] = None
+    pre_ms: float = 0.0
+    post_ms: float = 0.0
+    current_segment_idx: int = 0
+    overlay_segment_idxs: List[int] = Field(default_factory=list)
     start_point: int = 0
     duration_ms: int = settings.DEFAULT_DURATION
     time_step_ms: int = settings.DEFAULT_TIME_STEP
@@ -225,6 +258,7 @@ class GuiSetup(BaseModel):
     number_of_dots_to_display: int = settings.DEFAULT_NUMBER_OF_DOTS_TO_DISPLAY
     channels_groups: List[ChannelGroup] = Field(default_factory=list)
     channels_setup: Dict[int, ChannelSetup] = Field(default_factory=dict)
+    other_sources_setup: Dict[str, SourceGuiSetup] = Field(default_factory=dict)
     visual_attachment: str = ""
 
     class Config:
@@ -259,20 +293,51 @@ class GuiSetup(BaseModel):
             result.extend(group.channel_indexes)
         return result
 
+    def transferable_copy(self, target: "GuiSetup") -> "GuiSetup":
+        """This setup applied to another Record: positions inside the data are kept from `target`."""
+        data = self.model_dump()
+        for field_name in RECORD_SPECIFIC_GUI_FIELDS:
+            data[field_name] = getattr(target, field_name)
+        return GuiSetup.model_validate(data)
+
+
+def default_source_setup(view: SourceView) -> SourceGuiSetup:
+    all_channels = list(range(view.number_of_channels))
+    return SourceGuiSetup(
+        channels_groups=[
+            ChannelGroup(
+                name="Default",
+                channel_indexes=all_channels,
+                enabled_indexes=set(all_channels),
+                channels_layout=ChannelsLayout(rows_num_to_show=settings.DEFAULT_VISIBLE_CHANNELS_NUM),
+            )
+        ],
+        channels_setup={idx: ChannelSetup(scale=float(settings.DEFAULT_SCALE)) for idx in all_channels},
+    )
+
 
 class Period(BaseModel):
+    """Period in Record time (ms from the Record start)."""
+    id: int = 0
     period_name_id: int
-    start_sweep_idx: int
-    start_time_ms: float
-    end_sweep_idx: int
-    end_time_ms: float
+    start_t_ms: float
+    end_t_ms: float
+    source_id: Optional[str] = None
+    channel: Optional[int] = None
+    value: Optional[str] = None
+    extra: Dict[str, str] = Field(default_factory=dict)
 
 
 class Event(BaseModel):
+    """Event in Record time (ms from the Record start)."""
+    id: int = 0
     event_name_id: int
-    sweep_idx: int
-    time_ms: float
+    t_ms: float
     is_bad: bool = False
+    source_id: Optional[str] = None
+    channel: Optional[int] = None
+    value: Optional[str] = None
+    extra: Dict[str, str] = Field(default_factory=dict)
 
 
 class EventVocabularyEntry(BaseModel):
@@ -280,29 +345,24 @@ class EventVocabularyEntry(BaseModel):
     color: str = "#0066FF"
     is_visible: bool = True
 
-    @model_validator(mode="before")
-    @classmethod
-    def _from_legacy_value(cls, value):
-        if isinstance(value, str):
-            return {"name": value, "color": "#0066FF", "is_visible": True}
-        return value
-
 
 class PeriodVocabularyEntry(BaseModel):
     name: str
     color: str = "#00AA55"
     is_visible: bool = True
 
-    @model_validator(mode="before")
-    @classmethod
-    def _from_legacy_value(cls, value):
-        if isinstance(value, str):
-            return {"name": value, "color": "#00AA55", "is_visible": True}
-        return value
+
+_INVALID_SESSION_NAME_CHARS = set('<>:"/\\|?*')
+
+
+def is_valid_session_name(name: str) -> bool:
+    name = name.strip()
+    return bool(name) and name not in {".", ".."} and not (set(name) & _INVALID_SESSION_NAME_CHARS)
 
 
 class UserSession(BaseModel):
-    session_filename: str
+    """A named set of annotations and GUI settings of one Record: sessions/<name>/."""
+    session_name: str
     changes_saved: bool = True
     events_vocabulary: Dict[int, EventVocabularyEntry] = Field(default_factory=dict)
     events: List[Event] = Field(default_factory=list)
@@ -314,48 +374,93 @@ class UserSession(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-    def save_session(self, dest_folder: Path):
-        dest_folder.mkdir(exist_ok=True)
-        dest_filepath = dest_folder / self.session_filename
-        json_dump = self.model_dump_json(exclude={"session_filename": True, "changes_saved": True}, indent=4)
-        with open(dest_filepath, "w") as dest_file:
-            dest_file.write(json_dump)
+    # ----- files -----
 
-    def change_name(self, new_session_name: str):
-        self.session_filename = new_session_name + settings.SESSION_EXTENSION
-
-    @staticmethod
-    def parse_session_file(session_filepath: Path):
-        if session_filepath.exists():
-            with open(session_filepath, "r") as prev_session_file:
-                try:
-                    json_string = prev_session_file.read()
-                    session_dict = json.loads(json_string)
-                    session_dict["session_filename"] = session_filepath.name
-                    return UserSession.model_validate(session_dict)
-                except Exception:
-                    raise BrokenSessionFileError(session_filepath)
-
-        return None
-
-    @staticmethod
-    def load_from_default_folder(ephyr_experiment_folder, session_filename: str) -> "UserSession":
-        session_filepath = UserSession.sessions_folder(ephyr_experiment_folder) / session_filename
-        return UserSession.parse_session_file(session_filepath)
+    def save_session(self, sessions_folder: Path):
+        folder = sessions_folder / self.session_name
+        folder.mkdir(parents=True, exist_ok=True)
+        settings_json = self.model_dump_json(
+            exclude={"session_name": True, "changes_saved": True, "events": True, "periods": True}, indent=4
+        )
+        tmp_path = folder / (settings.SESSION_SETTINGS_FILENAME + ".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as dest_file:
+            dest_file.write(settings_json)
+        os.replace(tmp_path, folder / settings.SESSION_SETTINGS_FILENAME)
+        write_events(folder / settings.EVENTS_FILENAME, [
+            EventRow(id=event.id, t_ms=event.t_ms, label=self.get_event_vocabulary_name(event.event_name_id),
+                     source_id=event.source_id, channel=event.channel, value=event.value, is_bad=event.is_bad,
+                     extra=dict(event.extra))
+            for event in self.events
+        ])
+        write_periods(folder / settings.PERIODS_FILENAME, [
+            PeriodRow(id=period.id, start_t_ms=period.start_t_ms, end_t_ms=period.end_t_ms,
+                      label=self.get_period_vocabulary_name(period.period_name_id), source_id=period.source_id,
+                      channel=period.channel, value=period.value, extra=dict(period.extra))
+            for period in self.periods
+        ])
 
     @staticmethod
-    def session_name_to_filename(session_name: str) -> str:
-        return session_name + settings.SESSION_EXTENSION
+    def is_session_folder(folder: Path) -> bool:
+        return (Path(folder) / settings.SESSION_SETTINGS_FILENAME).is_file()
 
     @staticmethod
-    def is_session_file(filename: str) -> bool:
-        return filename.endswith(settings.SESSION_EXTENSION)
+    def load(session_folder: Path) -> "UserSession":
+        session_folder = Path(session_folder)
+        settings_path = session_folder / settings.SESSION_SETTINGS_FILENAME
+        try:
+            with open(settings_path, "r", encoding="utf-8") as file:
+                session_dict = json.load(file)
+            session_dict["session_name"] = session_folder.name
+            session = UserSession.model_validate(session_dict)
+            session.add_event_rows(read_events(session_folder / settings.EVENTS_FILENAME), keep_ids=True)
+            session.add_period_rows(read_periods(session_folder / settings.PERIODS_FILENAME), keep_ids=True)
+        except Exception:
+            raise BrokenSessionFileError(settings_path)
+        return session
 
-    @staticmethod
-    def sessions_folder(ephyr_experiment_folder: Path):
-        folder = ephyr_experiment_folder / settings.OTHER_SESSIONS_FOLDER
-        folder.mkdir(exist_ok=True)
-        return folder
+    # ----- annotations from CSV rows -----
+
+    def _event_vocabulary_id(self, label: str) -> int:
+        for vocabulary_id, entry in self.events_vocabulary.items():
+            if entry.name == label:
+                return vocabulary_id
+        return self.add_event_vocabulary(label)
+
+    def _period_vocabulary_id(self, label: str) -> int:
+        for vocabulary_id, entry in self.periods_vocabulary.items():
+            if entry.name == label:
+                return vocabulary_id
+        return self.add_period_vocabulary(label)
+
+    def add_event_rows(self, rows: List[EventRow], keep_ids: bool = False) -> List[Event]:
+        added = []
+        for row in rows:
+            event = Event(
+                id=row.id if keep_ids else self.next_event_id(),
+                event_name_id=self._event_vocabulary_id(row.label or "Event"),
+                t_ms=row.t_ms, is_bad=row.is_bad, source_id=row.source_id, channel=row.channel,
+                value=row.value, extra=dict(row.extra),
+            )
+            self.events.append(event)
+            added.append(event)
+        self.sort_events()
+        return added
+
+    def add_period_rows(self, rows: List[PeriodRow], keep_ids: bool = False) -> List[Period]:
+        added = []
+        for row in rows:
+            period = Period(
+                id=row.id if keep_ids else self.next_period_id(),
+                period_name_id=self._period_vocabulary_id(row.label or "Period"),
+                start_t_ms=row.start_t_ms, end_t_ms=row.end_t_ms, source_id=row.source_id,
+                channel=row.channel, value=row.value, extra=dict(row.extra),
+            )
+            self.periods.append(period)
+            added.append(period)
+        self.sort_periods()
+        return added
+
+    # ----- vocabularies -----
 
     def add_event_vocabulary(self, name: str) -> int:
         next_id = max(self.events_vocabulary.keys(), default=-1) + 1
@@ -448,48 +553,83 @@ class UserSession(BaseModel):
         # Remove periods that reference this vocabulary id
         self.periods = [p for p in self.periods if p.period_name_id != period_vocabulary_id]
 
-    def add_event(self, event_name_id: int, sweep_idx: int, time_ms: float) -> Event:
+    def merge_vocabularies(self, other: "UserSession") -> Tuple[Dict[int, int], Dict[int, int]]:
+        """Merge `other` vocabularies by name; returns maps of other ids to ids of this session.
+
+        Matching names take the color of `other`, new names are added, nothing is removed and the ids of
+        already annotated events and periods do not change.
+        """
+        event_map: Dict[int, int] = {}
+        for other_id, entry in other.events_vocabulary.items():
+            own_id = next((vid for vid, own in self.events_vocabulary.items() if own.name == entry.name), None)
+            if own_id is None:
+                own_id = self.add_event_vocabulary(entry.name)
+            self.events_vocabulary[own_id].color = entry.color
+            self.events_vocabulary[own_id].is_visible = entry.is_visible
+            event_map[other_id] = own_id
+        period_map: Dict[int, int] = {}
+        for other_id, entry in other.periods_vocabulary.items():
+            own_id = next((vid for vid, own in self.periods_vocabulary.items() if own.name == entry.name), None)
+            if own_id is None:
+                own_id = self.add_period_vocabulary(entry.name)
+            self.periods_vocabulary[own_id].color = entry.color
+            self.periods_vocabulary[own_id].is_visible = entry.is_visible
+            period_map[other_id] = own_id
+        return event_map, period_map
+
+    # ----- events and periods -----
+
+    def next_event_id(self) -> int:
+        return max((event.id for event in self.events), default=-1) + 1
+
+    def next_period_id(self) -> int:
+        return max((period.id for period in self.periods), default=-1) + 1
+
+    def sort_events(self) -> None:
+        self.events.sort(key=lambda event: (event.t_ms, event.id))
+
+    def sort_periods(self) -> None:
+        self.periods.sort(key=lambda period: (period.start_t_ms, period.id))
+
+    def add_event(self, event_name_id: int, t_ms: float) -> Event:
         """Add a new event to the session."""
-        new_event = Event(event_name_id=event_name_id, sweep_idx=sweep_idx, time_ms=time_ms)
+        new_event = Event(id=self.next_event_id(), event_name_id=event_name_id, t_ms=float(t_ms))
         self.events.append(new_event)
-        self.events.sort(key=lambda event: (event.sweep_idx, event.time_ms))
+        self.sort_events()
         return new_event
 
     def remove_event(self, event: Event):
         """Remove a specific event instance from the session."""
-        try:
-            self.events.remove(event)
-        except ValueError:
-            pass
+        self.events = [item for item in self.events if item.id != event.id]
+
+    def event_by_id(self, event_id: int) -> Optional[Event]:
+        return next((event for event in self.events if event.id == event_id), None)
 
     def event_set_bad_flag(self, event: Event, is_bad: bool):
-        try:
-            event_pos = self.events.index(event)
-            self.events[event_pos].is_bad = is_bad
-        except ValueError:
-            pass
+        target = self.event_by_id(event.id)
+        if target is not None:
+            target.is_bad = is_bad
 
     def clear_events_for_vocabulary_id(self, event_name_id: int):
         """Remove all events that reference the given vocabulary id."""
         self.events = [e for e in self.events if e.event_name_id != event_name_id]
 
-    def add_period(self, period_name_id: int, start_sweep_idx: int, start_time_ms: float,
-                   end_sweep_idx: int, end_time_ms: float) -> Period:
+    def add_period(self, period_name_id: int, start_t_ms: float, end_t_ms: float) -> Period:
         period = Period(
+            id=self.next_period_id(),
             period_name_id=period_name_id,
-            start_sweep_idx=start_sweep_idx,
-            start_time_ms=start_time_ms,
-            end_sweep_idx=end_sweep_idx,
-            end_time_ms=end_time_ms,
+            start_t_ms=float(min(start_t_ms, end_t_ms)),
+            end_t_ms=float(max(start_t_ms, end_t_ms)),
         )
         self.periods.append(period)
+        self.sort_periods()
         return period
 
     def remove_period(self, period: Period):
-        try:
-            self.periods.remove(period)
-        except ValueError:
-            pass
+        self.periods = [item for item in self.periods if item.id != period.id]
+
+    def period_by_id(self, period_id: int) -> Optional[Period]:
+        return next((period for period in self.periods if period.id == period_id), None)
 
     def set_channel_setup(
             self,
@@ -499,12 +639,10 @@ class UserSession(BaseModel):
             y_offset: float,
             color: str,
             info: Optional[str] = None,
-            header: Optional['Header'] = None,
+            number_of_channels: Optional[int] = None,
     ):
-        if header:
-            total_channels = header.number_of_channels
-            if channel_idx < 0 or channel_idx >= total_channels:
-                return
+        if number_of_channels is not None and not 0 <= channel_idx < number_of_channels:
+            return
 
         prev = self.gui_setup.channels_setup.get(channel_idx)
         self.gui_setup.channels_setup[channel_idx] = ChannelSetup(
@@ -522,11 +660,10 @@ class UserSession(BaseModel):
             y_offset: float,
             color: str,
             info: Optional[str] = None,
-            header: Optional['Header'] = None,
+            number_of_channels: Optional[int] = None,
     ):
-        if header:
-            total_channels = header.number_of_channels
-            channel_indexes = [idx for idx in channel_indexes if 0 <= idx < total_channels]
+        if number_of_channels is not None:
+            channel_indexes = [idx for idx in channel_indexes if 0 <= idx < number_of_channels]
         for channel_idx in channel_indexes:
             prev = self.gui_setup.channels_setup.get(channel_idx)
             self.gui_setup.channels_setup[channel_idx] = ChannelSetup(
@@ -536,80 +673,84 @@ class UserSession(BaseModel):
                 info=(prev.info if (info is None and prev is not None) else (info or "")),
             )
 
-    @property
-    def session_name(self):
-        if self.session_filename.endswith(settings.SESSION_EXTENSION):
-            return self.session_filename[: -len(settings.SESSION_EXTENSION)]
-
-        return self.session_filename
-
-    @property
-    def events_table(self, table_format: EventsTableFormat = EventsTableFormat.DICT):
+    def events_table(self, source_view: Optional[SourceView] = None) -> List[EventTableRow]:
         result = []
+        mapper = source_view.time_mapper if source_view is not None else None
         for event in self.events:
-            event_periods = []
-            for period in self.periods:
-                if event.sweep_idx < period.start_sweep_idx or event.sweep_idx > period.end_sweep_idx:
-                    continue
-                if period.start_sweep_idx == period.end_sweep_idx:
-                    in_period = period.start_time_ms <= event.time_ms <= period.end_time_ms
-                elif event.sweep_idx == period.start_sweep_idx:
-                    in_period = event.time_ms >= period.start_time_ms
-                elif event.sweep_idx == period.end_sweep_idx:
-                    in_period = event.time_ms <= period.end_time_ms
-                else:
-                    in_period = True
-                if in_period:
-                    event_periods.append(self.get_period_vocabulary_name(period.period_name_id))
+            event_periods = [
+                self.get_period_vocabulary_name(period.period_name_id)
+                for period in self.periods
+                if period.start_t_ms <= event.t_ms <= period.end_t_ms
+            ]
+            segment_idx = mapper.segment_of_time(event.t_ms) if mapper is not None else None
+            time_in_segment = (event.t_ms - mapper.segments[segment_idx].t_start_ms
+                               if segment_idx is not None else None)
             result.append(EventTableRow(
                 name=self.get_event_vocabulary_name(event.event_name_id),
-                sweep_idx=event.sweep_idx,
-                time_ms=event.time_ms,
+                t_ms=event.t_ms,
+                segment_idx=segment_idx,
+                time_in_segment_ms=time_in_segment,
                 is_bad=event.is_bad,
                 periods=event_periods,
             ))
         return result
 
 
-class ExperimentData(BaseModel):
-    header: Header
-    data_memmaps: Tuple[Tuple[np.memmap, ...], ...]
+class RecordData:
+    """Samples of the active source of a Record: one int16 memmap per channel over all segments."""
 
-    class Config:
-        arbitrary_types_allowed = True
+    def __init__(self, source_view: SourceView, memmaps: Tuple[np.memmap, ...]):
+        self.source_view = source_view
+        self.memmaps = memmaps
 
-    def process_data_pipeline(self, params: GuiSetup, sweep_idx: int, channel_indexes: List[int],
+    @classmethod
+    def open(cls, record_folder: Path, source_view: SourceView) -> "RecordData":
+        total = source_view.total_samples
+        memmaps = []
+        for channel_idx in range(source_view.number_of_channels):
+            path = layout.channel_samples_path(record_folder, source_view.source_id, channel_idx)
+            if total == 0:
+                memmaps.append(np.zeros(0, dtype="<i2"))
+                continue
+            memmaps.append(np.memmap(path, dtype="<i2", mode="r", shape=(total,)))
+        return cls(source_view, tuple(memmaps))
+
+    def window_samples(self, params: GuiSetup) -> int:
+        return int(params.duration_ms * self.source_view.sample_rate / 1000.0)
+
+    def process_data_pipeline(self, params: GuiSetup, segment_idx: int, channel_indexes: List[int],
                               output_number_of_dots: int,
                               transformation_add_ons: Optional[List[BaseAddOn]] = None) -> Dict[
         int, np.ndarray[np.float64]]:
         """
         Process data pipeline using multithreading for each visible channel.
-        Returns array of shape (len(visible_channel_indexes), number_of_time_points)
+        Returns {channel_idx: array of output_number_of_dots points}.
         """
-        per_sweep = self.process_data_pipeline_multi_sweep(
+        per_segment = self.process_data_pipeline_multi_segment(
             params=params,
-            sweep_indexes=[sweep_idx],
+            segment_indexes=[segment_idx],
             channel_indexes=channel_indexes,
             output_number_of_dots=output_number_of_dots,
             transformation_add_ons=transformation_add_ons,
         )
-        return per_sweep.get(sweep_idx, {})
+        return per_segment.get(segment_idx, {})
 
-    def process_data_pipeline_multi_sweep(self, params: GuiSetup, sweep_indexes: List[int],
-                                          channel_indexes: List[int],
-                                          output_number_of_dots: int,
-                                          transformation_add_ons: Optional[List[BaseAddOn]] = None) -> Dict[
+    def process_data_pipeline_multi_segment(self, params: GuiSetup, segment_indexes: List[int],
+                                            channel_indexes: List[int],
+                                            output_number_of_dots: int,
+                                            transformation_add_ons: Optional[List[BaseAddOn]] = None) -> Dict[
         int, Dict[int, np.ndarray[np.float64]]]:
         """
-        Run the same pipeline for several sweeps at once, sharing a single thread pool.
-        Sweeps that do not fully cover the requested time window are skipped, because
+        Run the same pipeline for several display segments at once, sharing a single thread pool.
+        Segments that do not fully cover the requested time window are skipped, because
         resampling a partial window would distort the time axis.
         """
-        start_sample = params.start_point
-        end_sample = params.start_point + int(params.duration_ms * 1000 / self.header.sample_interval_microseconds)
+        view = self.source_view
+        window = self.window_samples(params)
+        start_offset = int(params.start_point)
         channel_filters: Dict[int, List[FilterConfig]] = {}
         channel_transformation_add_ons: Dict[int, List[BaseAddOn]] = {}
-        for group_idx, group in enumerate(params.channels_groups):
+        for group in params.channels_groups:
             group_filters = list(group.filters or [])
             for channel_idx in group.channel_indexes:
                 channel_filters[channel_idx] = group_filters
@@ -617,30 +758,27 @@ class ExperimentData(BaseModel):
                                                                (transformation_add_ons or [])
                                                                if transformation_add_on.applicable(channel_idx)]
 
-        points_per_sweep = list(self.header.number_of_points_per_sweep)
         # The window length is derived from duration_ms here and from sample_rate when the GUI
         # clamps start_point, so allow the single sample those two roundings may disagree on.
-        min_required_points = max(0, end_sample - 1)
-        sweeps_to_process: List[int] = []
-        for sweep_idx in sweep_indexes:
-            if not (0 <= sweep_idx < len(self.data_memmaps)):
+        min_required_points = max(0, start_offset + window - 1)
+        segments_to_process: List[int] = []
+        for segment_idx in segment_indexes:
+            if not (0 <= segment_idx < view.number_of_segments) or segment_idx in segments_to_process:
                 continue
-            if sweep_idx in sweeps_to_process:
-                continue
-            available_points = points_per_sweep[sweep_idx] if sweep_idx < len(points_per_sweep) else end_sample
+            available_points = view.display_segments[segment_idx].number_of_samples
             if available_points < min_required_points:
                 ephyr_logger().debug(
-                    f"Sweep {sweep_idx} is shorter than the requested window "
-                    f"({available_points} < {end_sample} samples), skipped"
+                    f"Segment {segment_idx} is shorter than the requested window "
+                    f"({available_points} < {start_offset + window} samples), skipped"
                 )
                 continue
-            sweeps_to_process.append(sweep_idx)
+            segments_to_process.append(segment_idx)
 
-        results: Dict[int, Dict[int, np.ndarray[np.float64]]] = {sweep_idx: {} for sweep_idx in sweeps_to_process}
-        if not channel_indexes or not sweeps_to_process:
+        results: Dict[int, Dict[int, np.ndarray[np.float64]]] = {idx: {} for idx in segments_to_process}
+        if not channel_indexes or not segments_to_process:
             return results
 
-        tasks_num = len(channel_indexes) * len(sweeps_to_process)
+        tasks_num = len(channel_indexes) * len(segments_to_process)
         max_workers = min(tasks_num, (os.cpu_count() or 4) * 4)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_task = {}
@@ -653,15 +791,15 @@ class ExperimentData(BaseModel):
                 )
                 points_for_rate = int(params.duration_ms * 1_000_000 * required_sample_rate)
                 target_points = max(int(output_number_of_dots), int(points_for_rate), 1)
-                each_point = max(1, int((end_sample - start_sample) / target_points))
-                effective_sample_rate = (
-                    self.header.sample_rate / each_point if each_point > 0 else self.header.sample_rate
-                )
-                for sweep_idx in sweeps_to_process:
+                each_point = max(1, int(window / target_points))
+                effective_sample_rate = view.sample_rate / each_point
+                for segment_idx in segments_to_process:
+                    segment = view.display_segments[segment_idx]
+                    start_sample = segment.start_sample + start_offset
+                    end_sample = min(start_sample + window, segment.start_sample + segment.number_of_samples)
                     future = executor.submit(
                         self.process_single_channel,
                         channel_idx,
-                        sweep_idx,
                         start_sample,
                         end_sample,
                         each_point,
@@ -670,34 +808,32 @@ class ExperimentData(BaseModel):
                         output_number_of_dots,
                         transformation_add_ons_for_channel,
                     )
-                    future_to_task[future] = (sweep_idx, channel_idx)
+                    future_to_task[future] = (segment_idx, channel_idx)
 
-            for future, (sweep_idx, channel_idx) in future_to_task.items():
+            for future, (segment_idx, channel_idx) in future_to_task.items():
                 try:
-                    channel_data = future.result()  # This blocks until the thread completes
-                    results[sweep_idx][channel_idx] = channel_data
+                    results[segment_idx][channel_idx] = future.result()
                 except Exception as exc:
                     ephyr_logger().error(
-                        f"Channel {channel_idx} of sweep {sweep_idx} generated an exception: {exc}"
+                        f"Channel {channel_idx} of segment {segment_idx} generated an exception: {exc}"
                     )
                     raise
 
         return results
 
-    def process_single_channel(self, channel_idx: int, sweep_idx: int,
+    def process_single_channel(self, channel_idx: int,
                                start_sample: int, end_sample: int,
                                each_point: int, sample_rate: float,
                                filters: List[FilterConfig],
                                output_number_of_dots: int,
                                transformation_add_ons: List[BaseAddOn]) -> np.ndarray[np.float64]:
         """
-        Process a single channel's data pipeline.
+        Process a single channel's data pipeline over global samples [start_sample, end_sample).
         This method runs in a separate thread for each channel.
         """
-        # Read only the required data for this specific channel
-        channel_data = self.data_memmaps[sweep_idx][channel_idx][start_sample:end_sample:each_point].astype(np.float64)
+        channel_data = self.memmaps[channel_idx][start_sample:end_sample:each_point].astype(np.float64)
 
-        # Convert to physical values in the channel's header unit
+        # Convert to physical values in the channel's unit
         channel_data = self.from_int16_to_physical(channel_data, channel_idx)
 
         # Transform before filtration
@@ -723,7 +859,7 @@ class ExperimentData(BaseModel):
         if output_len <= 0:
             return data
         n = len(data)
-        if n == output_len:
+        if n == output_len or n == 0:
             return data
         if n > output_len:
             idx = np.linspace(0, n - 1, output_len).astype(np.int64)
@@ -733,17 +869,24 @@ class ExperimentData(BaseModel):
         return np.interp(x_new, x_old, data).astype(np.float64)
 
     def from_int16_to_physical(self, data: np.ndarray, channel_idx: int):
-        """Convert stored samples into values expressed in the channel's header unit."""
-        return np.multiply(self.channel_scale(self.header.channel_info.analog_max[channel_idx],
-                                              self.header.channel_info.analog_min[channel_idx],
-                                              self.header.channel_info.digital_max[channel_idx],
-                                              self.header.channel_info.digital_min[channel_idx]),
-                           data)
+        """Convert stored samples into values expressed in the channel's unit."""
+        info = self.source_view.channel_info
+        scale, offset = self.channel_calibration(info.analog_max[channel_idx], info.analog_min[channel_idx],
+                                                 info.digital_max[channel_idx], info.digital_min[channel_idx])
+        result = np.multiply(scale, data)
+        if offset:
+            result += offset
+        return result
 
     @staticmethod
     @lru_cache(maxsize=1024)
-    def channel_scale(analog_max, analog_min, digital_max, digital_min):
-        return (analog_max - analog_min) / (digital_max - digital_min)
+    def channel_calibration(analog_max, analog_min, digital_max, digital_min) -> Tuple[float, float]:
+        scale = (analog_max - analog_min) / (digital_max - digital_min)
+        offset = analog_min - digital_min * scale
+        # A range symmetric up to one LSB is treated as zero-centred: the half-LSB offset is rounding.
+        if abs(offset) <= abs(scale):
+            offset = 0.0
+        return scale, offset
 
     def default_scale_for_channel(self, channel_idx: int) -> float:
         return float(settings.DEFAULT_SCALE)
@@ -752,106 +895,215 @@ class ExperimentData(BaseModel):
         return float(settings.DEFAULT_SCALE)
 
 
-def ephyr_experiment_folder_required(method):
+def record_required(method):
     def wrapper(self, *args, **kwargs):
-        if self.ephyr_experiment_folder is None:
-            raise ValueError("Select ephyr experiment folder first'")
+        if self.record_dir is None:
+            raise ValueError("Open a Record first")
         return method(self, *args, **kwargs)
 
     return wrapper
 
 
-class EphyrSessionManager(BaseModel):
-    ephyr_experiment_folder: Optional[Path] = None
-    current_user_session: Optional[UserSession] = None
-    experiment_data: Optional[ExperimentData] = None
+class EphyrSessionManager:
+    """The open Record of a workspace: its active source, data and the current session."""
 
-    class Config:
-        arbitrary_types_allowed = True
+    def __init__(self):
+        self.workspace: Optional[Workspace] = None
+        self.config_id: Optional[str] = None
+        self.record_id: Optional[str] = None
+        self.record_dir: Optional[Path] = None
+        self.current_user_session: Optional[UserSession] = None
+        self.record_data: Optional[RecordData] = None
+
+    # ----- record -----
+
+    @property
+    def config(self) -> Optional[ConfigManifest]:
+        if self.workspace is None or self.config_id is None:
+            return None
+        return self.workspace.config(self.config_id)
+
+    @property
+    def record(self) -> Optional[RecordManifest]:
+        if self.workspace is None or self.config_id is None or self.record_id is None:
+            return None
+        return self.workspace.record(self.config_id, self.record_id)
+
+    @property
+    def source_view(self) -> Optional[SourceView]:
+        return self.record_data.source_view if self.record_data is not None else None
+
+    def available_source_ids(self) -> List[str]:
+        record = self.record
+        return [source.source_id for source in record.sources] if record is not None else []
+
+    def build_source_view(self, source_id: str) -> SourceView:
+        config, record = self.config, self.record
+        spec = config.source(source_id) if config is not None else None
+        record_source = record.source(source_id) if record is not None else None
+        if spec is None or record_source is None:
+            raise ValueError(f"Source '{source_id}' is not available in this Record")
+        return SourceView(spec, record_source, record_name=record.name, start_datetime=record.start_datetime)
+
+    def open_record(self, workspace: Workspace, config_id: str, record_id: str):
+        self.current_user_session = None
+        self.record_data = None
+        self.workspace = workspace
+        self.config_id = config_id
+        self.record_id = record_id
+        self.record_dir = workspace.record_dir(config_id, record_id)
+        self.sessions_folder.mkdir(parents=True, exist_ok=True)
+        self.load_source(self.config.main_source_id)
+
+    def close_record(self):
+        self.current_user_session = None
+        self.record_data = None
+        self.config_id = None
+        self.record_id = None
+        self.record_dir = None
+
+    @record_required
+    def load_source(self, source_id: str) -> None:
+        if source_id not in self.available_source_ids():
+            source_id = self.config.main_source_id
+        self.record_data = RecordData.open(self.record_dir, self.build_source_view(source_id))
+        if self.current_user_session is not None:
+            self.current_user_session.gui_setup.active_source_id = source_id
+            self.rebuild_display_segments()
+
+    @record_required
+    def switch_source(self, source_id: str) -> None:
+        """Make another source active, keeping the channel setup of each source in the session."""
+        session = self.user_session
+        gui_setup = session.gui_setup
+        previous = gui_setup.active_source_id or self.config.main_source_id
+        if previous == source_id:
+            return
+        gui_setup.other_sources_setup[previous] = SourceGuiSetup(
+            channels_groups=gui_setup.channels_groups, channels_setup=gui_setup.channels_setup
+        )
+        self.load_source(source_id)
+        stored = gui_setup.other_sources_setup.pop(source_id, None) or default_source_setup(self.source_view)
+        gui_setup.channels_groups = stored.channels_groups
+        gui_setup.channels_setup = stored.channels_setup
+        gui_setup.current_segment_idx = 0
+        gui_setup.overlay_segment_idxs = []
+        gui_setup.start_point = 0
+
+    def rebuild_display_segments(self) -> None:
+        """Display segments of the active source for the navigation mode of the current session."""
+        view = self.source_view
+        if view is None:
+            return
+        gui_setup = self.current_user_session.gui_setup if self.current_user_session is not None else GuiSetup()
+        mode = gui_setup.navigation_mode
+        if mode is NavigationModeEnum.CONTINUOUS:
+            segments = continuous_display_segments(view)
+        elif mode is NavigationModeEnum.PERIOD_LABEL and self.current_user_session is not None:
+            session = self.current_user_session
+            label_id = gui_setup.period_label_id
+            periods = [(period.start_t_ms, period.end_t_ms) for period in session.periods
+                       if period.period_name_id == label_id]
+            segments = period_display_segments(view, periods, gui_setup.pre_ms, gui_setup.post_ms,
+                                               session.get_period_vocabulary_name(label_id)
+                                               if label_id is not None else "Period")
+        else:
+            segments = physical_display_segments(view)
+        view.display_segments = segments
+        if self.current_user_session is not None:
+            count = len(segments)
+            gui_setup.current_segment_idx = min(max(0, gui_setup.current_segment_idx), max(0, count - 1))
+            gui_setup.overlay_segment_idxs = [idx for idx in gui_setup.overlay_segment_idxs if 0 <= idx < count]
+
+    # ----- sessions -----
 
     @property
     def user_session(self) -> UserSession:
         if self.current_user_session is None:
-            raise ValueError("Select ephyr experiment folder first")
+            raise ValueError("Open a Record first")
 
         return self.current_user_session
 
+    @property
+    def sessions_folder(self) -> Path:
+        return layout.sessions_dir(self.record_dir)
+
+    @property
+    def add_ons_data_folder(self) -> Path:
+        folder = layout.add_ons_data_dir(self.record_dir)
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
     def session_name_already_exists(self, session_name: str):
-        return self.session_filename_already_exists(UserSession.session_name_to_filename(session_name))
-
-    def session_filename_already_exists(self, session_filename: str):
-        return (session_filename in self.other_session_filenames
+        return (session_name in self.other_session_names
                 or self.current_user_session is not None
-                and session_filename == self.current_user_session.session_filename)
+                and session_name == self.current_user_session.session_name)
 
-    def new_user_session(self, session_filename: str):
-        if self.session_filename_already_exists(session_filename):
+    @record_required
+    def new_user_session(self, session_name: str):
+        if self.session_name_already_exists(session_name):
             raise SessionAlreadyExistsError
+        if not is_valid_session_name(session_name):
+            raise ValueError(f"Invalid session name: {session_name!r}")
 
-        all_channels = list(range(self.experiment_data.header.number_of_channels))
-        default_scale = self.experiment_data.default_scale_for_group(all_channels)
-        self.current_user_session = UserSession(
-            session_filename=session_filename,
+        main_source_id = self.config.main_source_id
+        if self.source_view is None or self.source_view.source_id != main_source_id:
+            self.record_data = RecordData.open(self.record_dir, self.build_source_view(main_source_id))
+        source_setup = default_source_setup(self.source_view)
+        session = UserSession(
+            session_name=session_name.strip(),
             gui_setup=GuiSetup(
-                channels_groups=[
-                    ChannelGroup(
-                        name="Default",
-                        channel_indexes=all_channels,
-                        enabled_indexes=set(all_channels),
-                        channels_layout=ChannelsLayout(
-                            rows_num_to_show=settings.DEFAULT_VISIBLE_CHANNELS_NUM,
-                        ),
-                    )
-                ],
-                channels_setup={idx: ChannelSetup(scale=default_scale) for idx in all_channels},
+                active_source_id=main_source_id,
+                channels_groups=source_setup.channels_groups,
+                channels_setup=source_setup.channels_setup,
             ),
         )
+        # Annotations stored in the source files become the starting annotations of every new session.
+        session.add_event_rows(read_events(layout.source_events_path(self.record_dir)))
+        session.add_period_rows(read_periods(layout.source_periods_path(self.record_dir)))
+        self.current_user_session = session
+        self.rebuild_display_segments()
         self.save_user_session()
 
     def export_current_session(self, destination_path: Path) -> str:
         self.current_user_session.save_session(destination_path)
-        return self.current_user_session.session_filename
+        return self.current_user_session.session_name
 
-    @ephyr_experiment_folder_required
+    @record_required
     def import_new_session(self, user_session: UserSession):
-        user_session.save_session(UserSession.sessions_folder(self.ephyr_experiment_folder))
+        user_session.save_session(self.sessions_folder)
 
-    @ephyr_experiment_folder_required
-    def switch_sessions(self, session_filename: str):
-        self.current_user_session = UserSession.load_from_default_folder(self.ephyr_experiment_folder,
-                                                                         session_filename)
+    @record_required
+    def switch_sessions(self, session_name: str):
+        session = UserSession.load(self.sessions_folder / session_name)
+        self.current_user_session = session
+        self.load_source(session.gui_setup.active_source_id or self.config.main_source_id)
+        self.rebuild_display_segments()
 
     @staticmethod
-    def parse_session_file(session_filepath: Path):
-        return UserSession.parse_session_file(session_filepath)
+    def parse_session_folder(session_folder: Path) -> UserSession:
+        return UserSession.load(session_folder)
 
-    @ephyr_experiment_folder_required
+    @record_required
     def save_user_session(self):
-        self.current_user_session.save_session(UserSession.sessions_folder(self.ephyr_experiment_folder))
+        self.current_user_session.save_session(self.sessions_folder)
 
-    def init_from_folder(self, ephyr_experiment_folder: Path):
-        self.current_user_session = None  # fixme: I don't like the solution
-        sessions_folder = UserSession.sessions_folder(ephyr_experiment_folder)
-        sessions_folder.mkdir(exist_ok=True)
-        header, data_memmaps = EphyrIO.read_ephyr(ephyr_experiment_folder)
-        self.experiment_data = ExperimentData(header=header, data_memmaps=data_memmaps)
-        self.ephyr_experiment_folder = ephyr_experiment_folder
+    @record_required
+    def delete_session(self, session_name: str):
+        folder = self.sessions_folder / session_name
+        if folder.is_dir():
+            shutil.rmtree(folder)
 
     @property
     def session_is_active(self):
-        return self.ephyr_experiment_folder is not None
+        return self.record_dir is not None and self.current_user_session is not None
 
     @property
-    @ephyr_experiment_folder_required
-    def other_session_filenames(self):
-        session_filenames = []
-        if self.ephyr_experiment_folder:
-            sessions_folder = UserSession.sessions_folder(self.ephyr_experiment_folder)
-            for file in os.listdir(sessions_folder):
-                if UserSession.is_session_file(file):
-                    session_filenames.append(file)
-
-        return session_filenames
+    def other_session_names(self) -> List[str]:
+        if self.record_dir is None or not self.sessions_folder.is_dir():
+            return []
+        return sorted(item.name for item in self.sessions_folder.iterdir()
+                      if item.is_dir() and UserSession.is_session_folder(item))
 
     def update_right_panel_widgets(self, right_panel_widgets: List):
         if self.current_user_session is not None:

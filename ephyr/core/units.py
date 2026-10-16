@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 from enum import Enum
-from typing import Iterable, List, Optional
-from pydantic import BaseModel, Field, model_validator
+from typing import List, Optional
 
 
 class PhysicalQuantityEnum(str, Enum):
@@ -133,77 +132,3 @@ def unit_display_label(raw: Optional[str]) -> str:
 def unit_quantity(raw: Optional[str]) -> PhysicalQuantityEnum:
     unit = parse_unit(raw)
     return unit.quantity if unit is not None else PhysicalQuantityEnum.UNKNOWN
-
-
-class ChannelInfo(BaseModel):
-    name: List[str]
-    probe: Optional[List[str]] = Field(default_factory=list)
-    units: Optional[List[str]] = Field(default_factory=list)
-    analog_min: Optional[List[float]] = Field(default_factory=list)
-    analog_max: Optional[List[float]] = Field(default_factory=list)
-    digital_min: Optional[List[int]] = Field(default_factory=list)
-    digital_max: Optional[List[int]] = Field(default_factory=list)
-    prefiltering: Optional[List[str]] = Field(default_factory=list)
-    number_of_points_per_channel: Optional[List[int]] = Field(default_factory=list)
-    impedance_ohm: Optional[List[Optional[float]]] = Field(default_factory=list)
-
-    def rescale_units(self, channel_indexes: Iterable[int], target: SignalUnitEnum) -> None:
-        """Re-express channels in `target` by rescaling the analog range; stored samples are untouched.
-
-        Channels whose unit is unknown or of a different quantity are left as is.
-        """
-        for idx in channel_indexes:
-            if idx >= len(self.units or []):
-                continue
-            unit = parse_unit(self.units[idx])
-            factor = unit.factor_to(target) if unit is not None else None
-            if factor is None:
-                continue
-            if idx < len(self.analog_min or []):
-                self.analog_min[idx] = float(self.analog_min[idx]) * factor
-            if idx < len(self.analog_max or []):
-                self.analog_max[idx] = float(self.analog_max[idx]) * factor
-            self.units[idx] = target.value
-
-
-class Header(BaseModel):
-    type_before_conversion: str
-    name_before_conversion: str
-    creation_date_before_conversion: str
-    creation_time_before_conversion: str
-    sample_interval_microseconds: float
-    sample_rate: float
-    number_of_channels: int
-    number_of_sweeps: int = 1
-    number_of_points_per_sweep: List[int]
-    channel_info: ChannelInfo = Field(default_factory=ChannelInfo)
-
-    @model_validator(mode="after")
-    def validate_sweep_points(self) -> "Header":
-        if self.number_of_sweeps < 1:
-            raise ValueError("number_of_sweeps must be positive")
-        if len(self.number_of_points_per_sweep) != self.number_of_sweeps:
-            raise ValueError("number_of_points_per_sweep length must match number_of_sweeps")
-        if any(points < 0 for points in self.number_of_points_per_sweep):
-            raise ValueError("number_of_points_per_sweep cannot contain negative values")
-        return self
-
-    def channel_unit_label(self, channel_idx: int) -> str:
-        units = self.channel_info.units or []
-        return units[channel_idx] if 0 <= channel_idx < len(units) else ""
-
-    def channel_unit(self, channel_idx: int) -> Optional[SignalUnitEnum]:
-        return parse_unit(self.channel_unit_label(channel_idx))
-
-    def channel_unit_display(self, channel_idx: int) -> str:
-        return unit_display_label(self.channel_unit_label(channel_idx))
-
-    def channel_quantity(self, channel_idx: int) -> PhysicalQuantityEnum:
-        return unit_quantity(self.channel_unit_label(channel_idx))
-
-    def common_unit_display(self, channel_indexes: Optional[Iterable[int]] = None) -> str:
-        """Display unit shared by all given channels (all channels by default), "" if they differ."""
-        if channel_indexes is None:
-            channel_indexes = range(self.number_of_channels)
-        units = {self.channel_unit_display(idx) for idx in channel_indexes}
-        return units.pop() if len(units) == 1 else ""

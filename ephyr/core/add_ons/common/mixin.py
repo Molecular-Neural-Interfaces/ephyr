@@ -193,9 +193,9 @@ class EphyrAddOnMixin:
         return keys
 
     @staticmethod
-    def channel_name(header, channel_idx: int) -> str:
+    def channel_name(source_view, channel_idx: int) -> str:
         try:
-            names = header.channel_info.name or []
+            names = source_view.channel_info.name or []
             if 0 <= int(channel_idx) < len(names):
                 name = str(names[int(channel_idx)]).strip()
                 if name:
@@ -208,7 +208,7 @@ class EphyrAddOnMixin:
         self,
         form: QFormLayout,
         groups: List[Tuple[int, Any]],
-        header,
+        source_view,
         preferred_group_idx: int = 0,
         preferred_channels: Optional[List[int]] = None,
     ) -> Tuple[QComboBox, QListWidget]:
@@ -233,7 +233,7 @@ class EphyrAddOnMixin:
             enabled = set(getattr(group, "enabled_indexes", set()) or set()) if group is not None else set()
             selected_by_default = preferred if preferred else enabled
             for ch_idx in (getattr(group, "channel_indexes", []) or []):
-                ch_name = self.channel_name(header, int(ch_idx))
+                ch_name = self.channel_name(source_view, int(ch_idx))
                 label = f"{ch_idx} [{ch_name}]"
                 item = QListWidgetItem(label)
                 item.setData(Qt.ItemDataRole.UserRole, int(ch_idx))
@@ -434,7 +434,7 @@ class EphyrAddOnMixin:
         *,
         n_samples: int,
         sample_rate: float,
-        sweep_idx: int,
+        segment_idx: int,
         start_second: float,
         end_second: float,
         selection: Dict[str, Any],
@@ -450,10 +450,10 @@ class EphyrAddOnMixin:
         periods_mode = str(selection.get("periods_mode", SELECTION_MODE_IGNORE))
 
         event_times = self.event_times_by_name_for_window(
-            session_manager, sweep_idx, start_second, end_second
+            session_manager, segment_idx, start_second, end_second
         )
         period_intervals = self.period_intervals_for_window(
-            session_manager, sweep_idx, start_second, end_second, period_names
+            session_manager, segment_idx, start_second, end_second, period_names
         )
         event_rules = []
         if event_names:
@@ -482,18 +482,22 @@ class EphyrAddOnMixin:
         )
 
     # ---- Time resolution ----
+    # Windows are given in seconds inside display segment `segment_idx` of the active source;
+    # events and periods are stored in Record time and projected into it.
     def event_times_by_name_for_window(
         self,
         session_manager,
-        sweep_idx: int,
+        segment_idx: int,
         start_second: float,
         end_second: float,
     ) -> Dict[str, np.ndarray]:
+        view = session_manager.source_view
         event_times: Dict[str, List[float]] = {}
         for event in session_manager.events or []:
-            if int(event.sweep_idx) != int(sweep_idx):
+            local_ms = view.local_ms_of_time(int(segment_idx), float(event.t_ms)) if view is not None else None
+            if local_ms is None:
                 continue
-            event_time_s = float(event.time_ms) / 1000.0
+            event_time_s = local_ms / 1000.0
             if event_time_s < start_second or event_time_s > end_second:
                 continue
             event_name = session_manager.user_session.get_event_vocabulary_name(event.event_name_id)
@@ -503,53 +507,99 @@ class EphyrAddOnMixin:
     def period_intervals_for_window(
         self,
         session_manager,
-        sweep_idx: int,
+        segment_idx: int,
         start_second: float,
         end_second: float,
         period_names: Optional[List[str]] = None,
     ) -> List[Tuple[float, float]]:
         """Return period intervals (seconds, relative to window start) that
-        overlap the window for the given sweep, restricted to ``period_names``.
+        overlap the window of the given display segment, restricted to ``period_names``.
 
         An empty ``period_names`` means "ignore nothing" (return no intervals).
         """
         wanted = set(period_names or [])
-        if not wanted:
+        view = session_manager.source_view
+        if not wanted or view is None:
             return []
         intervals: List[Tuple[float, float]] = []
         for period in session_manager.periods or []:
             name = session_manager.user_session.get_period_vocabulary_name(period.period_name_id)
             if name not in wanted:
                 continue
-            if int(period.start_sweep_idx) > int(sweep_idx) or int(period.end_sweep_idx) < int(sweep_idx):
+            p_start = view.local_ms_of_time(int(segment_idx), float(period.start_t_ms), snap="next")
+            p_end = view.local_ms_of_time(int(segment_idx), float(period.end_t_ms), snap="prev")
+            if p_start is None or p_end is None:
                 continue
-            p_start_s = float(period.start_time_ms) / 1000.0 if int(period.start_sweep_idx) == int(sweep_idx) else start_second
-            p_end_s = float(period.end_time_ms) / 1000.0 if int(period.end_sweep_idx) == int(sweep_idx) else end_second
-            lo = max(start_second, p_start_s)
-            hi = min(end_second, p_end_s)
+            lo = max(start_second, p_start / 1000.0)
+            hi = min(end_second, p_end / 1000.0)
             if hi > lo:
                 intervals.append((lo - start_second, hi - start_second))
         return intervals
 
     # ---- Data access ----
+    @staticmethod
+    def current_segment_idx(session_manager) -> int:
+        gui = getattr(session_manager, "gui_setup", None)
+        return int(getattr(gui, "current_segment_idx", 0) or 0) if gui is not None else 0
+
+    @staticmethod
+    def display_segment_points(session_manager, segment_idx: Optional[int] = None) -> int:
+        view = session_manager.source_view
+        if view is None or not view.display_segments:
+            return 0
+        idx = EphyrAddOnMixin.current_segment_idx(session_manager) if segment_idx is None else int(segment_idx)
+        idx = max(0, min(idx, len(view.display_segments) - 1))
+        return int(view.display_segments[idx].number_of_samples)
+
     def channel_matrix_from_session(
         self,
         session_manager,
         channel_indexes: List[int],
-        sweep_idx: int,
+        segment_idx: int,
+        start_sample: int,
+        end_sample: int,
+        sample_rate: float,
+    ) -> np.ndarray:
+        """Physical signal of channels for samples [start_sample, end_sample) of a display segment."""
+        origin = session_manager.source_view.display_segments[int(segment_idx)].start_sample
+        return self._channel_matrix_range(
+            session_manager, channel_indexes, origin, start_sample, end_sample, sample_rate
+        )
+
+    def channel_matrix_from_physical_segment(
+        self,
+        session_manager,
+        channel_indexes: List[int],
+        segment_idx: int,
+        start_sample: int,
+        end_sample: int,
+        sample_rate: float,
+    ) -> np.ndarray:
+        """Physical signal for samples [start_sample, end_sample) of a stored (physical) segment."""
+        origin = session_manager.source_view.physical_segments[int(segment_idx)].start_sample_idx
+        return self._channel_matrix_range(
+            session_manager, channel_indexes, origin, start_sample, end_sample, sample_rate
+        )
+
+    def _channel_matrix_range(
+        self,
+        session_manager,
+        channel_indexes: List[int],
+        origin_sample: int,
         start_sample: int,
         end_sample: int,
         sample_rate: float,
     ) -> np.ndarray:
         n_samples = max(1, int(end_sample) - int(start_sample))
+        abs_start = int(origin_sample) + int(start_sample)
+        abs_end = int(origin_sample) + int(end_sample)
         rows = []
         for channel_idx in channel_indexes:
             try:
-                signal = session_manager.experiment_data.process_single_channel(
+                signal = session_manager.record_data.process_single_channel(
                     channel_idx=int(channel_idx),
-                    sweep_idx=int(sweep_idx),
-                    start_sample=int(start_sample),
-                    end_sample=int(end_sample),
+                    start_sample=abs_start,
+                    end_sample=abs_end,
                     each_point=1,
                     sample_rate=float(sample_rate),
                     filters=[],

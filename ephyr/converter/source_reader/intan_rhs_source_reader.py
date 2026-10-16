@@ -9,8 +9,17 @@ import struct
 import os
 
 from ._exceptions import WrongSourceReaderError
-from .abstract_source_reader import AbstractSourceReader, AbstractDataWriter
-from ephyr.core.header import Header, ChannelInfo
+from .abstract_source_reader import (
+    AbstractDataWriter,
+    AbstractSourceReader,
+    ChannelPlan,
+    ConversionPlan,
+    ReaderOption,
+    SourcePlan,
+    SourceRef,
+    contiguous_segments,
+)
+from ephyr.core.manifests import SegmentKindEnum
 
 
 def _resolve_intan_folder(experiment_path: Path) -> Path:
@@ -19,6 +28,69 @@ def _resolve_intan_folder(experiment_path: Path) -> Path:
     if experiment_path.is_file() and experiment_path.suffix.lower() in {".rhs", ".rhd", ".xml"}:
         return experiment_path.parent
     return experiment_path
+
+
+GROUP_FILES_OPTION = "group_intan_files_into_single_segment"
+
+
+def _list_ordered_intan_files(experiment_path: Path, suffix: str) -> List[Path]:
+    folder = _resolve_intan_folder(experiment_path)
+    if not folder.is_dir():
+        return []
+    files = [item for item in folder.iterdir() if item.is_file() and item.suffix.lower() == suffix]
+    files.sort(key=lambda item: (os.path.getmtime(item), item.name))
+    return files
+
+
+class _IntanSourceReader(AbstractSourceReader):
+    """Folder of Intan files of one recording; each file is a segment unless they are grouped."""
+
+    _suffix = ""
+
+    @classmethod
+    def resolve(cls, path: Path) -> SourceRef:
+        files = _list_ordered_intan_files(path, cls._suffix)
+        if not files:
+            raise WrongSourceReaderError(cls)
+        with open(files[0], "rb") as fid:
+            cls._read_file_header(fid)
+        folder = files[0].parent
+        return SourceRef(format=cls.format_name, kind="folder", root=folder, name=folder.name, files=files)
+
+    @classmethod
+    def conversion_options(cls) -> List[ReaderOption]:
+        return [ReaderOption(GROUP_FILES_OPTION, "Join Intan files into one continuous segment", True)]
+
+    @property
+    def _group_files(self) -> bool:
+        return bool(self._options.get(GROUP_FILES_OPTION, True))
+
+    def probe(self, scan: bool = False) -> ConversionPlan:
+        files = _list_ordered_intan_files(self.ref.root, self._suffix)
+        channels, sample_rate, points_per_file, start_dt, total_blocks = self._probe_metadata(files)
+        if self._group_files:
+            points = [sum(points_per_file)]
+            labels = None
+        else:
+            points = points_per_file
+            labels = [path.name for path in files][:len(points)] if len(files) == len(points) else None
+        source = SourcePlan(
+            source_id="main",
+            name="Amplifier",
+            sample_rate=sample_rate,
+            channels=channels,
+            segments=contiguous_segments(points, sample_rate, labels=labels),
+            segment_kind=SegmentKindEnum.FILE if len(points) > 1 else SegmentKindEnum.CONTINUOUS,
+            source_format=self.format_name,
+            writer_factory=lambda: self._writer(files, total_blocks, len(channels)),
+        )
+        return ConversionPlan(
+            ref=self.ref,
+            sources=[source],
+            start_datetime=start_dt.isoformat(),
+            recording_name=self.ref.name,
+            reader_options={GROUP_FILES_OPTION: self._group_files},
+        )
 
 
 class IntanRhsDataWriter(AbstractDataWriter):
@@ -73,7 +145,7 @@ class IntanRhsDataWriter(AbstractDataWriter):
             )
         return chunk
 
-    def total_chunks(self, header: Header) -> int:
+    def total_chunks(self) -> int:
         return self._total_blocks_num
 
     def _reset(self, check_end: bool = False, increment_file_idx: bool = False):
@@ -91,57 +163,23 @@ class IntanRhsDataWriter(AbstractDataWriter):
         self._cur_data_idx = 0
 
 
-class IntanRhsSourceReader(AbstractSourceReader):
+class IntanRhsSourceReader(_IntanSourceReader):
     """
     Data formats: https://intantech.com/files/Intan_RHS2000_data_file_formats.pdf
     """
-    def __init__(self, experiment_path: Path):
-        super().__init__(experiment_path)
-        self._source_folder = _resolve_intan_folder(experiment_path)
-        self._header = None
-        self._group_rhs_files_into_single_sweep = True
+    format_name = "rhs"
+    _suffix = ".rhs"
+    _read_file_header = staticmethod(lambda fid: read_header(fid))
 
     @staticmethod
     def _list_ordered_rhs_files(experiment_path: Path):
-        experiment_folder = _resolve_intan_folder(experiment_path)
-        if not experiment_folder.is_dir():
-            return []
+        return _list_ordered_intan_files(experiment_path, ".rhs")
 
-        rhs_files = [item for item in experiment_folder.iterdir() if item.is_file() and item.suffix.lower() == ".rhs"]
-        rhs_files.sort(key=lambda x: os.path.getmtime(x))
-        return rhs_files
+    def _probe_metadata(self, files):
+        return self._init_header(files)
 
-    def get_rhs_files_count(self) -> int:
-        return len(self._list_ordered_rhs_files(self._source_folder))
-
-    def get_intan_files_count(self) -> int:
-        return self.get_rhs_files_count()
-
-    @classmethod
-    def _try_to_open(cls, experiment_path: Path):
-        rhs_files = cls._list_ordered_rhs_files(experiment_path)
-        if not rhs_files:
-            raise WrongSourceReaderError(cls)
-        try:
-            with open(rhs_files[0], "rb") as fid:
-                read_header(fid)
-        except Exception:
-            raise WrongSourceReaderError(cls)
-
-    def __iter__(self):
-        self._header_num = 0
-        return self
-
-    def __next__(self):
-        # fixme: we assume that there is only one header for all records
-        if self._header_num > 0:
-            raise StopIteration
-
-        ordered_rhs_files = self._list_ordered_rhs_files(self._source_folder)
-        header, total_blocks_num = self._init_header(ordered_rhs_files)
-        data_stream = IntanRhsDataWriter(ordered_rhs_files, total_blocks_num, header.number_of_channels)
-        self._header_num += 1
-        return header, data_stream
+    def _writer(self, files, total_blocks_num, n_channels):
+        return IntanRhsDataWriter(files, total_blocks_num, n_channels)
 
     def _init_header(self, ordered_rhs_files: List[Path]):
         channels_number: Optional[int] = None
@@ -156,8 +194,7 @@ class IntanRhsSourceReader(AbstractSourceReader):
         prefiltering: List[str] = []
         impedance_ohm: List[Optional[float]] = []
         points_per_file: List[int] = []
-        date = ""
-        time = ""
+        start_dt = datetime.now()
         total_blocks_num = 0
         first_amplifier_channels = 0
         first_board_adc_channels = 0
@@ -223,9 +260,7 @@ class IntanRhsSourceReader(AbstractSourceReader):
                         prefiltering.append(filter_str)
                         impedance_ohm.append(None)
 
-                    file_creation_time = datetime.fromtimestamp(os.path.getmtime(rhs_filepath))
-                    date = str(file_creation_time.date())
-                    time = str(file_creation_time.time())
+                    start_dt = datetime.fromtimestamp(os.path.getmtime(rhs_filepath))
                     metadata_initialized = True
                 else:
                     if int(header['num_amplifier_channels']) != first_amplifier_channels:
@@ -236,52 +271,25 @@ class IntanRhsSourceReader(AbstractSourceReader):
                         raise ValueError("RHS files have inconsistent sample rate")
 
         if channels_number is None or sample_rate is None:
-            raise ValueError(f"Failed to parse rhs data from {self._source_folder}")
+            raise ValueError(f"Failed to parse rhs data from {self.ref.root}")
         if not points_per_file:
-            raise ValueError(f"RHS files contain no data: {self._source_folder}")
+            raise ValueError(f"RHS files contain no data: {self.ref.root}")
 
-        if self._group_rhs_files_into_single_sweep:
-            points_per_sweep = [sum(points_per_file)]
-            sweeps_num = 1
-        else:
-            points_per_sweep = points_per_file
-            sweeps_num = len(points_per_sweep)
-
-        total_points = sum(points_per_sweep)
-
-        channel_info = ChannelInfo(
-            name=channel_names,
-            probe=probes,
-            units=units,
-            analog_min=analog_min,
-            analog_max=analog_max,
-            digital_min=digital_min,
-            digital_max=digital_max,
-            prefiltering=prefiltering,
-            number_of_points_per_channel=[total_points] * channels_number,
-            impedance_ohm=impedance_ohm,
-        )
-
-        header = Header(
-            type_before_conversion="rhs",
-            name_before_conversion=self._source_folder.name,
-            creation_date_before_conversion=date,
-            creation_time_before_conversion=time,
-            sample_interval_microseconds=1e6 / sample_rate,
-            sample_rate=sample_rate,
-            number_of_channels=len(channel_names),
-            number_of_sweeps=sweeps_num,
-            number_of_points_per_sweep=points_per_sweep,
-            channel_info=channel_info
-        )
-        return header, total_blocks_num
-
-    def set_conversion_options(self, options: Optional[Dict[str, Any]] = None) -> None:
-        opts = options or {}
-        if "group_rhs_files_into_single_sweep" in opts:
-            self._group_rhs_files_into_single_sweep = bool(opts["group_rhs_files_into_single_sweep"])
-        if "group_intan_files_into_single_sweep" in opts:
-            self._group_rhs_files_into_single_sweep = bool(opts["group_intan_files_into_single_sweep"])
+        channels = [
+            ChannelPlan(
+                name=channel_names[idx],
+                units=units[idx],
+                analog_min=analog_min[idx],
+                analog_max=analog_max[idx],
+                digital_min=digital_min[idx],
+                digital_max=digital_max[idx],
+                probe=probes[idx],
+                prefiltering=prefiltering[idx],
+                impedance_ohm=impedance_ohm[idx],
+            )
+            for idx in range(len(channel_names))
+        ]
+        return channels, float(sample_rate), points_per_file, start_dt, total_blocks_num
 
 
 class IntanRhdDataWriter(AbstractDataWriter):
@@ -337,7 +345,7 @@ class IntanRhdDataWriter(AbstractDataWriter):
 
         raise StopIteration
 
-    def total_chunks(self, header: Header) -> int:
+    def total_chunks(self) -> int:
         return self._total_blocks_num
 
     def _reset(self, check_end: bool = False, increment_file_idx: bool = False):
@@ -355,56 +363,23 @@ class IntanRhdDataWriter(AbstractDataWriter):
         self._cur_data_idx = 0
 
 
-class IntanRhdSourceReader(AbstractSourceReader):
+class IntanRhdSourceReader(_IntanSourceReader):
     """
     Data formats: https://intantech.com/files/Intan_RHD2000_data_file_formats.pdf
     """
-    def __init__(self, experiment_path: Path):
-        super().__init__(experiment_path)
-        self._source_folder = _resolve_intan_folder(experiment_path)
-        self._header_num = 0
-        self._group_rhd_files_into_single_sweep = True
+    format_name = "rhd"
+    _suffix = ".rhd"
+    _read_file_header = staticmethod(lambda fid: read_rhd_header(fid))
 
     @staticmethod
     def _list_ordered_rhd_files(experiment_path: Path):
-        experiment_folder = _resolve_intan_folder(experiment_path)
-        if not experiment_folder.is_dir():
-            return []
+        return _list_ordered_intan_files(experiment_path, ".rhd")
 
-        rhd_files = [item for item in experiment_folder.iterdir() if item.is_file() and item.suffix.lower() == ".rhd"]
-        rhd_files.sort(key=lambda x: os.path.getmtime(x))
-        return rhd_files
+    def _probe_metadata(self, files):
+        return self._init_header(files)
 
-    def get_rhd_files_count(self) -> int:
-        return len(self._list_ordered_rhd_files(self._source_folder))
-
-    def get_intan_files_count(self) -> int:
-        return self.get_rhd_files_count()
-
-    @classmethod
-    def _try_to_open(cls, experiment_path: Path):
-        rhd_files = cls._list_ordered_rhd_files(experiment_path)
-        if not rhd_files:
-            raise WrongSourceReaderError(cls)
-        try:
-            with open(rhd_files[0], "rb") as fid:
-                read_rhd_header(fid)
-        except Exception:
-            raise WrongSourceReaderError(cls)
-
-    def __iter__(self):
-        self._header_num = 0
-        return self
-
-    def __next__(self):
-        if self._header_num > 0:
-            raise StopIteration
-
-        ordered_rhd_files = self._list_ordered_rhd_files(self._source_folder)
-        header, total_blocks_num = self._init_header(ordered_rhd_files)
-        data_stream = IntanRhdDataWriter(ordered_rhd_files, total_blocks_num, header.number_of_channels)
-        self._header_num += 1
-        return header, data_stream
+    def _writer(self, files, total_blocks_num, n_channels):
+        return IntanRhdDataWriter(files, total_blocks_num, n_channels)
 
     def _init_header(self, ordered_rhd_files: List[Path]):
         channels_number: Optional[int] = None
@@ -419,8 +394,7 @@ class IntanRhdSourceReader(AbstractSourceReader):
         prefiltering: List[str] = []
         impedance_ohm: List[Optional[float]] = []
         points_per_file: List[int] = []
-        date = ""
-        time = ""
+        start_dt = datetime.now()
         total_blocks_num = 0
         first_amplifier_channels = 0
         first_board_adc_channels = 0
@@ -484,9 +458,7 @@ class IntanRhdSourceReader(AbstractSourceReader):
                         prefiltering.append(filter_str)
                         impedance_ohm.append(None)
 
-                    file_creation_time = datetime.fromtimestamp(os.path.getmtime(rhd_filepath))
-                    date = str(file_creation_time.date())
-                    time = str(file_creation_time.time())
+                    start_dt = datetime.fromtimestamp(os.path.getmtime(rhd_filepath))
                     metadata_initialized = True
                 else:
                     if int(header["num_amplifier_channels"]) != first_amplifier_channels:
@@ -497,51 +469,25 @@ class IntanRhdSourceReader(AbstractSourceReader):
                         raise ValueError("RHD files have inconsistent sample rate")
 
         if channels_number is None or sample_rate is None:
-            raise ValueError(f"Failed to parse rhd data from {self._source_folder}")
+            raise ValueError(f"Failed to parse rhd data from {self.ref.root}")
         if not points_per_file:
-            raise ValueError(f"RHD files contain no data: {self._source_folder}")
+            raise ValueError(f"RHD files contain no data: {self.ref.root}")
 
-        if self._group_rhd_files_into_single_sweep:
-            points_per_sweep = [sum(points_per_file)]
-            sweeps_num = 1
-        else:
-            points_per_sweep = points_per_file
-            sweeps_num = len(points_per_sweep)
-
-        total_points = sum(points_per_sweep)
-        channel_info = ChannelInfo(
-            name=channel_names,
-            probe=probes,
-            units=units,
-            analog_min=analog_min,
-            analog_max=analog_max,
-            digital_min=digital_min,
-            digital_max=digital_max,
-            prefiltering=prefiltering,
-            number_of_points_per_channel=[total_points] * channels_number,
-            impedance_ohm=impedance_ohm,
-        )
-
-        header = Header(
-            type_before_conversion="rhd",
-            name_before_conversion=self._source_folder.name,
-            creation_date_before_conversion=date,
-            creation_time_before_conversion=time,
-            sample_interval_microseconds=1e6 / sample_rate,
-            sample_rate=sample_rate,
-            number_of_channels=len(channel_names),
-            number_of_sweeps=sweeps_num,
-            number_of_points_per_sweep=points_per_sweep,
-            channel_info=channel_info,
-        )
-        return header, total_blocks_num
-
-    def set_conversion_options(self, options: Optional[Dict[str, Any]] = None) -> None:
-        opts = options or {}
-        if "group_rhd_files_into_single_sweep" in opts:
-            self._group_rhd_files_into_single_sweep = bool(opts["group_rhd_files_into_single_sweep"])
-        if "group_intan_files_into_single_sweep" in opts:
-            self._group_rhd_files_into_single_sweep = bool(opts["group_intan_files_into_single_sweep"])
+        channels = [
+            ChannelPlan(
+                name=channel_names[idx],
+                units=units[idx],
+                analog_min=analog_min[idx],
+                analog_max=analog_max[idx],
+                digital_min=digital_min[idx],
+                digital_max=digital_max[idx],
+                probe=probes[idx],
+                prefiltering=prefiltering[idx],
+                impedance_ohm=impedance_ohm[idx],
+            )
+            for idx in range(len(channel_names))
+        ]
+        return channels, float(sample_rate), points_per_file, start_dt, total_blocks_num
 
 
 def read_rhd_header(fid):

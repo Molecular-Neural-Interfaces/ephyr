@@ -53,7 +53,8 @@ class ViewableAddOn:
             end_time_ms: float,
             sample_rate: float,
             axis_duration_ms: float,
-            sweep_idx: int,
+            # Index of the shown display segment (a physical segment, the whole source or a period window).
+            segment_idx: int,
 
             visible_channel_indexes: List[int],
             channel_names: List[str],
@@ -61,7 +62,7 @@ class ViewableAddOn:
             visible_periods: List[Any],
             channel_groups: List[Any],
             channels_setup: Dict[int, Any],
-            # Display label of each channel header unit ("µV", "mV", "pA", or a raw unknown label)
+            # Display label of each channel unit ("µV", "mV", "pA", or a raw unknown label)
             channel_units: Dict[int, str],
 
             # UI

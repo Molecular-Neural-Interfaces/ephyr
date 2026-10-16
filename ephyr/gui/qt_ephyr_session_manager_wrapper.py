@@ -1,7 +1,6 @@
 # Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
 # SPDX-License-Identifier: GPL-3.0-only
 
-import json
 from PyQt6.QtCore import QObject, pyqtSignal
 from typing import List, Optional, Dict, Tuple
 from pathlib import Path
@@ -10,7 +9,9 @@ from ephyr.core.add_ons.utils import load_installed_add_ons, load_dev_add_ons
 from ephyr import settings
 from ephyr.core.conversions.filters import ensure_filters_list
 
-from ephyr.core.header import Header, canonical_unit_label
+from ephyr.core.units import canonical_unit_label
+from ephyr.core.source_view import NavigationModeEnum, SourceView
+from ephyr.core.workspace import Workspace
 from ephyr.core.ephyr_session import (
     EphyrSessionManager,
     GuiSetup,
@@ -26,7 +27,7 @@ from ephyr.core.ephyr_session import (
     PeriodVocabularyEntry,
 )
 from ephyr.core.add_ons.base import BaseAddOn
-from ephyr.logger import ephyr_logger, set_log_experiment, set_log_session_name
+from ephyr.logger import ephyr_logger, set_log_record, set_log_session_name
 
 from ephyr.gui.commands.base import BaseCommand
 from ephyr.gui.commands.events import (
@@ -85,8 +86,11 @@ class QtEphyrSessionManagerWrapper(QObject):
     time_step_ms_changed = pyqtSignal(int)
     autoscroll_step_interval_ms_changed = pyqtSignal(int)
     number_of_dots_to_display_changed = pyqtSignal(int)
-    current_sweep_idx_changed = pyqtSignal(int)
-    overlay_sweep_idxs_changed = pyqtSignal(list)
+    current_segment_idx_changed = pyqtSignal(int)
+    overlay_segment_idxs_changed = pyqtSignal(list)
+    # Navigation mode, period label or pre/post window changed and display segments were rebuilt.
+    display_segments_changed = pyqtSignal()
+    active_source_changed = pyqtSignal(str)
 
     # Signals for strings
     experiment_description_changed = pyqtSignal(str)
@@ -95,7 +99,7 @@ class QtEphyrSessionManagerWrapper(QObject):
     # Signals for channel groups and channels setup
     channels_groups_changed = pyqtSignal(list)
     channel_setup_changed = pyqtSignal()
-    header_units_changed = pyqtSignal(list)
+    channel_units_changed = pyqtSignal(list)
 
     # Session management signals
     session_saved = pyqtSignal()
@@ -113,21 +117,20 @@ class QtEphyrSessionManagerWrapper(QObject):
     def __init__(self, session_manager: EphyrSessionManager):
         super().__init__()
         self._session_manager = session_manager
+        self._original_source_path: Optional[Path] = None
         self._undo_stack: List[BaseCommand] = []
         self._redo_stack: List[BaseCommand] = []
         self._runtime_add_ons: Dict[str, BaseAddOn] = {}
+        self.periods_changed.connect(self._on_periods_changed)
 
     @property
-    def header(self) -> Optional[Header]:
-        """Get current GUI setup"""
-        if self._session_manager.experiment_data:
-            return self._session_manager.experiment_data.header
-
-        return None
+    def source_view(self) -> Optional[SourceView]:
+        """Active source of the open Record."""
+        return self._session_manager.source_view
 
     def channel_unit_display(self, channel_idx: int) -> str:
-        header = self.header
-        return header.channel_unit_display(channel_idx) if header else ""
+        view = self.source_view
+        return view.channel_unit_display(channel_idx) if view else ""
 
     def default_scale_for_channel(self, _channel_idx: int) -> float:
         return float(settings.DEFAULT_SCALE)
@@ -251,7 +254,7 @@ class QtEphyrSessionManagerWrapper(QObject):
         self._sync_add_on_setups_with_runtime()
 
     def _sync_add_on_setups_with_runtime(self):
-        if not self._session_manager.current_user_session or not self._session_manager.ephyr_experiment_folder:
+        if not self._session_manager.current_user_session or not self._session_manager.record_dir:
             return
         add_on_setups = self._session_manager.current_user_session.gui_setup.add_ons
         setups: Dict[str, AddOnSetup] = {}
@@ -362,9 +365,9 @@ class QtEphyrSessionManagerWrapper(QObject):
     @user_session_modification
     def set_start_point(self, start_point: int) -> bool:
         visible_points = 0
-        if self.gui_setup and self.header and self.header.sample_rate > 0:
-            visible_points = int((self.gui_setup.duration_ms / 1000.0) * self.header.sample_rate)
-        max_start_point = max(0, self._current_sweep_points - max(0, visible_points))
+        if self.gui_setup and self.source_view and self.source_view.sample_rate > 0:
+            visible_points = int((self.gui_setup.duration_ms / 1000.0) * self.source_view.sample_rate)
+        max_start_point = max(0, self._current_segment_points - max(0, visible_points))
         start_point = min(start_point, max_start_point)
         start_point = max(0, start_point)
         if self._session_manager.current_user_session.gui_setup.start_point != start_point:
@@ -376,7 +379,7 @@ class QtEphyrSessionManagerWrapper(QObject):
 
     @user_session_modification
     def set_duration_ms(self, duration_ms: int):
-        duration_ms = int(min(duration_ms, self._current_sweep_duration_ms))
+        duration_ms = int(min(duration_ms, self._current_segment_duration_ms))
         duration_ms = max(1, duration_ms)
         if self._session_manager.current_user_session.gui_setup.duration_ms != duration_ms: 
             self._session_manager.current_user_session.gui_setup.duration_ms = duration_ms
@@ -416,37 +419,118 @@ class QtEphyrSessionManagerWrapper(QObject):
         self.number_of_dots_to_display_changed.emit(number_of_dots_to_display)
 
     @user_session_modification
-    def set_current_sweep_idx(self, sweep_idx: int):
-        if not self.header:
+    def set_current_segment_idx(self, segment_idx: int):
+        view = self.source_view
+        if not view:
             return
-        sweep_idx = max(0, min(int(sweep_idx), self.header.number_of_sweeps - 1))
-        self._session_manager.current_user_session.gui_setup.current_sweep_idx = sweep_idx
+        segment_idx = max(0, min(int(segment_idx), view.number_of_segments - 1))
+        self._session_manager.current_user_session.gui_setup.current_segment_idx = segment_idx
         self.set_start_point(self.gui_setup.start_point)
         self.set_duration_ms(self.gui_setup.duration_ms)
-        self.current_sweep_idx_changed.emit(sweep_idx)
+        self.current_segment_idx_changed.emit(segment_idx)
 
     @property
-    def overlay_sweep_idxs(self) -> List[int]:
+    def overlay_segment_idxs(self) -> List[int]:
         if self.gui_setup:
-            return list(self.gui_setup.overlay_sweep_idxs)
+            return list(self.gui_setup.overlay_segment_idxs)
         return []
 
     @user_session_modification
-    def set_overlay_sweep_idxs(self, sweep_idxs: List[int]):
-        if not self.header:
+    def set_overlay_segment_idxs(self, segment_idxs: List[int]):
+        view = self.source_view
+        if not view:
             return
-        sweeps_num = self.header.number_of_sweeps
         normalized = sorted({
-            int(sweep_idx) for sweep_idx in (sweep_idxs or [])
-            if 0 <= int(sweep_idx) < sweeps_num
+            int(segment_idx) for segment_idx in (segment_idxs or [])
+            if 0 <= int(segment_idx) < view.number_of_segments
         })
-        if self.gui_setup.overlay_sweep_idxs == normalized:
+        if self.gui_setup.overlay_segment_idxs == normalized:
             return
-        self._session_manager.current_user_session.gui_setup.overlay_sweep_idxs = normalized
+        self._session_manager.current_user_session.gui_setup.overlay_segment_idxs = normalized
         ephyr_logger().info(
-            f"Overlay sweeps set to {[idx + 1 for idx in normalized]}" if normalized else "Overlay sweeps disabled"
+            f"Overlay segments set to {[idx + 1 for idx in normalized]}" if normalized
+            else "Overlay segments disabled"
         )
-        self.overlay_sweep_idxs_changed.emit(normalized)
+        self.overlay_segment_idxs_changed.emit(normalized)
+
+    # ---- Navigation over segments ----
+    @property
+    def current_segment_idx(self) -> int:
+        return int(self.gui_setup.current_segment_idx) if self.gui_setup else 0
+
+    def time_of_local_ms(self, local_ms: float, segment_idx: Optional[int] = None) -> Optional[float]:
+        """Record time (ms) of a position inside a display segment (the current one by default)."""
+        view = self.source_view
+        if view is None or view.number_of_segments == 0:
+            return None
+        idx = self.current_segment_idx if segment_idx is None else int(segment_idx)
+        return view.time_of_local_ms(idx, float(local_ms))
+
+    def local_ms_of_time(self, t_ms: float, segment_idx: Optional[int] = None,
+                         snap: Optional[str] = None) -> Optional[float]:
+        """Position of Record time inside a display segment, None when it is not shown there."""
+        view = self.source_view
+        if view is None:
+            return None
+        idx = self.current_segment_idx if segment_idx is None else int(segment_idx)
+        return view.local_ms_of_time(idx, float(t_ms), snap=snap)
+
+    def _apply_display_segments(self):
+        self._session_manager.rebuild_display_segments()
+        if self.gui_setup is not None:
+            self.set_start_point(self.gui_setup.start_point)
+            self.set_duration_ms(self.gui_setup.duration_ms)
+        self.display_segments_changed.emit()
+        if self.gui_setup is not None:
+            self.current_segment_idx_changed.emit(self.gui_setup.current_segment_idx)
+            self.overlay_segment_idxs_changed.emit(list(self.gui_setup.overlay_segment_idxs))
+
+    def _on_periods_changed(self, _periods):
+        gui_setup = self.gui_setup
+        if gui_setup is not None and gui_setup.navigation_mode is NavigationModeEnum.PERIOD_LABEL:
+            self._apply_display_segments()
+
+    @user_session_modification
+    def set_navigation(self, mode: NavigationModeEnum, *, period_label_id: Optional[int] = None,
+                       pre_ms: Optional[float] = None, post_ms: Optional[float] = None):
+        gui_setup = self.gui_setup
+        mode = NavigationModeEnum(mode)
+        changed = gui_setup.navigation_mode is not mode
+        gui_setup.navigation_mode = mode
+        if period_label_id is not None and period_label_id != gui_setup.period_label_id:
+            gui_setup.period_label_id = int(period_label_id)
+            changed = True
+        if pre_ms is not None and float(pre_ms) != gui_setup.pre_ms:
+            gui_setup.pre_ms = max(0.0, float(pre_ms))
+            changed = True
+        if post_ms is not None and float(post_ms) != gui_setup.post_ms:
+            gui_setup.post_ms = max(0.0, float(post_ms))
+            changed = True
+        if not changed:
+            return
+        gui_setup.current_segment_idx = 0
+        gui_setup.overlay_segment_idxs = []
+        gui_setup.start_point = 0
+        ephyr_logger().info(f"Navigation mode: {mode.value}")
+        self._apply_display_segments()
+
+    @property
+    def active_source_id(self) -> Optional[str]:
+        view = self.source_view
+        return view.source_id if view is not None else None
+
+    def available_source_ids(self) -> List[str]:
+        return self._session_manager.available_source_ids()
+
+    @user_session_modification
+    def set_active_source(self, source_id: str):
+        if source_id == self.active_source_id:
+            return
+        self._session_manager.switch_source(source_id)
+        ephyr_logger().info(f"Active source: {source_id}")
+        self.refresh_runtime_add_ons()
+        self.active_source_changed.emit(source_id)
+        self.session_loaded.emit()
 
     @user_session_modification
     def set_channels_groups(self, groups: List[ChannelGroup]):
@@ -467,8 +551,8 @@ class QtEphyrSessionManagerWrapper(QObject):
             info: Optional[str] = None,
     ):
         session = self._session_manager.current_user_session
-        header = self.header
-        if not session or not header:
+        view = self.source_view
+        if not session or not view:
             return
         session.set_channel_setup(
             channel_idx=channel_idx,
@@ -476,7 +560,7 @@ class QtEphyrSessionManagerWrapper(QObject):
             y_offset=y_offset,
             color=color,
             info=info,
-            header=header,
+            number_of_channels=view.number_of_channels,
         )
         self.channel_setup_changed.emit()
 
@@ -491,8 +575,8 @@ class QtEphyrSessionManagerWrapper(QObject):
             info: Optional[str] = None,
     ):
         session = self._session_manager.current_user_session
-        header = self.header
-        if not session or not header:
+        view = self.source_view
+        if not session or not view:
             return
         session.set_channels_setup(
             channel_indexes=channel_indexes,
@@ -500,40 +584,38 @@ class QtEphyrSessionManagerWrapper(QObject):
             y_offset=y_offset,
             color=color,
             info=info,
-            header=header,
+            number_of_channels=view.number_of_channels,
         )
         self.channel_setup_changed.emit()
 
-    def set_header_channel_units(self, channel_indexes: List[int], unit: str) -> bool:
-        """Relabel channels with a new unit; stored samples and their numeric values stay unchanged."""
-        header = self.header
-        if header is None or not channel_indexes:
+    def set_channel_units(self, channel_indexes: List[int], unit: str) -> bool:
+        """Relabel channels of the active source with a new unit in the Config of the Record.
+
+        Stored samples and their numeric values stay unchanged; the label applies to every Record of the Config.
+        """
+        view = self.source_view
+        manager = self._session_manager
+        if view is None or not channel_indexes or manager.config is None:
             return False
 
         target_unit = canonical_unit_label(unit)
-        units = list(header.channel_info.units or [])
-        if len(units) < header.number_of_channels:
-            units.extend([""] * (header.number_of_channels - len(units)))
-
+        config = manager.config
+        spec = config.source(view.source_id)
         changed = False
         for channel_idx in channel_indexes:
-            if not (0 <= int(channel_idx) < header.number_of_channels):
-                continue
             channel_idx = int(channel_idx)
-            if units[channel_idx] != target_unit:
-                units[channel_idx] = target_unit
+            if not (0 <= channel_idx < view.number_of_channels):
+                continue
+            if spec.signature.channels[channel_idx].units != target_unit:
+                spec.signature.channels[channel_idx].units = target_unit
+                view.channel_info.units[channel_idx] = target_unit
                 changed = True
 
         if not changed:
             return False
 
-        header.channel_info.units = units
-        if self._session_manager.ephyr_experiment_folder:
-            header_path = Path(self._session_manager.ephyr_experiment_folder) / settings.HEADER_FILENAME
-            with open(header_path, "w", encoding="utf-8") as file:
-                json.dump(header.model_dump(), file, indent=2)
-
-        self.header_units_changed.emit(list(units))
+        manager.workspace.save_config(config)
+        self.channel_units_changed.emit(list(view.channel_info.units))
         return True
 
     @user_session_modification
@@ -769,29 +851,27 @@ class QtEphyrSessionManagerWrapper(QObject):
         return ", ".join(f"{name} x{count}" for name, count in sorted(counts.items()))
 
     @user_session_modification
-    def add_event(self, event_name_id: int, sweep_idx: int, time_ms: float):
-        """Create a new event in the current user session (with undo support)."""
-        cmd = AddEventCommand(event_name_id, sweep_idx, time_ms)
+    def add_event(self, event_name_id: int, t_ms: float):
+        """Create a new event at Record time `t_ms` in the current user session (with undo support)."""
+        cmd = AddEventCommand(event_name_id, t_ms)
         self._execute_new_command(cmd)
         ephyr_logger().info(
-            f"Event '{self._event_name(event_name_id)}' added: "
-            f"sweep_idx={sweep_idx} time_ms={time_ms} is_bad=False"
+            f"Event '{self._event_name(event_name_id)}' added: t_ms={t_ms:.3f} is_bad=False"
         )
 
     @user_session_modification
-    def add_events(self, events_specs: List[Tuple[int, int, float]]):
+    def add_events(self, events_specs: List[Tuple[int, float]]):
         """Create multiple events in the current user session (with undo support).
 
-        events_specs: list of (event_name_id, sweep_idx, time_ms)
+        events_specs: list of (event_name_id, t_ms)
         """
         if not events_specs:
             return
         cmd = AddEventsCommand(events_specs)
         self._execute_new_command(cmd)
-        for event_name_id, sweep_idx, time_ms in events_specs:
+        for event_name_id, t_ms in events_specs:
             ephyr_logger().info(
-                f"Event '{self._event_name(event_name_id)}' added: "
-                f"sweep_idx={sweep_idx} time_ms={time_ms} is_bad=False"
+                f"Event '{self._event_name(event_name_id)}' added: t_ms={t_ms:.3f} is_bad=False"
             )
 
     @user_session_modification
@@ -825,19 +905,13 @@ class QtEphyrSessionManagerWrapper(QObject):
 
     # ---- Periods helpers ----
     @user_session_modification
-    def add_period(self, 
-        period_name_id: int,
-        start_sweep_idx: int,
-        start_time_ms: float,
-        end_sweep_idx: int,
-        end_time_ms: float,):
-        """Create a new period in the current user session (with undo support)."""
-        cmd = AddPeriodCommand(period_name_id, start_sweep_idx, start_time_ms, end_sweep_idx, end_time_ms)
+    def add_period(self, period_name_id: int, start_t_ms: float, end_t_ms: float):
+        """Create a new period in Record time in the current user session (with undo support)."""
+        cmd = AddPeriodCommand(period_name_id, start_t_ms, end_t_ms)
         self._execute_new_command(cmd)
         ephyr_logger().info(
             f"Period '{self._period_name(period_name_id)}' added: "
-            f"start_sweep_idx={start_sweep_idx} start_time_ms={start_time_ms} "
-            f"end_sweep_idx={end_sweep_idx} end_time_ms={end_time_ms}"
+            f"start_t_ms={start_t_ms:.3f} end_t_ms={end_t_ms:.3f}"
         )
 
     @user_session_modification
@@ -859,8 +933,42 @@ class QtEphyrSessionManagerWrapper(QObject):
 
     @user_session_modification
     def replace_gui_setup(self, gui_setup: GuiSetup):
-        self._session_manager.current_user_session.gui_setup = gui_setup.model_copy(deep=True)
+        session = self._session_manager.current_user_session
+        session.gui_setup = gui_setup.model_copy(deep=True)
+        source_id = session.gui_setup.active_source_id
+        if source_id not in self.available_source_ids():
+            source_id = self._session_manager.config.main_source_id
+            session.gui_setup.active_source_id = source_id
+        self._session_manager.load_source(source_id)
+        self._session_manager.rebuild_display_segments()
+        self.set_start_point(session.gui_setup.start_point)
+        self.set_duration_ms(session.gui_setup.duration_ms)
+        self.refresh_runtime_add_ons()
         self.session_loaded.emit()
+
+    @user_session_modification
+    def import_settings_from_session(self, other: UserSession, include_vocabularies: bool = True):
+        """GUI settings of a session of another Record of the same Config, optionally with its vocabularies."""
+        session = self._session_manager.current_user_session
+        period_map: Dict[int, int] = {}
+        if include_vocabularies:
+            _event_map, period_map = session.merge_vocabularies(other)
+            self.events_vocabulary_changed.emit(dict(session.events_vocabulary))
+            self.periods_vocabulary_changed.emit(dict(session.periods_vocabulary))
+        new_setup = other.gui_setup.transferable_copy(session.gui_setup)
+        label_id = other.gui_setup.period_label_id
+        if label_id is not None:
+            if label_id in period_map:
+                new_setup.period_label_id = period_map[label_id]
+            else:
+                name = other.get_period_vocabulary_name(label_id)
+                new_setup.period_label_id = next(
+                    (vid for vid, entry in session.periods_vocabulary.items() if entry.name == name), None
+                )
+        if new_setup.navigation_mode is NavigationModeEnum.PERIOD_LABEL and new_setup.period_label_id is None:
+            new_setup.navigation_mode = NavigationModeEnum.SEGMENT
+        ephyr_logger().info(f"GUI settings imported from session '{other.session_name}'")
+        self.replace_gui_setup(new_setup)
 
     # ---- Undo / Redo API ----
     def can_undo(self) -> bool:
@@ -908,8 +1016,8 @@ class QtEphyrSessionManagerWrapper(QObject):
         return f"Redo: {cmd.description}"
 
     # Session management methods
-    def new_user_session(self, session_filename: str):
-        self._session_manager.new_user_session(session_filename)
+    def new_user_session(self, session_name: str):
+        self._session_manager.new_user_session(session_name)
         self._sync_logging_context()
         self._clear_undo_redo_history()
         self.refresh_runtime_add_ons()
@@ -924,9 +1032,9 @@ class QtEphyrSessionManagerWrapper(QObject):
         self.refresh_runtime_add_ons()
         self.session_loaded.emit()
 
-    def switch_sessions(self, session_filename: str):
+    def switch_sessions(self, session_name: str):
         try:
-            self._session_manager.switch_sessions(session_filename)
+            self._session_manager.switch_sessions(session_name)
         finally:
             self._sync_logging_context()
         self._clear_undo_redo_history()
@@ -939,23 +1047,28 @@ class QtEphyrSessionManagerWrapper(QObject):
             self._session_manager.current_user_session.changes_saved = True
         self.session_saved.emit()
 
-    def init_from_folder(self, ephyr_experiment_folder: Path):
+    def open_record(self, workspace: Workspace, config_id: str, record_id: str,
+                    original_source_path: Optional[Path] = None):
         try:
-            self._session_manager.init_from_folder(ephyr_experiment_folder)
+            self._session_manager.open_record(workspace, config_id, record_id)
+            self._original_source_path = original_source_path
         finally:
             self._sync_logging_context()
         self._clear_undo_redo_history()
 
+    def close_record(self):
+        self._original_source_path = None
+        self._session_manager.close_record()
+        self._sync_logging_context()
+        self._clear_undo_redo_history()
+
     def _sync_logging_context(self) -> None:
         session = self._session_manager.current_user_session
-        set_log_session_name(session.session_filename if session else None)
-        set_log_experiment(self._session_manager.ephyr_experiment_folder)
+        set_log_session_name(session.session_name if session else None)
+        set_log_record(self._session_manager.record_dir)
 
     def session_name_already_exists(self, session_name: str):
         return self._session_manager.session_name_already_exists(session_name)
-
-    def session_filename_already_exists(self, session_filename: str):
-        return self._session_manager.session_filename_already_exists(session_filename)
 
     # Property forwarding
     @property
@@ -963,34 +1076,68 @@ class QtEphyrSessionManagerWrapper(QObject):
         return self._session_manager.session_is_active
 
     @property
-    def other_session_filenames(self):
-        return self._session_manager.other_session_filenames
+    def other_session_names(self) -> List[str]:
+        return self._session_manager.other_session_names
 
     @property
     def user_session(self):
         return self._session_manager.user_session
 
     @property
-    def experiment_data(self):
-        return self._session_manager.experiment_data
+    def record_data(self):
+        return self._session_manager.record_data
 
     @property
-    def ephyr_experiment_folder(self):
-        return self._session_manager.ephyr_experiment_folder
+    def workspace(self) -> Optional[Workspace]:
+        return self._session_manager.workspace
 
     @property
-    def _current_sweep_points(self) -> int:
-        if not self.header or not self.gui_setup:
+    def config(self):
+        return self._session_manager.config
+
+    @property
+    def record(self):
+        return self._session_manager.record
+
+    @property
+    def config_id(self) -> Optional[str]:
+        return self._session_manager.config_id
+
+    @property
+    def record_id(self) -> Optional[str]:
+        return self._session_manager.record_id
+
+    @property
+    def record_dir(self) -> Optional[Path]:
+        return self._session_manager.record_dir
+
+    @property
+    def original_source_path(self) -> Optional[Path]:
+        """Last known location of the Record's original recording on this machine (not stored in the workspace)."""
+        return self._original_source_path
+
+    @property
+    def sessions_folder(self) -> Optional[Path]:
+        return self._session_manager.sessions_folder if self._session_manager.record_dir else None
+
+    @property
+    def add_ons_data_folder(self) -> Optional[Path]:
+        return self._session_manager.add_ons_data_folder if self._session_manager.record_dir else None
+
+    @property
+    def _current_segment_points(self) -> int:
+        view = self.source_view
+        if not view or not self.gui_setup or view.number_of_segments == 0:
             return 0
-        points_per_sweep = list(self.header.number_of_points_per_sweep)
-        sweep_idx = max(0, min(int(self.gui_setup.current_sweep_idx), len(points_per_sweep) - 1))
-        return int(points_per_sweep[sweep_idx])
+        idx = max(0, min(int(self.gui_setup.current_segment_idx), view.number_of_segments - 1))
+        return int(view.display_segments[idx].number_of_samples)
 
     @property
-    def _current_sweep_duration_ms(self) -> float:
-        if not self.header:
+    def _current_segment_duration_ms(self) -> float:
+        view = self.source_view
+        if not view:
             return 0.0
-        return (self.header.sample_interval_microseconds / 10 ** 3) * self._current_sweep_points
+        return self._current_segment_points * 1000.0 / view.sample_rate
 
     def _execute_new_command(self, cmd: BaseCommand) -> None:
         cmd.do(self)

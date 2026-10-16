@@ -15,6 +15,7 @@ from pathlib import Path
 from ephyr import settings
 from ephyr.core.ephyr_session import ChannelSetup, EventVocabularyEntry, PeriodVocabularyEntry, ChannelGroup
 from ephyr.core.add_ons.base import BaseAddOn, ViewEntitiesZIndexEnum
+from ephyr.core.source_view import shown_events, shown_periods
 from ephyr.gui.dialogs.full_view_selected_area_dialog import FullViewSelectedAreaDialog
 from ephyr.gui._utils import format_amplitude, milliseconds_to_readable
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
@@ -25,7 +26,7 @@ class TopNavigatorWidget(QWidget):
     """Widget for displaying event and period names with navigation arrows."""
 
     event_navigation_requested = pyqtSignal(int)  # Emits new start_point
-    period_navigation_requested = pyqtSignal(int, float)  # Emits sweep_idx and time_ms
+    period_navigation_requested = pyqtSignal(float)  # Emits Record time (t_ms) of the opposite boundary
 
     def __init__(self, left_margin, right_margin, parent=None):
         super().__init__(parent)
@@ -42,11 +43,10 @@ class TopNavigatorWidget(QWidget):
         self._all_periods = []
         self._visible_periods = []
         self._periods_vocabulary: Dict[int, PeriodVocabularyEntry] = {}
-        self._current_sweep_idx: int = 0
         self._start_point = 0
         self._duration_ms = 0.0
         self._sample_rate = 1.0
-        self._header_points_per_sweep = 0
+        self._segment_points = 0
         self._start_time_ms = 0.0
         self._axis_offset_px = 0
 
@@ -66,12 +66,11 @@ class TopNavigatorWidget(QWidget):
             all_periods: List,
             visible_periods: List,
             periods_vocabulary: Dict[int, PeriodVocabularyEntry],
-            sweep_idx: int,
             start_point: int,
             duration_ms: float,
             sample_rate: float,
             start_time_ms: float,
-            header_points_per_sweep: int,
+            segment_points: int,
             axis_offset_px: int = 0,
     ):
         """Update event data for display"""
@@ -81,12 +80,11 @@ class TopNavigatorWidget(QWidget):
         self._all_periods = all_periods or []
         self._visible_periods = visible_periods or []
         self._periods_vocabulary = periods_vocabulary or {}
-        self._current_sweep_idx = sweep_idx
         self._start_point = start_point
         self._duration_ms = duration_ms
         self._sample_rate = sample_rate
         self._start_time_ms = start_time_ms
-        self._header_points_per_sweep = header_points_per_sweep
+        self._segment_points = segment_points
         self._axis_offset_px = max(0, int(axis_offset_px))
         self._update_hover_from_cursor()
         self.update()
@@ -96,15 +94,12 @@ class TopNavigatorWidget(QWidget):
             event.event_name_id,
             EventVocabularyEntry(name=f"Event {event.event_name_id}"),
         ).name
-        same_name_events = [
-            ev for ev in self._all_events
-            if ev.event_name_id == event.event_name_id and ev.sweep_idx == event.sweep_idx
-        ]
+        same_name_events = [ev for ev in self._all_events if ev.event_name_id == event.event_name_id]
         try:
-            idx_in_sweep = same_name_events.index(event) + 1
+            idx_in_segment = same_name_events.index(event) + 1
         except ValueError:
-            idx_in_sweep = 1
-        return f"{base_name} ({idx_in_sweep})"
+            idx_in_segment = 1
+        return f"{base_name} ({idx_in_segment})"
 
     def _event_color(self, event) -> QColor:
         entry = self._events_vocabulary.get(event.event_name_id)
@@ -161,9 +156,9 @@ class TopNavigatorWidget(QWidget):
             text_width = self._font_metrics.horizontalAdvance(name)
             period_idx = self._all_periods.index(period)
             boundaries = []
-            if period.start_sweep_idx == self._current_sweep_idx:
+            if period.start_in_segment:
                 boundaries.append((period.start_time_ms, "start", "right"))
-            if period.end_sweep_idx == self._current_sweep_idx:
+            if period.end_in_segment:
                 boundaries.append((period.end_time_ms, "end", "left"))
             for time_ms, boundary, direction in boundaries:
                 x = axis_start_x + ((time_ms - start_time_ms) / self._duration_ms) * axis_width
@@ -254,9 +249,9 @@ class TopNavigatorWidget(QWidget):
                 painter.setPen(self._period_color(period))
                 period_idx = self._all_periods.index(period)
                 boundaries = []
-                if period.start_sweep_idx == self._current_sweep_idx:
+                if period.start_in_segment:
                     boundaries.append((period.start_time_ms, "start", "right"))
-                if period.end_sweep_idx == self._current_sweep_idx:
+                if period.end_in_segment:
                     boundaries.append((period.end_time_ms, "end", "left"))
                 for time_ms, boundary, direction in boundaries:
                     if not (start_time_ms <= time_ms <= start_time_ms + self._duration_ms):
@@ -336,9 +331,9 @@ class TopNavigatorWidget(QWidget):
             return
         period = self._all_periods[period_idx]
         if current_boundary == "start":
-            self.period_navigation_requested.emit(period.end_sweep_idx, period.end_time_ms)
+            self.period_navigation_requested.emit(float(period.period.end_t_ms))
         else:
-            self.period_navigation_requested.emit(period.start_sweep_idx, period.start_time_ms)
+            self.period_navigation_requested.emit(float(period.period.start_t_ms))
 
     def _navigate_to_neighbor_event(self, current_event_idx: int, direction: str):
         """Calculate and emit new start_point to center neighbor event"""
@@ -347,13 +342,9 @@ class TopNavigatorWidget(QWidget):
 
         current_event = self._all_events[current_event_idx]
         event_name_id = current_event.event_name_id
-        sweep_idx = current_event.sweep_idx
 
-        # Find all events with same name in current sweep
-        same_name_events = [
-            event for event in self._all_events
-            if event.event_name_id == event_name_id and event.sweep_idx == sweep_idx
-        ]
+        # Find all events with same name in the current segment
+        same_name_events = [event for event in self._all_events if event.event_name_id == event_name_id]
 
         if not same_name_events:
             return
@@ -388,7 +379,7 @@ class TopNavigatorWidget(QWidget):
 
         # Ensure we don't go out of bounds
         new_start_point = max(0, new_start_point)
-        max_start = max(0, self._header_points_per_sweep -
+        max_start = max(0, self._segment_points -
                         int((self._duration_ms / 1000.0) * self._sample_rate))
         new_start_point = min(new_start_point, max_start)
 
@@ -420,7 +411,7 @@ class SignalWidget(QWidget):
         self._processed_data = {}
         self._overlay_processed_data: Dict[int, Dict[int, np.ndarray]] = {}
         self._overlay_data_version = 0
-        # Gray sweeps live on their own cached layer, so switching the active sweep only
+        # Gray segments live on their own cached layer, so switching the current segment only
         # repaints the black trace on top of it.
         self._overlay_pixmap = QPixmap()
         self._overlay_pixmap_sig: Optional[Tuple] = None
@@ -430,7 +421,7 @@ class SignalWidget(QWidget):
         self._channel_height = 0
         self._x_coords_cache: Dict[Tuple[int, int], np.ndarray] = {}
         self._lines_cache: Dict[Tuple[int, int], List[QLineF]] = {}
-        self._axis_start_point = 0  # in samples within sweep
+        self._axis_start_point = 0  # in samples within the display segment
         self._axis_duration_ms = 0.0
         self._sample_rate = 1.0
         self._start_time_ms = 0.0
@@ -441,7 +432,9 @@ class SignalWidget(QWidget):
         self._visible_periods = []
         self._events_vocabulary: Dict[int, EventVocabularyEntry] = {}
         self._periods_vocabulary: Dict[int, PeriodVocabularyEntry] = {}
-        self._current_sweep_idx: int = 0
+        self._current_segment_idx: int = 0
+        # Boundaries between physical segments inside the shown display segment (ms from its start).
+        self._gap_positions_ms: List[float] = []
         self._traces_are_visible = True
         self._channel_names_are_visible = True
         self._channel_infos_are_visible = True
@@ -454,7 +447,7 @@ class SignalWidget(QWidget):
         self._channel_names: List[str] = []
         self._group_layouts: List[ChannelGroup] = []
         self._channels_setup: Dict[int, ChannelSetup] = {}
-        # Display label of each channel's header unit ("µV", "pA", raw label for unknown units)
+        # Display label of each channel's unit ("µV", "pA", raw label for unknown units)
         self._channel_units: Dict[int, str] = {}
         self._auxiliary_group_rects: List[Tuple[int, QRect]] = []
         self._non_aux_group_rects: List[Tuple[int, QRect]] = []
@@ -501,7 +494,8 @@ class SignalWidget(QWidget):
             visible_periods=None,
             events_vocabulary: Optional[Dict[int, EventVocabularyEntry]] = None,
             periods_vocabulary: Optional[Dict[int, PeriodVocabularyEntry]] = None,
-            sweep_idx: int = 0,
+            segment_idx: int = 0,
+            gap_positions_ms: Optional[List[float]] = None,
             events_are_visible: bool = True,
             periods_are_visible: bool = True,
             traces_are_visible: bool = True,
@@ -525,7 +519,8 @@ class SignalWidget(QWidget):
         self._visible_periods = visible_periods
         self._events_vocabulary = dict(events_vocabulary or {})
         self._periods_vocabulary = dict(periods_vocabulary or {})
-        self._current_sweep_idx = sweep_idx
+        self._current_segment_idx = segment_idx
+        self._gap_positions_ms = list(gap_positions_ms or [])
         self._events_are_visible = events_are_visible
         self._periods_are_visible = periods_are_visible
         self._traces_are_visible = traces_are_visible
@@ -595,6 +590,7 @@ class SignalWidget(QWidget):
 
             self._draw_auxiliary_groups(painter, processed_data)
 
+        self._draw_gaps(painter)
         self._draw_add_ons(ViewEntitiesZIndexEnum.TRACES.value, ViewEntitiesZIndexEnum.PERIODS.value, painter)
         if self._periods_are_visible:
             self._draw_periods(painter)
@@ -865,7 +861,7 @@ class SignalWidget(QWidget):
                         end_time_ms=self._end_time_ms,
                         sample_rate=self._sample_rate,
                         axis_duration_ms=self._axis_duration_ms,
-                        sweep_idx=self._current_sweep_idx,
+                        segment_idx=self._current_segment_idx,
 
                         visible_channel_indexes=self._visible_channel_indexes,
                         channel_names=self._channel_names,
@@ -968,6 +964,19 @@ class SignalWidget(QWidget):
                 x_int = int(rect.left() + rel * rect.width())
                 painter.drawLine(x_int, rect.top(), x_int, rect.bottom())
 
+    def _draw_gaps(self, painter: QPainter):
+        """Dotted lines where the recording was interrupted between physical segments."""
+        if not self._gap_positions_ms or self._axis_duration_ms <= 0:
+            return
+        painter.setPen(QPen(QColor(150, 60, 60), 1, Qt.PenStyle.DotLine))
+        for gap_ms in self._gap_positions_ms:
+            if not (self._start_time_ms <= gap_ms <= self._end_time_ms):
+                continue
+            rel = (gap_ms - self._start_time_ms) / self._axis_duration_ms
+            for rect in self._marker_target_rects():
+                x_int = int(rect.left() + rel * rect.width())
+                painter.drawLine(x_int, rect.top(), x_int, rect.bottom())
+
     def _marker_target_rects(self):
         """Rects for event and period markers, including disabled channel cells."""
         for _channel_idx, cell_rect, _enabled, _count in self._cell_rects:
@@ -1030,7 +1039,7 @@ class SignalWidget(QWidget):
         )
 
     def _refresh_overlay_pixmap(self):
-        """Rebuild the cached gray sweep layer only when its inputs changed."""
+        """Rebuild the cached gray segments layer only when its inputs changed."""
         if not self._overlay_processed_data or not self._traces_are_visible:
             self._discard_overlay_pixmap()
             return
@@ -1043,12 +1052,12 @@ class SignalWidget(QWidget):
         pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
         overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
-        for sweep_data in self._overlay_processed_data.values():
+        for segment_data in self._overlay_processed_data.values():
             cur_draw_idx = 0
             for channel_idx, cell_rect, enabled, _count in self._cell_rects:
                 if not enabled:
                     continue
-                channel_data = sweep_data.get(channel_idx)
+                channel_data = segment_data.get(channel_idx)
                 if channel_data is not None:
                     self._draw_trace(
                         painter,
@@ -1068,7 +1077,7 @@ class SignalWidget(QWidget):
                     continue
                 center_y = group_rect.top() + group_rect.height() / 2.0
                 for channel_idx in self._group_layouts[group_idx].visible_channels():
-                    channel_data = sweep_data.get(channel_idx)
+                    channel_data = segment_data.get(channel_idx)
                     if channel_data is None or len(channel_data) < 2:
                         continue
                     setup = self._channels_setup.get(channel_idx)
@@ -1433,9 +1442,10 @@ class OverlayWidget(QWidget):
         self._duration_ms = 0.0
         self._time_axis_width = 0
         self._start_time_ms = 0.0
-        self._current_sweep_idx = 0
+        self._current_segment_idx = 0
         self._selection_start_time_ms: Optional[float] = None
-        self._selection_start_pos: Optional[Tuple[int, float]] = None
+        # Record time (t_ms) of the first point of a two-point selection.
+        self._selection_start_pos: Optional[float] = None
         self._selection_start_pixel_pos: Optional[QPoint] = None
         self._scale_value = 1.0
         self._unit_label = ""
@@ -1445,9 +1455,9 @@ class OverlayWidget(QWidget):
 
     def update_state(self, *, cursor_pos: Optional[QPoint], overlay_mode: OverlayModeEnum,
                      channel_height: int, duration_ms: float, scale_value: float,
-                     start_time_ms: float, current_sweep_idx: int,
+                     start_time_ms: float, current_segment_idx: int,
                      selection_start_time_ms: Optional[float],
-                     selection_start_pos: Optional[Tuple[int, float]],
+                     selection_start_pos: Optional[float],
                      selection_start_pixel_pos: Optional[QPoint],
                      time_axis_width: int = 0,
                      unit_label: str = ""):
@@ -1459,7 +1469,7 @@ class OverlayWidget(QWidget):
         self._scale_value = scale_value if scale_value > 0 else 1.0
         self._unit_label = unit_label or ""
         self._start_time_ms = start_time_ms
-        self._current_sweep_idx = int(current_sweep_idx)
+        self._current_segment_idx = int(current_segment_idx)
         self._selection_start_time_ms = selection_start_time_ms
         self._selection_start_pos = selection_start_pos
         self._selection_start_pixel_pos = selection_start_pixel_pos
@@ -1790,10 +1800,10 @@ class SignalPanel(QWidget):
         self._BAR_WIDTH = 3
         self._current_event_add_id: Optional[int] = None
         self._current_event_edit_mode: Optional[OverlayModeEnum] = None
-        self._current_event_edit_first_sweep_idx: Optional[int] = None
-        self._current_event_edit_first_time_ms: Optional[float] = None
+        # Record time (t_ms) of the first point of a two-point event edit.
+        self._current_event_edit_first_t_ms: Optional[float] = None
         self._current_period_add_id: Optional[int] = None
-        self._current_period_add_first_point: Optional[Tuple[int, float]] = None  # (sweep_idx, time_ms)
+        self._current_period_add_first_t_ms: Optional[float] = None
         self._full_view_first_point: Optional[QPoint] = None
         self._full_view_windows: List[QDialog] = []
 
@@ -1895,14 +1905,23 @@ class SignalPanel(QWidget):
 
         main_layout.addLayout(bottom_layout)
 
-    def _navigate_to_period_boundary(self, sweep_idx: int, time_ms: float):
-        self._session_manager.set_current_sweep_idx(sweep_idx)
+    def _navigate_to_period_boundary(self, t_ms: float):
+        """Show Record time `t_ms` in the middle of the window, switching to the segment that contains it."""
         gui_setup = self._session_manager.gui_setup
-        header = self._session_manager.header
-        if not gui_setup or not header or header.sample_rate <= 0:
+        view = self._session_manager.source_view
+        if not gui_setup or not view or view.sample_rate <= 0:
             return
-        target_sample = int((time_ms / 1000.0) * header.sample_rate)
-        half_window = int((gui_setup.duration_ms / 2000.0) * header.sample_rate)
+        candidates = [gui_setup.current_segment_idx] + [
+            idx for idx in range(view.number_of_segments) if idx != gui_setup.current_segment_idx]
+        target = next(((idx, local) for idx in candidates
+                       if (local := view.local_ms_of_time(idx, t_ms)) is not None), None)
+        if target is None:
+            return
+        segment_idx, local_ms = target
+        if segment_idx != gui_setup.current_segment_idx:
+            self._session_manager.set_current_segment_idx(segment_idx)
+        target_sample = int((local_ms / 1000.0) * view.sample_rate)
+        half_window = int((gui_setup.duration_ms / 2000.0) * view.sample_rate)
         self._session_manager.set_start_point(target_sample - half_window)
 
     def connect_signals(self):
@@ -1920,7 +1939,8 @@ class SignalPanel(QWidget):
         self._session_manager.autoscroll_step_interval_ms_changed.connect(
             self._on_autoscroll_interval_changed
         )
-        self._session_manager.current_sweep_idx_changed.connect(lambda _idx: self.on_session_loaded())
+        self._session_manager.current_segment_idx_changed.connect(lambda _idx: self.on_session_loaded())
+        self._session_manager.display_segments_changed.connect(self.on_session_loaded)
         self._session_manager.channels_groups_changed.connect(self._on_channels_groups_changed)
         self._session_manager.channel_setup_changed.connect(self._redraw_data)
 
@@ -1965,7 +1985,7 @@ class SignalPanel(QWidget):
     def _start_signal_drag(self, x_pos: int):
         if not self._can_drag_signal_x():
             return
-        if not self._session_manager.gui_setup or not self._session_manager.header:
+        if not self._session_manager.gui_setup or not self._session_manager.source_view:
             return
         self._is_signal_drag_active = True
         self._signal_drag_last_x = int(x_pos)
@@ -1990,7 +2010,7 @@ class SignalPanel(QWidget):
 
     def _drag_signal_to_x(self, x_pos: int):
         if (not self._is_signal_drag_active or self._signal_drag_last_x is None
-                or not self._session_manager.gui_setup or not self._session_manager.header):
+                or not self._session_manager.gui_setup or not self._session_manager.source_view):
             return
 
         current_x = int(x_pos)
@@ -2004,7 +2024,7 @@ class SignalPanel(QWidget):
             return
 
         gui_setup = self._session_manager.gui_setup
-        sample_rate = self._session_manager.header.sample_rate
+        sample_rate = self._session_manager.source_view.sample_rate
         visible_points = (gui_setup.duration_ms / 1000.0) * sample_rate
         if visible_points <= 0:
             return
@@ -2134,44 +2154,52 @@ class SignalPanel(QWidget):
         if not gui_setup:
             return
 
-        sample_rate = self._session_manager.header.sample_rate
+        view = self._session_manager.source_view
+        if view is None or view.number_of_segments == 0:
+            return
+        sample_rate = view.sample_rate
+        segment_idx = min(max(0, gui_setup.current_segment_idx), view.number_of_segments - 1)
         self._start_time_ms = (gui_setup.start_point / sample_rate) * 1000.0
         self._end_time_ms = self._start_time_ms + gui_setup.duration_ms
 
         all_events = []
         if gui_setup.events_are_shown:
-            all_events = [
+            all_events = shown_events(view, segment_idx, [
                 event for event in self._session_manager.events
                 if self._event_type_is_visible(event)
-            ]
-        visible_events = []
-        if gui_setup.events_are_shown:
-            visible_events = self._get_events_for_current_window(gui_setup)
+            ])
+        visible_events = [
+            event for event in all_events
+            if self._start_time_ms <= event.time_ms <= self._end_time_ms
+        ]
 
         all_periods = []
         if gui_setup.periods_are_shown:
-            all_periods = [
+            all_periods = shown_periods(view, segment_idx, [
                 period for period in self._session_manager.periods
                 if self._period_type_is_visible(period)
-            ]
-        visible_periods = []
-        if gui_setup and gui_setup.periods_are_shown:
-            visible_periods = self._get_periods_for_current_window(gui_setup)
+            ])
+        visible_periods = [
+            period for period in all_periods
+            if not (period.end_time_ms < self._start_time_ms or period.start_time_ms > self._end_time_ms)
+        ]
         navigator_periods = [
             period
             for period in all_periods
             if (
-                period.start_sweep_idx == gui_setup.current_sweep_idx
+                period.start_in_segment
                 and self._start_time_ms <= period.start_time_ms <= self._end_time_ms
             ) or (
-                period.end_sweep_idx == gui_setup.current_sweep_idx
+                period.end_in_segment
                 and self._start_time_ms <= period.end_time_ms <= self._end_time_ms
             )
         ]
 
         axis_offset_px = 0
         navigator_key = (
-            gui_setup.current_sweep_idx,
+            segment_idx,
+            view.source_id,
+            len(view.display_segments),
             gui_setup.start_point,
             gui_setup.duration_ms,
             sample_rate,
@@ -2180,8 +2208,8 @@ class SignalPanel(QWidget):
             bool(gui_setup.periods_are_shown),
             tuple(sorted(self._session_manager.events_vocabulary.items())),
             tuple(sorted(self._session_manager.periods_vocabulary.items())),
-            tuple((e.event_name_id, e.time_ms, bool(e.is_bad)) for e in visible_events),
-            tuple((p.period_name_id, p.start_sweep_idx, p.end_sweep_idx, p.start_time_ms, p.end_time_ms)
+            tuple((e.id, e.event_name_id, e.time_ms, bool(e.is_bad)) for e in all_events),
+            tuple((p.id, p.period_name_id, p.start_time_ms, p.end_time_ms, p.start_in_segment, p.end_in_segment)
                   for p in navigator_periods),
         )
         if navigator_key != self._last_top_navigator_key:
@@ -2192,12 +2220,11 @@ class SignalPanel(QWidget):
                 all_periods=all_periods,
                 visible_periods=navigator_periods,
                 periods_vocabulary=self._session_manager.periods_vocabulary,
-                sweep_idx=gui_setup.current_sweep_idx,
                 start_point=gui_setup.start_point,
                 duration_ms=gui_setup.duration_ms,
                 sample_rate=sample_rate,
                 start_time_ms=self._start_time_ms,
-                header_points_per_sweep=self._sweep_points(gui_setup.current_sweep_idx),
+                segment_points=self._segment_points(segment_idx),
                 axis_offset_px=axis_offset_px,
             )
             self._last_top_navigator_key = navigator_key
@@ -2212,17 +2239,11 @@ class SignalPanel(QWidget):
             for group in group_layouts:
                 visible_channels.extend(group.visible_channels())
         viewable_add_ons = self._session_manager.get_viewable_add_ons() if self._session_manager else {}
-        add_ons_data_dir = None
-        if self._session_manager.ephyr_experiment_folder:
-            add_ons_data_dir = (
-                    Path(self._session_manager.ephyr_experiment_folder)
-                    / settings.ADD_ONS_SUBFOLDER
-                    / settings.ADD_ONS_DATA_SUBFOLDER
-            )
+        add_ons_data_dir = self._session_manager.add_ons_data_folder
         self.signal_widget.reset_data_and_redraw(
             self._cached_processed_data,
             visible_channels,
-            self._session_manager.header.channel_info.name,
+            view.channel_info.name,
             settings.DEFAULT_SCALE,
             overlay_processed_data=self._cached_overlay_processed_data,
             overlay_data_version=self._cached_overlay_data_version,
@@ -2237,7 +2258,8 @@ class SignalPanel(QWidget):
             visible_periods=visible_periods,
             events_vocabulary=self._session_manager.events_vocabulary,
             periods_vocabulary=self._session_manager.periods_vocabulary,
-            sweep_idx=gui_setup.current_sweep_idx,
+            segment_idx=segment_idx,
+            gap_positions_ms=view.gap_positions_ms(segment_idx),
             events_are_visible=gui_setup.events_are_shown,
             periods_are_visible=gui_setup.periods_are_shown,
             traces_are_visible=gui_setup.traces_are_shown,
@@ -2250,67 +2272,9 @@ class SignalPanel(QWidget):
         self._update_group_navigators(group_layouts)
         self._update_overlay_widget()
 
-    def _get_events_for_current_window(self, gui_setup):
-        """Return events that fall into the current time window and sweep."""
-        if not self._session_manager or not self._session_manager.current_user_session:
-            return []
-
-        header = self._session_manager.header
-        if not header:
-            return []
-
-        events = getattr(self._session_manager, "events", [])
-        if not events:
-            return []
-
-        sweep_idx = gui_setup.current_sweep_idx
-        return [
-            e
-            for e in events
-            if (
-                self._event_type_is_visible(e)
-                and e.sweep_idx == sweep_idx
-                and self._start_time_ms <= e.time_ms <= self._end_time_ms
-            )
-        ]
-
     def _event_type_is_visible(self, event) -> bool:
         entry = self._session_manager.events_vocabulary.get(event.event_name_id)
         return entry is None or getattr(entry, "is_visible", True)
-
-    def _get_periods_for_current_window(self, gui_setup):
-        """Return periods that overlap with the current time window and sweep.
-        
-        Note: Period start_time_ms and end_time_ms are relative to sweep start (like events).
-        """
-        if not self._session_manager or not self._session_manager.current_user_session:
-            return []
-
-        header = self._session_manager.header
-        if not header:
-            return []
-
-        periods = getattr(self._session_manager, "periods", [])
-        if not periods:
-            return []
-
-        sweep_idx = gui_setup.current_sweep_idx
-        visible = []
-        for period in periods:
-            if not self._period_type_is_visible(period):
-                continue
-            if period.start_sweep_idx > sweep_idx or period.end_sweep_idx < sweep_idx:
-                continue
-            local_start_ms, local_end_ms = self._period_bounds_for_sweep(period, sweep_idx)
-            if local_start_ms is None or local_end_ms is None:
-                continue
-            if local_end_ms < self._start_time_ms or local_start_ms > self._end_time_ms:
-                continue
-            visible.append(period.model_copy(update={
-                "start_time_ms": local_start_ms,
-                "end_time_ms": local_end_ms,
-            }))
-        return visible
 
     def _period_type_is_visible(self, period) -> bool:
         entry = self._session_manager.periods_vocabulary.get(period.period_name_id)
@@ -2351,16 +2315,11 @@ class SignalPanel(QWidget):
                 OverlayModeEnum.EVENT_BAD_UNSET,
                 OverlayModeEnum.EVENT_REMOVE,
         ):
-            selection_start_time_ms = self._current_event_edit_first_time_ms
-            if self._current_event_edit_first_sweep_idx is not None and self._current_event_edit_first_time_ms is not None:
-                selection_start_pos = (
-                    int(self._current_event_edit_first_sweep_idx),
-                    float(self._current_event_edit_first_time_ms),
-                )
+            selection_start_pos = self._current_event_edit_first_t_ms
         elif self._current_overlay_mode == OverlayModeEnum.PERIOD_ADD:
-            if self._current_period_add_first_point is not None:
-                selection_start_time_ms = self._current_period_add_first_point[1]  # Extract time_ms
-                selection_start_pos = self._current_period_add_first_point
+            selection_start_pos = self._current_period_add_first_t_ms
+        if selection_start_pos is not None:
+            selection_start_time_ms = self._session_manager.local_ms_of_time(selection_start_pos)
         elif self._current_overlay_mode == OverlayModeEnum.FULL_VIEW_SELECT:
             selection_start_pixel_pos = self._full_view_first_point
 
@@ -2377,7 +2336,7 @@ class SignalPanel(QWidget):
             scale_value=scale_value,
             unit_label=unit_label,
             start_time_ms=start_time_ms,
-            current_sweep_idx=(gui_setup.current_sweep_idx if gui_setup else 0),
+            current_segment_idx=(gui_setup.current_segment_idx if gui_setup else 0),
             selection_start_time_ms=selection_start_time_ms,
             selection_start_pos=selection_start_pos,
             selection_start_pixel_pos=selection_start_pixel_pos,
@@ -2403,10 +2362,10 @@ class SignalPanel(QWidget):
         return scale_value, self.signal_widget.get_channel_unit(channel_idx)
 
     def _channel_units(self) -> Dict[int, str]:
-        header = self._session_manager.header if self._session_manager else None
-        if header is None:
+        view = self._session_manager.source_view if self._session_manager else None
+        if view is None:
             return {}
-        return {idx: header.channel_unit_display(idx) for idx in range(header.number_of_channels)}
+        return {idx: view.channel_unit_display(idx) for idx in range(view.number_of_channels)}
 
     def _should_hide_cursor(self) -> bool:
         if self._current_overlay_mode in (
@@ -2448,7 +2407,7 @@ class SignalPanel(QWidget):
 
     def _stop_period_add_mode(self):
         self._current_period_add_id = None
-        self._current_period_add_first_point = None
+        self._current_period_add_first_t_ms = None
         if self._current_overlay_mode == OverlayModeEnum.PERIOD_ADD:
             self._current_overlay_mode = OverlayModeEnum.NONE
             if not self._should_hide_cursor():
@@ -2477,8 +2436,7 @@ class SignalPanel(QWidget):
         self._reset_measure_bar_state()
 
         self._current_event_edit_mode = mode
-        self._current_event_edit_first_sweep_idx = None
-        self._current_event_edit_first_time_ms = None
+        self._current_event_edit_first_t_ms = None
         self._current_overlay_mode = mode
         if self._should_hide_cursor():
             self.setCursor(Qt.CursorShape.BlankCursor)
@@ -2589,7 +2547,7 @@ class SignalPanel(QWidget):
         self._update_overlay_widget()
 
     def _open_full_view_selected_area_dialog(self, first_pos: QPoint, second_pos: QPoint):
-        if not self._session_manager.gui_setup or not self._session_manager.header:
+        if not self._session_manager.gui_setup or not self._session_manager.source_view:
             return
         x1, x2 = sorted((first_pos.x(), second_pos.x()))
         y1, y2 = sorted((first_pos.y(), second_pos.y()))
@@ -2629,14 +2587,14 @@ class SignalPanel(QWidget):
             return
 
         overlay_subset: Dict[int, Dict[int, np.ndarray[np.float64]]] = {}
-        for sweep_idx, sweep_data in self._cached_overlay_processed_data.items():
-            sweep_subset = {}
+        for segment_idx, segment_data in self._cached_overlay_processed_data.items():
+            segment_subset = {}
             for ch_idx in selected_channels:
-                channel_slice = time_slice(sweep_data.get(ch_idx))
+                channel_slice = time_slice(segment_data.get(ch_idx))
                 if channel_slice is not None:
-                    sweep_subset[ch_idx] = channel_slice
-            if sweep_subset:
-                overlay_subset[sweep_idx] = sweep_subset
+                    segment_subset[ch_idx] = channel_slice
+            if segment_subset:
+                overlay_subset[segment_idx] = segment_subset
 
         gui_setup = self._session_manager.gui_setup
         channel_cut_traces = {
@@ -2646,7 +2604,7 @@ class SignalPanel(QWidget):
         }
         dialog = FullViewSelectedAreaDialog(
             channel_indexes=selected_channels,
-            channel_names=self._session_manager.header.channel_info.name,
+            channel_names=self._session_manager.source_view.channel_info.name,
             channel_data=data_subset,
             channels_setup=gui_setup.channels_setup,
             start_time_ms=start_ms,
@@ -2669,8 +2627,7 @@ class SignalPanel(QWidget):
 
     def _stop_event_edit_mode(self):
         self._current_event_edit_mode = None
-        self._current_event_edit_first_sweep_idx = None
-        self._current_event_edit_first_time_ms = None
+        self._current_event_edit_first_t_ms = None
         if self._current_overlay_mode in (
                 OverlayModeEnum.EVENT_BAD_SET,
                 OverlayModeEnum.EVENT_BAD_UNSET,
@@ -2691,7 +2648,7 @@ class SignalPanel(QWidget):
         self._reset_measure_bar_state()
 
         self._current_period_add_id = period_name_id
-        self._current_period_add_first_point = None
+        self._current_period_add_first_t_ms = None
         self._current_overlay_mode = OverlayModeEnum.PERIOD_ADD
         if self._should_hide_cursor():
             self.setCursor(Qt.CursorShape.BlankCursor)
@@ -2699,120 +2656,64 @@ class SignalPanel(QWidget):
             self.unsetCursor()
         self._update_overlay_widget()
 
+    def _mouse_event_to_t_ms(self, event: QMouseEvent) -> Optional[float]:
+        """Record time (t_ms) of a click on a channel cell of the current display segment."""
+        local_ms = self._mouse_event_to_time_ms(event)
+        if local_ms is None:
+            return None
+        return self._session_manager.time_of_local_ms(local_ms)
+
     def _handle_period_add_click(self, event: QMouseEvent):
         """Handle left click when in PERIOD_ADD mode: collect two points and create period."""
         if self._current_period_add_id is None:
             return
 
-        gui_setup = self._session_manager.gui_setup
-        if not gui_setup:
+        t_ms = self._mouse_event_to_t_ms(event)
+        if t_ms is None:
             return
 
-        time_ms = self._mouse_event_to_time_ms(event)
-        if time_ms is None:
-            return
-
-        current_sweep_idx = gui_setup.current_sweep_idx
-
-        if self._current_period_add_first_point is None:
-            # First point: store and wait for the second
-            self._current_period_add_first_point = (current_sweep_idx, time_ms)
+        if self._current_period_add_first_t_ms is None:
+            # First point: store and wait for the second, possibly in another segment
+            self._current_period_add_first_t_ms = t_ms
             self._update_overlay_widget()
             return
 
-        # Second point: determine start/end and create period
-        first_sweep_idx, first_time_ms = self._current_period_add_first_point
-        second_sweep_idx = current_sweep_idx
-        second_time_ms = time_ms
-
-        # Determine which point is earlier: compare sweep_idx first, then time_ms
-        if first_sweep_idx < second_sweep_idx or (
-                first_sweep_idx == second_sweep_idx and first_time_ms <= second_time_ms
-        ):
-            start_sweep_idx = first_sweep_idx
-            start_time_ms = first_time_ms
-            end_sweep_idx = second_sweep_idx
-            end_time_ms = second_time_ms
-        else:
-            start_sweep_idx = second_sweep_idx
-            start_time_ms = second_time_ms
-            end_sweep_idx = first_sweep_idx
-            end_time_ms = first_time_ms
-
+        start_t_ms, end_t_ms = sorted((self._current_period_add_first_t_ms, t_ms))
         self._session_manager.add_period(
             period_name_id=self._current_period_add_id,
-            start_sweep_idx=start_sweep_idx,
-            start_time_ms=start_time_ms,
-            end_sweep_idx=end_sweep_idx,
-            end_time_ms=end_time_ms,
+            start_t_ms=start_t_ms,
+            end_t_ms=end_t_ms,
         )
 
         self._stop_period_add_mode()
 
     def _handle_event_add_click(self, event: QMouseEvent):
-        """Handle left click when in EVENT_ADD mode: compute time_ms and create event."""
+        """Handle left click when in EVENT_ADD mode: create an event at the clicked Record time."""
         if self._current_event_add_id is None:
             return
 
-        time_ms = self._mouse_event_to_time_ms(event)
-        if time_ms is None:
+        t_ms = self._mouse_event_to_t_ms(event)
+        if t_ms is None:
             return
 
-        gui_setup = self._session_manager.gui_setup
-        if not gui_setup:
-            return
-
-        self._session_manager.add_event(
-            event_name_id=self._current_event_add_id,
-            sweep_idx=gui_setup.current_sweep_idx,
-            time_ms=time_ms,
-        )
+        self._session_manager.add_event(event_name_id=self._current_event_add_id, t_ms=t_ms)
 
     def _handle_event_edit_click(self, event: QMouseEvent):
         """Handle left click for EVENT_BAD_SET / EVENT_BAD_UNSET / EVENT_REMOVE modes."""
         if self._current_event_edit_mode is None:
             return
 
-        gui_setup = self._session_manager.gui_setup
-        if not gui_setup:
-            return
-        current_sweep_idx = int(gui_setup.current_sweep_idx)
-
-        time_ms = self._mouse_event_to_time_ms(event)
-        if time_ms is None:
+        t_ms = self._mouse_event_to_t_ms(event)
+        if t_ms is None:
             return
 
-        if self._current_event_edit_first_time_ms is None:
+        if self._current_event_edit_first_t_ms is None:
             # First point: store and wait for the second
-            self._current_event_edit_first_sweep_idx = current_sweep_idx
-            self._current_event_edit_first_time_ms = time_ms
+            self._current_event_edit_first_t_ms = t_ms
             return
 
-        first_sweep_idx = int(self._current_event_edit_first_sweep_idx if self._current_event_edit_first_sweep_idx is not None
-                              else current_sweep_idx)
-        first_time_ms = float(self._current_event_edit_first_time_ms)
-        second_sweep_idx = current_sweep_idx
-        second_time_ms = float(time_ms)
-
-        if first_sweep_idx < second_sweep_idx or (
-                first_sweep_idx == second_sweep_idx and first_time_ms <= second_time_ms
-        ):
-            start_sweep_idx = first_sweep_idx
-            start_time_ms = first_time_ms
-            end_sweep_idx = second_sweep_idx
-            end_time_ms = second_time_ms
-        else:
-            start_sweep_idx = second_sweep_idx
-            start_time_ms = second_time_ms
-            end_sweep_idx = first_sweep_idx
-            end_time_ms = first_time_ms
-
-        self._apply_event_edit_in_window(
-            start_sweep_idx=start_sweep_idx,
-            start_ms=start_time_ms,
-            end_sweep_idx=end_sweep_idx,
-            end_ms=end_time_ms,
-        )
+        start_t_ms, end_t_ms = sorted((self._current_event_edit_first_t_ms, t_ms))
+        self._apply_event_edit_in_window(start_t_ms=start_t_ms, end_t_ms=end_t_ms)
         self._stop_event_edit_mode()
 
     def _mouse_event_to_time_ms(self, event: QMouseEvent) -> Optional[float]:
@@ -2827,29 +2728,16 @@ class SignalPanel(QWidget):
             return None
         return self.signal_widget.cell_time_ms(pos)
 
-    def _apply_event_edit_in_window(self, *, start_sweep_idx: int, start_ms: float,
-                                    end_sweep_idx: int, end_ms: float):
-        """Apply current edit mode to visible events inside [start_sweep/start_ms, end_sweep/end_ms]."""
+    def _apply_event_edit_in_window(self, *, start_t_ms: float, end_t_ms: float):
+        """Apply current edit mode to visible events with Record time inside [start_t_ms, end_t_ms]."""
         events = self._session_manager.events
         if not events:
             return
 
-        affected_events = []
-        for event in events:
-            if not self._event_type_is_visible(event):
-                continue
-            if event.sweep_idx < start_sweep_idx or event.sweep_idx > end_sweep_idx:
-                continue
-            if start_sweep_idx == end_sweep_idx:
-                in_window = start_ms <= event.time_ms <= end_ms
-            elif event.sweep_idx == start_sweep_idx:
-                in_window = event.time_ms >= start_ms
-            elif event.sweep_idx == end_sweep_idx:
-                in_window = event.time_ms <= end_ms
-            else:
-                in_window = True
-            if in_window:
-                affected_events.append(event)
+        affected_events = [
+            event for event in events
+            if self._event_type_is_visible(event) and start_t_ms <= event.t_ms <= end_t_ms
+        ]
         if not affected_events:
             return
 
@@ -2946,40 +2834,23 @@ class SignalPanel(QWidget):
 
     def _update_time_scrollbar(self):
         gui_setup = self._session_manager.gui_setup
-        header = self._session_manager.header
-        if not gui_setup or not header:
+        view = self._session_manager.source_view
+        if not gui_setup or not view:
             return
-        total_points = self._sweep_points(gui_setup.current_sweep_idx)
-        visible_points = int((gui_setup.duration_ms / 1000.0) * header.sample_rate)
+        total_points = self._segment_points(gui_setup.current_segment_idx)
+        visible_points = int((gui_setup.duration_ms / 1000.0) * view.sample_rate)
         self.time_scrollbar.blockSignals(True)
         self.time_scrollbar.setPageStep(max(1, visible_points))
         self.time_scrollbar.setMaximum(max(0, total_points - visible_points))
         self.time_scrollbar.setValue(gui_setup.start_point)
         self.time_scrollbar.blockSignals(False)
 
-    def _sweep_points(self, sweep_idx: int) -> int:
-        if not self._session_manager.header:
+    def _segment_points(self, segment_idx: int) -> int:
+        view = self._session_manager.source_view
+        if not view or view.number_of_segments == 0:
             return 0
-        points_per_sweep = list(self._session_manager.header.number_of_points_per_sweep)
-        sweep_idx = max(0, min(int(sweep_idx), len(points_per_sweep) - 1))
-        return int(points_per_sweep[sweep_idx])
-
-    def _sweep_duration_ms(self, sweep_idx: int) -> float:
-        header = self._session_manager.header
-        if not header:
-            return 0.0
-        return (self._sweep_points(sweep_idx) / header.sample_rate) * 1000.0
-
-    def _period_bounds_for_sweep(self, period, sweep_idx: int) -> Tuple[Optional[float], Optional[float]]:
-        if period.start_sweep_idx == period.end_sweep_idx:
-            return period.start_time_ms, period.end_time_ms
-        if sweep_idx == period.start_sweep_idx:
-            return period.start_time_ms, self._sweep_duration_ms(sweep_idx)
-        if sweep_idx == period.end_sweep_idx:
-            return 0.0, period.end_time_ms
-        if period.start_sweep_idx < sweep_idx < period.end_sweep_idx:
-            return 0.0, self._sweep_duration_ms(sweep_idx)
-        return None, None
+        segment_idx = max(0, min(int(segment_idx), view.number_of_segments - 1))
+        return int(view.display_segments[segment_idx].number_of_samples)
 
     def on_single_left_click(self):
         """Handle single left arrow click"""
@@ -3001,9 +2872,9 @@ class SignalPanel(QWidget):
         self._toggle_auto_scroll(direction=-1)
 
     def _time_step_samples(self) -> int:
-        if not self._session_manager.gui_setup or not self._session_manager.header:
+        if not self._session_manager.gui_setup or not self._session_manager.source_view:
             return 0
-        interval = self._session_manager.header.sample_interval_microseconds
+        interval = self._session_manager.source_view.sample_interval_microseconds
         if interval <= 0:
             return 0
         return int((self._session_manager.gui_setup.time_step_ms * 1000) / interval)
@@ -3114,12 +2985,12 @@ class SignalPanel(QWidget):
             new_duration = self._session_manager.gui_setup.duration_ms / scale_factor
             new_start_point = (self._session_manager.gui_setup.start_point
                                + (self._session_manager.gui_setup.duration_ms - new_duration) / 1000.0
-                               * self._session_manager.header.sample_rate * rel_pos)
+                               * self._session_manager.source_view.sample_rate * rel_pos)
         else:  # zoom out
             new_duration = self._session_manager.gui_setup.duration_ms * scale_factor
             new_start_point = (self._session_manager.gui_setup.start_point
                                - (new_duration - self._session_manager.gui_setup.duration_ms) / 1000.0
-                               * self._session_manager.header.sample_rate * rel_pos)
+                               * self._session_manager.source_view.sample_rate * rel_pos)
 
         start_point_changed = self._session_manager.set_start_point(int(new_start_point))
         duration_changed = self._session_manager.set_duration_ms(int(new_duration))

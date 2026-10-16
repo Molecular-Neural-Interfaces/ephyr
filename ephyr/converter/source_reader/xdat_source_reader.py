@@ -12,8 +12,17 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from ._exceptions import WrongSourceReaderError
-from .abstract_source_reader import AbstractDataWriter, AbstractSourceReader
-from ephyr.core.header import ChannelInfo, Header, SignalUnitEnum, canonical_unit_label
+from .abstract_source_reader import (
+    AbstractDataWriter,
+    AbstractSourceReader,
+    ChannelPlan,
+    ConversionPlan,
+    SourcePlan,
+    SourceRef,
+    contiguous_segments,
+)
+from ephyr.core.manifests import SegmentKindEnum
+from ephyr.core.units import SignalUnitEnum, canonical_unit_label
 
 _CHUNK_SAMPLES = 512
 _DIGITAL_MIN = -32768
@@ -283,61 +292,54 @@ class XdatDataWriter(AbstractDataWriter):
         self._sample_pos = end
         return quantized.T.astype(np.int16)
 
-    def total_chunks(self, header: Header) -> int:
-        total_points = sum(header.number_of_points_per_sweep)
-        return max(1, (total_points + _CHUNK_SAMPLES - 1) // _CHUNK_SAMPLES)
+    def total_chunks(self) -> int:
+        return max(1, (self._metadata.n_samples + _CHUNK_SAMPLES - 1) // _CHUNK_SAMPLES)
 
 
 class XdatSourceReader(AbstractSourceReader):
-    def __init__(self, experiment_path: Path):
-        super().__init__(experiment_path)
-        self._yielded = False
+    format_name = "xdat"
 
     @classmethod
-    def _try_to_open(cls, experiment_path: Path) -> None:
-        if not (
-            experiment_path.is_file()
-            and (experiment_path.suffix.lower() == ".xdat" or experiment_path.name.endswith(".xdat.json"))
-        ):
+    def resolve(cls, path: Path) -> SourceRef:
+        if not (path.is_file() and (path.suffix.lower() == ".xdat" or path.name.endswith(".xdat.json"))):
             raise WrongSourceReaderError(cls)
-        try:
-            _parse_xdat(experiment_path, scan_quantization=False)
-        except Exception:
-            raise WrongSourceReaderError(cls)
+        metadata = _parse_xdat(path, scan_quantization=False)
+        paths = metadata.paths
+        files = [paths.metadata, paths.data] + ([paths.timestamp] if paths.timestamp is not None else [])
+        _folder, base = _xdat_base_from_path(paths.metadata)
+        return SourceRef(format=cls.format_name, kind="file", root=paths.metadata, name=base, files=files)
 
-    def __iter__(self) -> "XdatSourceReader":
-        self._yielded = False
-        return self
-
-    def __next__(self) -> Tuple[Header, XdatDataWriter]:
-        if self._yielded:
-            raise StopIteration
-        self._yielded = True
-
-        metadata = _parse_xdat(self._experiment_path, scan_quantization=True)
-        total_channels = len(metadata.channels)
-        channel_info = ChannelInfo(
-            name=[channel.name for channel in metadata.channels],
-            probe=[channel.probe for channel in metadata.channels],
-            units=[channel.units for channel in metadata.channels],
-            analog_min=(-metadata.analog_abs_max).tolist(),
-            analog_max=metadata.analog_abs_max.tolist(),
-            digital_min=[_DIGITAL_MIN] * total_channels,
-            digital_max=[_DIGITAL_MAX] * total_channels,
-            prefiltering=[channel.prefiltering for channel in metadata.channels],
-            number_of_points_per_channel=[metadata.n_samples] * total_channels,
-        )
-
-        header = Header(
-            type_before_conversion="xdat",
-            name_before_conversion=metadata.paths.data.name,
-            creation_date_before_conversion=str(metadata.start_datetime.date()),
-            creation_time_before_conversion=str(metadata.start_datetime.time()),
-            sample_interval_microseconds=1e6 / metadata.sample_rate,
+    def probe(self, scan: bool = False) -> ConversionPlan:
+        metadata = _parse_xdat(self.ref.root, scan_quantization=scan)
+        n_channels = len(metadata.channels)
+        abs_max = metadata.analog_abs_max if scan else np.ones(n_channels, dtype=np.float64)
+        channels = [
+            ChannelPlan(
+                name=channel.name,
+                units=channel.units,
+                analog_min=-float(abs_max[idx]),
+                analog_max=float(abs_max[idx]),
+                digital_min=_DIGITAL_MIN,
+                digital_max=_DIGITAL_MAX,
+                probe=channel.probe,
+                prefiltering=channel.prefiltering,
+            )
+            for idx, channel in enumerate(metadata.channels)
+        ]
+        source = SourcePlan(
+            source_id="main",
+            name="Signals",
             sample_rate=metadata.sample_rate,
-            number_of_channels=total_channels,
-            number_of_sweeps=1,
-            number_of_points_per_sweep=[metadata.n_samples],
-            channel_info=channel_info,
+            channels=channels,
+            segments=contiguous_segments([metadata.n_samples], metadata.sample_rate),
+            segment_kind=SegmentKindEnum.CONTINUOUS,
+            source_format=self.format_name,
+            writer_factory=lambda: XdatDataWriter(metadata),
         )
-        return header, XdatDataWriter(metadata)
+        return ConversionPlan(
+            ref=self.ref,
+            sources=[source],
+            start_datetime=metadata.start_datetime.isoformat(),
+            recording_name=self.ref.name,
+            reader_options=dict(self._options),
+        )

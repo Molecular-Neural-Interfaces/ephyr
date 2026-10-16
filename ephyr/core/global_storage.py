@@ -1,13 +1,12 @@
 # Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
 # SPDX-License-Identifier: GPL-3.0-only
 
-import os.path
 from enum import Enum
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 
 from platformdirs import user_data_dir
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ephyr import settings
 from ephyr.core.exceptions import BrokenGlobalStorageFileError
@@ -25,28 +24,39 @@ class GuiMode(str, Enum):
         }[self]
 
 
+class WorkspacePosition(BaseModel):
+    """What was open in a workspace the last time, so it reopens in the same place."""
+    config_id: Optional[str] = None
+    record_id: Optional[str] = None
+    session_name: Optional[str] = None
+    # Last opened Record of each Config: offered as the settings source for new Records.
+    last_record_by_config: Dict[str, str] = Field(default_factory=dict)
+
+
 class GlobalStorage(BaseModel):
-    recent_experiments: List[Path] = []
+    recent_workspaces: List[Path] = Field(default_factory=list)
+    workspace_positions: Dict[str, WorkspacePosition] = Field(default_factory=dict)
+    # Last known location of the recording each Record was converted from, on this machine only.
+    record_source_paths: Dict[str, Path] = Field(default_factory=dict)
     gui_mode: GuiMode = GuiMode.BEGINNER
 
-    def update_recent_experiments_list(self, opened_ephyr_experiment_folder: Path, to_delete: bool):
+    def update_recent_workspaces_list(self, workspace_root: Path, to_delete: bool):
         try:
-            self.recent_experiments.remove(opened_ephyr_experiment_folder)
+            self.recent_workspaces.remove(workspace_root)
         except ValueError:
             pass
 
         if not to_delete:
-            self.recent_experiments.insert(0, opened_ephyr_experiment_folder)
-            self.recent_experiments = self.recent_experiments[:settings.RECENT_EXPERIMENTS_LIST_MAX_LENGTH]
+            self.recent_workspaces.insert(0, workspace_root)
+            self.recent_workspaces = self.recent_workspaces[:settings.RECENT_WORKSPACES_LIST_MAX_LENGTH]
 
 
 class GlobalStorageManager:
     def __init__(self):
         self._user_data_dir = Path(user_data_dir(settings.APP_NAME, appauthor=False))
-        self._user_data_dir.mkdir(exist_ok=True)
+        self._user_data_dir.mkdir(parents=True, exist_ok=True)
 
         self._global_storage_filepath = self._user_data_dir / settings.GLOBAL_STORAGE_FILENAME
-        print(self._global_storage_filepath)
         if self._global_storage_filepath.exists():
             try:
                 with open(self._global_storage_filepath) as global_storage_filename:
@@ -58,8 +68,8 @@ class GlobalStorageManager:
             self._save_global_storage()
 
     @property
-    def recent_experiments(self):
-        return self._global_storage.recent_experiments
+    def recent_workspaces(self) -> List[Path]:
+        return self._global_storage.recent_workspaces
 
     @property
     def gui_mode(self) -> GuiMode:
@@ -69,8 +79,28 @@ class GlobalStorageManager:
         self._global_storage.gui_mode = gui_mode
         self._save_global_storage()
 
-    def update_recent_experiments_list(self, opened_ephyr_experiment_folder: Path, to_delete: bool = False):
-        self._global_storage.update_recent_experiments_list(opened_ephyr_experiment_folder, to_delete)
+    def update_recent_workspaces_list(self, workspace_root: Path, to_delete: bool = False):
+        self._global_storage.update_recent_workspaces_list(Path(workspace_root), to_delete)
+        self._save_global_storage()
+
+    def workspace_position(self, workspace_uid: str) -> WorkspacePosition:
+        return self._global_storage.workspace_positions.get(workspace_uid, WorkspacePosition())
+
+    def remember_position(self, workspace_uid: str, config_id: Optional[str], record_id: Optional[str],
+                          session_name: Optional[str]):
+        position = self._global_storage.workspace_positions.setdefault(workspace_uid, WorkspacePosition())
+        position.config_id = config_id
+        position.record_id = record_id
+        position.session_name = session_name
+        if config_id and record_id:
+            position.last_record_by_config[config_id] = record_id
+        self._save_global_storage()
+
+    def record_source_path(self, record_uid: str) -> Optional[Path]:
+        return self._global_storage.record_source_paths.get(record_uid)
+
+    def set_record_source_path(self, record_uid: str, path: Path):
+        self._global_storage.record_source_paths[record_uid] = Path(path)
         self._save_global_storage()
 
     def _save_global_storage(self):

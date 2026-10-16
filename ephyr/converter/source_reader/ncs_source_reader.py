@@ -7,13 +7,21 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 
 from ._exceptions import WrongSourceReaderError
-from .abstract_source_reader import AbstractDataWriter, AbstractSourceReader
-from ephyr.core.header import ChannelInfo, Header
+from .abstract_source_reader import (
+    AbstractDataWriter,
+    AbstractSourceReader,
+    ChannelPlan,
+    ConversionPlan,
+    EventPlan,
+    SourcePlan,
+    SourceRef,
+)
+from ephyr.core.manifests import SegmentInfo, SegmentKindEnum
 
 _HEADER_BYTES = 16 * 1024
 _SAMPLES_PER_RECORD = 512
@@ -174,104 +182,91 @@ def _prefiltering(header: Dict[str, str]) -> str:
     return ", ".join(parts)
 
 
-def _parse_creation_datetime(header: Dict[str, str], fallback: Path) -> Tuple[str, str]:
+def _parse_creation_datetime(header: Dict[str, str], fallback: Path) -> datetime:
     raw = header.get("TimeCreated", "")
     for fmt in ("%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
         try:
-            dt = datetime.strptime(raw, fmt)
-            return str(dt.date()), str(dt.time())
+            return datetime.strptime(raw, fmt)
         except ValueError:
             pass
-    dt = datetime.fromtimestamp(fallback.stat().st_mtime)
-    return str(dt.date()), str(dt.time())
+    return datetime.fromtimestamp(fallback.stat().st_mtime)
 
 
-def _parse_nev_events(folder: Path, reference: NcsFileInfo, ad_max_value: int) -> List[Tuple[int, int]]:
-    nev_path = folder / "Events.nev"
-    if not nev_path.exists() or nev_path.stat().st_size <= _HEADER_BYTES:
+def _record_timestamps(info: NcsFileInfo) -> np.ndarray:
+    return np.asarray(_records_memmap(info)["timestamp"], dtype=np.int64)
+
+
+def _segments_from_timestamps(timestamps: np.ndarray, sample_rate: float) -> List[SegmentInfo]:
+    """Split records where the timestamp jumps by more than a record and a half: acquisition was paused."""
+    record_us = _SAMPLES_PER_RECORD * 1_000_000.0 / sample_rate
+    deltas = np.diff(timestamps)
+    breaks = np.flatnonzero((deltas > 1.5 * record_us) | (deltas < 0)) + 1
+    starts = [0, *breaks.tolist()]
+    ends = [*breaks.tolist(), int(timestamps.size)]
+    t0 = int(timestamps[0])
+    return [
+        SegmentInfo(
+            start_sample_idx=start * _SAMPLES_PER_RECORD,
+            number_of_samples=(end - start) * _SAMPLES_PER_RECORD,
+            t_start_ms=(int(timestamps[start]) - t0) / 1000.0,
+        )
+        for start, end in zip(starts, ends)
+    ]
+
+
+def _nev_path(folder: Path) -> Optional[Path]:
+    return next((item for item in folder.iterdir() if item.is_file() and item.suffix.lower() == ".nev"), None)
+
+
+def _parse_nev_events(nev_path: Optional[Path], t0_us: int) -> List[EventPlan]:
+    if nev_path is None or nev_path.stat().st_size <= _HEADER_BYTES:
         return []
     data_bytes = nev_path.stat().st_size - _HEADER_BYTES
     if data_bytes % _NEV_RECORD_DTYPE.itemsize != 0:
         return []
-
-    timestamps = np.asarray(_records_memmap(reference)["timestamp"], dtype=np.int64)
-    if timestamps.size == 0:
-        return []
-    events = np.memmap(
+    records = np.memmap(
         nev_path,
         dtype=_NEV_RECORD_DTYPE,
         mode="r",
         offset=_HEADER_BYTES,
         shape=(data_bytes // _NEV_RECORD_DTYPE.itemsize,),
     )
-    result: List[Tuple[int, int]] = []
-    sample_interval_us = 1_000_000.0 / reference.sample_rate
-    for event in events:
-        event_ts = int(event["timestamp"])
-        record_idx = int(np.searchsorted(timestamps, event_ts, side="right") - 1)
-        if record_idx < 0:
-            record_idx = 0
-        elif record_idx >= timestamps.size:
-            record_idx = int(timestamps.size - 1)
-        offset = int(round((event_ts - int(timestamps[record_idx])) / sample_interval_us))
-        sample_idx = record_idx * _SAMPLES_PER_RECORD + offset
-        if sample_idx < 0 or sample_idx >= reference.points:
-            continue
-        text = bytes(event["event_string"]).split(b"\x00", 1)[0].decode("latin1", errors="ignore")
+    events: List[EventPlan] = []
+    for record in records:
+        text = bytes(record["event_string"]).split(b"\x00", 1)[0].decode("latin1", errors="ignore").strip()
+        t_ms = (int(record["timestamp"]) - t0_us) / 1000.0
         if text.startswith("TTL"):
-            result.append((sample_idx, ad_max_value))
-        elif text.startswith("AD Record Loss Detected"):
-            result.append((sample_idx, -ad_max_value))
-    return result
+            events.append(EventPlan(t_ms=t_ms, label="TTL", value=str(int(record["ttl"])),
+                                    extra={"event_id": str(int(record["event_id"])), "text": text}))
+        elif text:
+            events.append(EventPlan(t_ms=t_ms, label=text, extra={"event_id": str(int(record["event_id"]))}))
+    return events
 
 
 class NcsDataWriter(AbstractDataWriter):
-    def __init__(self, file_infos: List[NcsFileInfo], include_events: bool, event_marks: List[Tuple[int, int]]):
+    def __init__(self, file_infos: List[NcsFileInfo]):
         self._file_infos = file_infos
-        self._include_events = include_events
-        self._event_marks = sorted(event_marks)
-        self._record_pos = 0
-        self._memmaps: List[np.memmap] = []
 
-    def __iter__(self) -> "NcsDataWriter":
-        self._record_pos = 0
-        self._memmaps = [_records_memmap(info) for info in self._file_infos]
-        return self
-
-    def __next__(self) -> np.ndarray:
+    def __iter__(self) -> Iterator[np.ndarray]:
+        memmaps = [_records_memmap(info) for info in self._file_infos]
         record_count = self._file_infos[0].record_count
-        if self._record_pos >= record_count:
-            raise StopIteration
-        end = min(self._record_pos + _CHUNK_RECORDS, record_count)
-        width = (end - self._record_pos) * _SAMPLES_PER_RECORD
-        total_channels = len(self._file_infos) + (1 if self._include_events else 0)
-        chunk = np.zeros((total_channels, width), dtype=np.int16)
+        for record_pos in range(0, record_count, _CHUNK_RECORDS):
+            end = min(record_pos + _CHUNK_RECORDS, record_count)
+            width = (end - record_pos) * _SAMPLES_PER_RECORD
+            chunk = np.zeros((len(self._file_infos), width), dtype=np.int16)
+            for ch_idx, (info, records) in enumerate(zip(self._file_infos, memmaps)):
+                samples = np.asarray(records[record_pos:end]["samples"], dtype=np.int16).copy()
+                valid = np.asarray(records[record_pos:end]["num_valid_samples"], dtype=np.int64)
+                for rec_idx, valid_samples in enumerate(valid):
+                    if valid_samples < _SAMPLES_PER_RECORD:
+                        samples[rec_idx, max(0, int(valid_samples)):] = 0
+                if info.input_inverted:
+                    samples = (-samples.astype(np.int32)).clip(-32768, 32767).astype(np.int16)
+                chunk[ch_idx, :] = samples.reshape(-1)
+            yield chunk
 
-        for ch_idx, (info, records) in enumerate(zip(self._file_infos, self._memmaps)):
-            samples = np.asarray(records[self._record_pos:end]["samples"], dtype=np.int16).copy()
-            valid = np.asarray(records[self._record_pos:end]["num_valid_samples"], dtype=np.int64)
-            for rec_idx, valid_samples in enumerate(valid):
-                if valid_samples < _SAMPLES_PER_RECORD:
-                    samples[rec_idx, max(0, int(valid_samples)):] = 0
-            if info.input_inverted:
-                samples = (-samples.astype(np.int32)).clip(-32768, 32767).astype(np.int16)
-            chunk[ch_idx, :] = samples.reshape(-1)
-
-        if self._include_events:
-            chunk_start = self._record_pos * _SAMPLES_PER_RECORD
-            chunk_end = chunk_start + width
-            event_channel = chunk[-1, :]
-            for sample_idx, value in self._event_marks:
-                if chunk_start <= sample_idx < chunk_end:
-                    event_channel[sample_idx - chunk_start] = np.int16(value)
-
-        self._record_pos = end
-        return chunk
-
-    def total_chunks(self, header: Header) -> int:
-        total_points = sum(header.number_of_points_per_sweep)
-        chunk_points = _CHUNK_RECORDS * _SAMPLES_PER_RECORD
-        return max(1, (total_points + chunk_points - 1) // chunk_points)
+    def total_chunks(self) -> int:
+        return max(1, (self._file_infos[0].record_count + _CHUNK_RECORDS - 1) // _CHUNK_RECORDS)
 
 
 class NcsSourceReader(AbstractSourceReader):
@@ -279,90 +274,62 @@ class NcsSourceReader(AbstractSourceReader):
     Neuralynx continuous sampled channel files (.ncs).
 
     Each .ncs file stores one channel as a 16KB ASCII header followed by fixed
-    1044-byte records with 512 int16 samples.
+    1044-byte records with 512 int16 samples. The recording is the folder with all .ncs files.
     """
 
-    def __init__(self, experiment_path: Path):
-        super().__init__(experiment_path)
-        self._source_folder = _resolve_ncs_folder(experiment_path)
-        self._yielded = False
+    format_name = "ncs"
 
     @classmethod
-    def _try_to_open(cls, experiment_path: Path):
-        files = _list_ordered_ncs_files(experiment_path)
+    def resolve(cls, path: Path) -> SourceRef:
+        files = _list_ordered_ncs_files(path)
         if not files:
             raise WrongSourceReaderError(cls)
-        try:
-            _parse_ncs_file(files[0])
-        except Exception:
-            raise WrongSourceReaderError(cls)
+        _parse_ncs_file(files[0])
+        folder = files[0].parent
+        nev = _nev_path(folder)
+        return SourceRef(format=cls.format_name, kind="folder", root=folder, name=folder.name,
+                         files=files + ([nev] if nev is not None else []))
 
-    def __iter__(self) -> "NcsSourceReader":
-        self._yielded = False
-        return self
-
-    def __next__(self) -> Tuple[Header, NcsDataWriter]:
-        if self._yielded:
-            raise StopIteration
-        self._yielded = True
-
-        file_infos = [_parse_ncs_file(path) for path in _list_ordered_ncs_files(self._source_folder)]
-        if not file_infos:
-            raise StopIteration
-
+    def probe(self, scan: bool = False) -> ConversionPlan:
+        folder = self.ref.root
+        file_infos = [_parse_ncs_file(path) for path in _list_ordered_ncs_files(folder)]
         first = file_infos[0]
         for info in file_infos[1:]:
             if info.record_count != first.record_count:
-                raise ValueError("NCS files have different record counts; cannot merge into one Ephyr sweep.")
+                raise ValueError("NCS files have different record counts; they cannot form one source.")
             if abs(info.sample_rate - first.sample_rate) > 1e-9:
                 raise ValueError("NCS files have inconsistent sampling rates.")
 
-        event_marks = _parse_nev_events(self._source_folder, first, first.ad_max_value)
-        include_events = len(event_marks) > 0
-
-        names = [info.header.get("AcqEntName") or info.path.stem for info in file_infos]
-        probes = [info.header.get("ProbeName", "") for info in file_infos]
-        units = ["uV"] * len(file_infos)
-        analog_min = [-info.input_range_uv for info in file_infos]
-        analog_max = [info.input_range_uv for info in file_infos]
-        digital_min = [-info.ad_max_value for info in file_infos]
-        digital_max = [info.ad_max_value for info in file_infos]
-        prefiltering = [_prefiltering(info.header) for info in file_infos]
-        total_channels = len(file_infos)
-
-        if include_events:
-            names.append("Events")
-            probes.append("")
-            units.append("uV")
-            analog_min.append(-first.input_range_uv)
-            analog_max.append(first.input_range_uv)
-            digital_min.append(-first.ad_max_value)
-            digital_max.append(first.ad_max_value)
-            prefiltering.append("")
-            total_channels += 1
-
-        date, time = _parse_creation_datetime(first.header, first.path)
-        channel_info = ChannelInfo(
-            name=names,
-            probe=probes,
-            units=units,
-            analog_min=analog_min,
-            analog_max=analog_max,
-            digital_min=digital_min,
-            digital_max=digital_max,
-            prefiltering=prefiltering,
-            number_of_points_per_channel=[first.points] * total_channels,
-        )
-        header = Header(
-            type_before_conversion="ncs",
-            name_before_conversion=self._source_folder.name,
-            creation_date_before_conversion=date,
-            creation_time_before_conversion=time,
-            sample_interval_microseconds=1e6 / first.sample_rate,
+        timestamps = _record_timestamps(first)
+        channels = [
+            ChannelPlan(
+                name=info.header.get("AcqEntName") or info.path.stem,
+                units="uV",
+                analog_min=-info.input_range_uv,
+                analog_max=info.input_range_uv,
+                digital_min=-info.ad_max_value,
+                digital_max=info.ad_max_value,
+                probe=info.header.get("ProbeName", ""),
+                prefiltering=_prefiltering(info.header),
+            )
+            for info in file_infos
+        ]
+        segments = _segments_from_timestamps(timestamps, first.sample_rate)
+        source = SourcePlan(
+            source_id="main",
+            name="CSC",
             sample_rate=first.sample_rate,
-            number_of_channels=total_channels,
-            number_of_sweeps=1,
-            number_of_points_per_sweep=[first.points],
-            channel_info=channel_info,
+            channels=channels,
+            segments=segments,
+            segment_kind=SegmentKindEnum.SEGMENT if len(segments) > 1 else SegmentKindEnum.CONTINUOUS,
+            source_format=self.format_name,
+            writer_factory=lambda: NcsDataWriter(file_infos),
         )
-        return header, NcsDataWriter(file_infos, include_events, event_marks)
+        return ConversionPlan(
+            ref=self.ref,
+            sources=[source],
+            events=_parse_nev_events(_nev_path(folder), int(timestamps[0])),
+            start_datetime=_parse_creation_datetime(first.header, first.path).isoformat(),
+            recording_name=folder.name,
+            reader_options=dict(self._options),
+        )

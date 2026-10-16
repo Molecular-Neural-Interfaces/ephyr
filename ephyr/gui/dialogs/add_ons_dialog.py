@@ -472,12 +472,7 @@ class AddOnsDialog(QDialog):
                 )
                 self._run_pip(["uninstall", "-y", distribution_name], "Uninstalling add-on...")
                 self._session_manager.pop_add_on(item.module_name)
-                add_on_data_dir = (
-                    Path(self._session_manager.ephyr_experiment_folder)
-                    / settings.ADD_ONS_SUBFOLDER
-                    / settings.ADD_ONS_DATA_SUBFOLDER
-                    / item.module_name
-                )
+                add_on_data_dir = self._session_manager.add_ons_data_folder / item.module_name
                 if add_on_data_dir.exists():
                     shutil.rmtree(add_on_data_dir)
             else:

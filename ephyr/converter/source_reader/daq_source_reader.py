@@ -14,8 +14,17 @@ from typing import BinaryIO, List, Optional, Tuple
 import numpy as np
 
 from ._exceptions import WrongSourceReaderError
-from .abstract_source_reader import AbstractDataWriter, AbstractSourceReader
-from ephyr.core.header import ChannelInfo, Header, canonical_unit_label
+from .abstract_source_reader import (
+    AbstractDataWriter,
+    AbstractSourceReader,
+    ChannelPlan,
+    ConversionPlan,
+    SourcePlan,
+    SourceRef,
+    contiguous_segments,
+)
+from ephyr.core.manifests import SegmentKindEnum
+from ephyr.core.units import canonical_unit_label
 
 _DAQ_SIGNATURE = b"MATLAB Data Acquisition File.\x00\x19\x00"
 _CHUNK_SAMPLES = 512
@@ -369,62 +378,51 @@ class DaqDataWriter(AbstractDataWriter):
         np.clip(scaled, _DIGITAL_MIN, _DIGITAL_MAX, out=scaled)
         return scaled.T.astype(np.int16)
 
-    def total_chunks(self, header: Header) -> int:
-        total_points = sum(header.number_of_points_per_sweep)
-        return max(1, (total_points + _CHUNK_SAMPLES - 1) // _CHUNK_SAMPLES)
+    def total_chunks(self) -> int:
+        return max(1, len(self._data_block_indexes))
 
 
 class DaqSourceReader(AbstractSourceReader):
-    def __init__(self, experiment_path: Path):
-        super().__init__(experiment_path)
-        self._yielded = False
+    format_name = "daq"
 
     @classmethod
-    def _try_to_open(cls, experiment_path: Path) -> None:
-        if not experiment_path.is_file() or experiment_path.suffix.lower() != ".daq":
+    def resolve(cls, path: Path) -> SourceRef:
+        if not path.is_file() or path.suffix.lower() != ".daq":
             raise WrongSourceReaderError(cls)
-        try:
-            _parse_daq_metadata(experiment_path)
-        except WrongSourceReaderError:
-            raise
-        except Exception:
-            raise WrongSourceReaderError(cls)
+        _parse_daq_metadata(path)
+        return SourceRef(format=cls.format_name, kind="file", root=path, name=path.name, files=[path])
 
-    def __iter__(self) -> "DaqSourceReader":
-        self._yielded = False
-        return self
-
-    def __next__(self) -> Tuple[Header, DaqDataWriter]:
-        if self._yielded:
-            raise StopIteration
-        self._yielded = True
-
-        metadata = _parse_daq_metadata(self._experiment_path)
+    def probe(self, scan: bool = False) -> ConversionPlan:
+        path = self.ref.root
+        metadata = _parse_daq_metadata(path)
         points_per_sweep = _points_per_sweep(metadata)
-        total_points = sum(points_per_sweep)
-
-        channel_info = ChannelInfo(
-            name=[f"Ch{channel.hw_channel}" for channel in metadata.channels],
-            probe=[""] * len(metadata.channels),
-            units=[channel.units for channel in metadata.channels],
-            analog_min=[channel.input_range[0] for channel in metadata.channels],
-            analog_max=[channel.input_range[1] for channel in metadata.channels],
-            digital_min=[_DIGITAL_MIN] * len(metadata.channels),
-            digital_max=[_DIGITAL_MAX] * len(metadata.channels),
-            prefiltering=[""] * len(metadata.channels),
-            number_of_points_per_channel=[total_points] * len(metadata.channels),
-        )
-
-        header = Header(
-            type_before_conversion="daq",
-            name_before_conversion=self._experiment_path.name,
-            creation_date_before_conversion=str(metadata.creation_datetime.date()),
-            creation_time_before_conversion=str(metadata.creation_datetime.time()),
-            sample_interval_microseconds=1e6 / metadata.sample_rate,
+        channels = [
+            ChannelPlan(
+                name=f"Ch{channel.hw_channel}",
+                units=channel.units,
+                analog_min=channel.input_range[0],
+                analog_max=channel.input_range[1],
+                digital_min=_DIGITAL_MIN,
+                digital_max=_DIGITAL_MAX,
+            )
+            for channel in metadata.channels
+        ]
+        triggered = metadata.samples_per_trigger is not None and len(points_per_sweep) > 1
+        source = SourcePlan(
+            source_id="main",
+            name="Analog input",
             sample_rate=metadata.sample_rate,
-            number_of_channels=len(metadata.channels),
-            number_of_sweeps=len(points_per_sweep),
-            number_of_points_per_sweep=points_per_sweep,
-            channel_info=channel_info,
+            channels=channels,
+            # The DAQ file does not keep trigger times, so sweeps follow each other without gaps.
+            segments=contiguous_segments(points_per_sweep, metadata.sample_rate),
+            segment_kind=SegmentKindEnum.SWEEP if triggered else SegmentKindEnum.CONTINUOUS,
+            source_format=self.format_name,
+            writer_factory=lambda: DaqDataWriter(path, metadata),
         )
-        return header, DaqDataWriter(self._experiment_path, metadata)
+        return ConversionPlan(
+            ref=self.ref,
+            sources=[source],
+            start_datetime=metadata.creation_datetime.isoformat(),
+            recording_name=path.stem,
+            reader_options=dict(self._options),
+        )

@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 
 import numpy as np
 from pynwb import NWBHDF5IO, TimeSeries
@@ -14,17 +14,26 @@ from pynwb.ecephys import ElectricalSeries
 
 from pynwb.icephys import PatchClampSeries
 
-from ephyr.core.header import (
-    ChannelInfo,
-    Header,
+from ephyr.core.manifests import SegmentKindEnum
+from ephyr.core.units import (
     PhysicalQuantityEnum,
     SignalUnitEnum,
     canonical_unit_label,
+    parse_unit,
     unit_quantity,
 )
 
 from .._exceptions import WrongSourceReaderError
-from ..abstract_source_reader import AbstractDataWriter, AbstractSourceReader
+from ..abstract_source_reader import (
+    AbstractDataWriter,
+    AbstractSourceReader,
+    ChannelPlan,
+    ConversionPlan,
+    PeriodPlan,
+    SourcePlan,
+    SourceRef,
+    contiguous_segments,
+)
 
 # Prefer large time chunks: HD-MEA NWB is often gzip-chunked (~78k samples),
 # and tiny reads re-decompress the same HDF5 slabs thousands of times.
@@ -38,6 +47,7 @@ _FLOAT_SAMPLE_WINDOW = 8192
 @dataclass(frozen=True)
 class NwbSeriesRef:
     location: str
+    kind: str
     name: str
     n_samples: int
     n_channels: int
@@ -48,6 +58,7 @@ class NwbSeriesRef:
     conversion: float
     offset: float
     preferred_unit: Optional[SignalUnitEnum] = None
+    starting_time_s: float = 0.0
 
 
 def _unit_ascii(unit: str) -> str:
@@ -86,6 +97,22 @@ def _series_rate(series: TimeSeries) -> Optional[float]:
         return float((len(timestamps) - 1) / (last - first))
     except Exception:
         return None
+
+
+def _series_start_s(series: TimeSeries) -> float:
+    starting_time = getattr(series, "starting_time", None)
+    if starting_time is not None:
+        try:
+            return float(starting_time)
+        except Exception:
+            pass
+    timestamps = getattr(series, "timestamps", None)
+    if timestamps is not None:
+        try:
+            return float(timestamps[0])
+        except Exception:
+            pass
+    return 0.0
 
 
 def _series_shape(series: TimeSeries) -> Optional[Tuple[int, int]]:
@@ -188,6 +215,7 @@ def _series_ref(location: str, series: TimeSeries) -> Optional[NwbSeriesRef]:
     units = _unit_ascii(str(getattr(series, "unit", "") or ""))
     return NwbSeriesRef(
         location=location,
+        kind=type(series).__name__,
         name=str(series.name),
         n_samples=n_samples,
         n_channels=n_channels,
@@ -198,10 +226,11 @@ def _series_ref(location: str, series: TimeSeries) -> Optional[NwbSeriesRef]:
         conversion=float(getattr(series, "conversion", 1.0) or 1.0),
         offset=float(getattr(series, "offset", 0.0) or 0.0),
         preferred_unit=_preferred_unit(series, units),
+        starting_time_s=_series_start_s(series),
     )
 
 
-def _choose_series(nwbfile) -> Tuple[NwbSeriesRef, TimeSeries]:
+def _candidates(nwbfile) -> List[Tuple[NwbSeriesRef, TimeSeries]]:
     candidates: List[Tuple[NwbSeriesRef, TimeSeries]] = []
     for location, series in _iter_series(nwbfile):
         ref = _series_ref(location, series)
@@ -209,14 +238,73 @@ def _choose_series(nwbfile) -> Tuple[NwbSeriesRef, TimeSeries]:
             candidates.append((ref, series))
     if not candidates:
         raise ValueError("NWB file contains no regular TimeSeries/ElectricalSeries data")
-    candidates.sort(
-        key=lambda item: (
-            isinstance(item[1], ElectricalSeries),
-            item[0].n_channels * item[0].n_samples,
-        ),
-        reverse=True,
-    )
-    return candidates[0]
+    return candidates
+
+
+def _main_rank(ref: NwbSeriesRef) -> Tuple[bool, int]:
+    return ref.kind == "ElectricalSeries", ref.n_channels * ref.n_samples
+
+
+def _choose_series(nwbfile) -> Tuple[NwbSeriesRef, TimeSeries]:
+    return max(_candidates(nwbfile), key=lambda item: _main_rank(item[0]))
+
+
+def _group_key(ref: NwbSeriesRef) -> Tuple:
+    """Series that differ only in time (sweeps of patch-clamp, chunks) form one source."""
+    if ref.kind == "ElectricalSeries":
+        identity: Tuple = tuple(ref.channel_names)
+    else:
+        identity = (ref.location.rsplit("/", 1)[0],)
+    return (ref.kind, round(ref.sample_rate, 6), ref.n_channels, ref.units) + identity
+
+
+def _series_groups(nwbfile) -> List[List[NwbSeriesRef]]:
+    groups: Dict[Tuple, List[NwbSeriesRef]] = {}
+    for ref, _series in _candidates(nwbfile):
+        groups.setdefault(_group_key(ref), []).append(ref)
+    result = [sorted(refs, key=lambda ref: (ref.starting_time_s, ref.location)) for refs in groups.values()]
+    result.sort(key=lambda refs: max(_main_rank(ref) for ref in refs), reverse=True)
+    return result
+
+
+def _interval_annotations(nwbfile) -> List[PeriodPlan]:
+    periods: List[PeriodPlan] = []
+    tables = {}
+    for name in ("trials", "epochs"):
+        table = getattr(nwbfile, name, None)
+        if table is not None:
+            tables[name] = table
+    for name, table in (getattr(nwbfile, "intervals", None) or {}).items():
+        tables.setdefault(name, table)
+    for name, table in tables.items():
+        try:
+            frame = table.to_dataframe()
+        except Exception:
+            continue
+        if "start_time" not in frame or "stop_time" not in frame:
+            continue
+        extra_columns = [column for column in frame.columns if column not in {"start_time", "stop_time", "tags",
+                                                                             "timeseries"}]
+        for row in frame.itertuples(index=False):
+            row_dict = row._asdict()
+            tags = row_dict.get("tags")
+            label = name
+            if isinstance(tags, (list, tuple, np.ndarray)) and len(tags):
+                label = f"{name}: {', '.join(str(tag) for tag in tags)}"
+            extra = {}
+            for column in extra_columns:
+                value = row_dict.get(column)
+                if isinstance(value, (str, int, float, bool, np.integer, np.floating, np.bool_)):
+                    extra[str(column)] = str(value)
+            periods.append(
+                PeriodPlan(
+                    start_t_ms=float(row_dict["start_time"]) * 1000.0,
+                    end_t_ms=float(row_dict["stop_time"]) * 1000.0,
+                    label=label,
+                    extra=extra,
+                )
+            )
+    return periods
 
 
 def _series_by_location(nwbfile, location: str) -> TimeSeries:
@@ -287,124 +375,132 @@ def _sample_analog_abs_max(series: TimeSeries, ref: NwbSeriesRef) -> np.ndarray:
     return max_abs
 
 
-def _estimate_quantization(
-    experiment_path: Path, ref: NwbSeriesRef
-) -> Tuple[np.ndarray, int]:
-    with NWBHDF5IO(str(experiment_path), "r", load_namespaces=True) as io:
-        nwbfile = io.read()
-        series = _series_by_location(nwbfile, ref.location)
-        chunk_samples = _writer_chunk_samples(series, ref.n_samples)
-        dtype_max = _dtype_analog_abs_max(series, ref)
-        if dtype_max is not None:
-            return dtype_max, chunk_samples
-        return _sample_analog_abs_max(series, ref), chunk_samples
+def _estimate_quantization(series: TimeSeries, ref: NwbSeriesRef, scan: bool) -> Tuple[np.ndarray, int]:
+    chunk_samples = _writer_chunk_samples(series, ref.n_samples)
+    dtype_max = _dtype_analog_abs_max(series, ref)
+    if dtype_max is not None:
+        return dtype_max, chunk_samples
+    if not scan:
+        return np.ones(ref.n_channels, dtype=np.float64), chunk_samples
+    return _sample_analog_abs_max(series, ref), chunk_samples
 
 
 class NwbDataWriter(AbstractDataWriter):
-    def __init__(
-        self,
-        experiment_path: Path,
-        ref: NwbSeriesRef,
-        analog_abs_max: np.ndarray,
-        chunk_samples: int = _CHUNK_SAMPLES,
-    ):
+    """Series of one source written one after another (each one is a segment)."""
+
+    def __init__(self, experiment_path: Path, refs: List[NwbSeriesRef], analog_abs_max: np.ndarray,
+                 chunk_samples: int = _CHUNK_SAMPLES):
         self._experiment_path = experiment_path
-        self._ref = ref
+        self._refs = refs
         self._analog_abs_max = analog_abs_max
-        self._sample_pos = 0
         self._chunk_samples = max(1, int(chunk_samples))
-        self._io: Optional[NWBHDF5IO] = None
-        self._series: Optional[TimeSeries] = None
 
-    def __iter__(self) -> "NwbDataWriter":
-        self._sample_pos = 0
-        self._io = NWBHDF5IO(str(self._experiment_path), "r", load_namespaces=True)
-        nwbfile = self._io.read()
-        self._series = _series_by_location(nwbfile, self._ref.location)
-        return self
-
-    def __next__(self) -> np.ndarray:
-        if self._series is None:
-            self.__iter__()
-        if self._sample_pos >= self._ref.n_samples:
-            if self._io is not None:
-                self._io.close()
-            self._io = None
-            self._series = None
-            raise StopIteration
-
-        end = min(self._sample_pos + self._chunk_samples, self._ref.n_samples)
-        physical = _physical_chunk(self._series, self._sample_pos, end, self._ref)
+    def __iter__(self) -> Iterator[np.ndarray]:
         scales = self._analog_abs_max[np.newaxis, :] / float(_DIGITAL_MAX)
-        quantized = np.rint(physical / scales)
-        np.clip(quantized, _DIGITAL_MIN, _DIGITAL_MAX, out=quantized)
-        self._sample_pos = end
-        return quantized.T.astype(np.int16)
+        with NWBHDF5IO(str(self._experiment_path), "r", load_namespaces=True) as io:
+            nwbfile = io.read()
+            for ref in self._refs:
+                series = _series_by_location(nwbfile, ref.location)
+                for start in range(0, ref.n_samples, self._chunk_samples):
+                    end = min(start + self._chunk_samples, ref.n_samples)
+                    physical = _physical_chunk(series, start, end, ref)
+                    quantized = np.rint(physical / scales)
+                    np.clip(quantized, _DIGITAL_MIN, _DIGITAL_MAX, out=quantized)
+                    yield quantized.T.astype(np.int16)
 
-    def total_chunks(self, header: Header) -> int:
-        total_points = sum(header.number_of_points_per_sweep)
-        chunk = max(1, int(self._chunk_samples))
-        return max(1, (total_points + chunk - 1) // chunk)
+    def total_chunks(self) -> int:
+        return max(1, sum((ref.n_samples + self._chunk_samples - 1) // self._chunk_samples for ref in self._refs))
+
+
+def _source_id(refs: List[NwbSeriesRef], is_main: bool, taken: List[str]) -> str:
+    if is_main:
+        return "main"
+    base = "".join(char if char.isalnum() else "_" for char in refs[0].name.lower()).strip("_") or "series"
+    candidate, counter = base, 2
+    while candidate in taken:
+        candidate, counter = f"{base}_{counter}", counter + 1
+    return candidate
 
 
 class NwbSourceReader(AbstractSourceReader):
-    def __init__(self, experiment_path: Path):
-        super().__init__(experiment_path)
-        self._yielded = False
+    """Every regular TimeSeries is a source (series that differ only in time are segments of one source);
+    trials, epochs and other interval tables become source periods."""
+
+    format_name = "nwb"
 
     @classmethod
-    def _try_to_open(cls, experiment_path: Path) -> None:
-        if not experiment_path.is_file() or experiment_path.suffix.lower() != ".nwb":
+    def resolve(cls, path: Path) -> SourceRef:
+        if not path.is_file() or path.suffix.lower() != ".nwb":
             raise WrongSourceReaderError(cls)
-        try:
-            with NWBHDF5IO(str(experiment_path), "r", load_namespaces=True) as io:
-                nwbfile = io.read()
-                _choose_series(nwbfile)
-        except Exception:
-            raise WrongSourceReaderError(cls)
+        with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
+            _choose_series(io.read())
+        return SourceRef(format=cls.format_name, kind="file", root=path, name=path.name, files=[path])
 
-    def __iter__(self) -> "NwbSourceReader":
-        self._yielded = False
-        return self
-
-    def __next__(self) -> Tuple[Header, NwbDataWriter]:
-        if self._yielded:
-            raise StopIteration
-        self._yielded = True
-
-        with NWBHDF5IO(str(self._experiment_path), "r", load_namespaces=True) as io:
+    def probe(self, scan: bool = False) -> ConversionPlan:
+        path = self.ref.root
+        sources: List[SourcePlan] = []
+        with NWBHDF5IO(str(path), "r", load_namespaces=True) as io:
             nwbfile = io.read()
-            ref, _ = _choose_series(nwbfile)
             start_dt = getattr(nwbfile, "session_start_time", None)
             if not isinstance(start_dt, datetime):
-                start_dt = datetime.fromtimestamp(self._experiment_path.stat().st_mtime)
+                start_dt = datetime.fromtimestamp(path.stat().st_mtime)
+            for idx, refs in enumerate(_series_groups(nwbfile)):
+                first = refs[0]
+                abs_max = np.zeros(first.n_channels, dtype=np.float64)
+                chunk_samples = _CHUNK_SAMPLES
+                for ref in refs:
+                    series = _series_by_location(nwbfile, ref.location)
+                    ref_max, chunk_samples = _estimate_quantization(series, ref, scan)
+                    abs_max = np.maximum(abs_max, ref_max)
+                channels = [
+                    ChannelPlan(
+                        name=first.channel_names[ch],
+                        units=first.units,
+                        analog_min=-float(abs_max[ch]),
+                        analog_max=float(abs_max[ch]),
+                        digital_min=_DIGITAL_MIN,
+                        digital_max=_DIGITAL_MAX,
+                        probe=first.probes[ch],
+                    )
+                    for ch in range(first.n_channels)
+                ]
+                if first.preferred_unit is not None:
+                    _rescale(channels, first.preferred_unit)
+                points = [ref.n_samples for ref in refs]
+                t_starts = [ref.starting_time_s * 1000.0 for ref in refs]
+                source_id = _source_id(refs, idx == 0, [plan.source_id for plan in sources])
+                sources.append(
+                    SourcePlan(
+                        source_id=source_id,
+                        name=first.name if len(refs) == 1 else f"{first.name} (+{len(refs) - 1})",
+                        sample_rate=first.sample_rate,
+                        channels=channels,
+                        segments=contiguous_segments(points, first.sample_rate, t_starts,
+                                                     labels=[ref.name for ref in refs] if len(refs) > 1 else None),
+                        segment_kind=SegmentKindEnum.SWEEP if len(refs) > 1 else SegmentKindEnum.CONTINUOUS,
+                        source_format=self.format_name,
+                        writer_factory=lambda refs=refs, abs_max=abs_max, chunk=chunk_samples: NwbDataWriter(
+                            path, refs, abs_max, chunk
+                        ),
+                    )
+                )
+            periods = _interval_annotations(nwbfile)
+        return ConversionPlan(
+            ref=self.ref,
+            sources=sources,
+            periods=periods,
+            start_datetime=start_dt.isoformat(),
+            recording_name=path.stem,
+            reader_options=dict(self._options),
+        )
 
-        analog_abs_max, chunk_samples = _estimate_quantization(self._experiment_path, ref)
-        channel_info = ChannelInfo(
-            name=ref.channel_names,
-            probe=ref.probes,
-            units=[ref.units] * ref.n_channels,
-            analog_min=(-analog_abs_max).tolist(),
-            analog_max=analog_abs_max.tolist(),
-            digital_min=[_DIGITAL_MIN] * ref.n_channels,
-            digital_max=[_DIGITAL_MAX] * ref.n_channels,
-            prefiltering=[""] * ref.n_channels,
-            number_of_points_per_channel=[ref.n_samples] * ref.n_channels,
-        )
-        if ref.preferred_unit is not None:
-            channel_info.rescale_units(range(ref.n_channels), ref.preferred_unit)
-        header = Header(
-            type_before_conversion="nwb",
-            name_before_conversion=f"{self._experiment_path.name}:{ref.location}",
-            creation_date_before_conversion=str(start_dt.date()),
-            creation_time_before_conversion=str(start_dt.time()),
-            sample_interval_microseconds=1e6 / ref.sample_rate,
-            sample_rate=ref.sample_rate,
-            number_of_channels=ref.n_channels,
-            number_of_sweeps=1,
-            number_of_points_per_sweep=[ref.n_samples],
-            channel_info=channel_info,
-        )
-        return header, NwbDataWriter(
-            self._experiment_path, ref, analog_abs_max, chunk_samples=chunk_samples
-        )
+
+def _rescale(channels: List[ChannelPlan], target: SignalUnitEnum) -> None:
+    for channel in channels:
+        unit = parse_unit(channel.units)
+        factor = unit.factor_to(target) if unit is not None else None
+        if factor is None:
+            continue
+        channel.analog_min *= factor
+        channel.analog_max *= factor
+        channel.units = target.value

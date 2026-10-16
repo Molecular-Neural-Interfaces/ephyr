@@ -1,6 +1,6 @@
 # Settings Panel
 
-The right-hand settings panel holds tools that configure the view, describe the experiment, run add-ons,
+The right-hand settings panel holds tools that configure the view, describe the recording, run add-ons,
 and inspect logs. Show or hide individual sections from **View → Session Panel**, or use **Show session panel** in
 the header bar to hide the entire panel.
 
@@ -17,9 +17,11 @@ An independent right-panel section enabled with **View → Session Panel → Rec
 
 | Control | Mode | Purpose |
 |---------|------|---------|
-| Sweep info | Both | Sample rate and duration of the current sweep. |
-| **Current sweep** | Both | Selects which sweep is displayed (1-based in the UI). Disabled when the recording has a single sweep. |
-| **Set overlay** | Both | Choose other sweeps to draw in gray behind the current one, with the same filters and transformations. Disabled when the recording has a single sweep. |
+| **Config / Record / Source** | Both | Combo boxes plus **+** / **−** / **✎** to add, remove (with confirmation) and rename. Switching Source reloads the traces. |
+| **Navigation** | Both | **Continuous** (one concatenated view with gap markers), **By segment** (each physical segment, plus overlay), or **By period label** (a window around each period of a chosen label, with Before / After). |
+| Segment info | Both | Sample rate, channel count, number of segments, and the start and duration of the current display segment. |
+| **Current segment** | Both | Selects which display segment is shown (1-based in the UI). Disabled when there is only one. |
+| **Set overlay** | Both | Choose other display segments to draw in gray behind the current one, with the same filters and transformations. Disabled when there is only one. |
 
 ## Timeline settings
 
@@ -92,7 +94,7 @@ Click **Channels layout** next to **Move** on a group to open **Channels layout*
 
 #### Import from source (channel order)
 
-**Import from source** rebuilds the channel list order using format-specific metadata from the original source next to the `*_ephyr` folder (or a file/folder you pick if auto-resolve fails). Only channels in the current group are reordered; the set of channels is unchanged.
+**Import from source** rebuilds the channel list order using format-specific metadata from the original recording (the last known location on this computer, or a file/folder you pick if that path is missing). Only channels in the current group are reordered; the set of channels is unchanged.
 
 | Source type | Preferred order |
 |-------------|-----------------|
@@ -101,9 +103,9 @@ Click **Channels layout** next to **Move** on a group to open **Channels layout*
 | **XDAT** | Port, then channel name |
 | **DAQ** | Hardware channel number (`HwChannel`) |
 | **Neuralynx NCS** | `AcqEntName` (synthetic Events channel last, if present) |
-| **EDF / ABF / Open Ephys** | Natural sort of channel names from the header |
+| **EDF / ABF / Open Ephys** | Natural sort of channel names |
 
-If a format has no richer key, Ephyr falls back to acquisition order as stored in the converted experiment.
+If a format has no richer key, Ephyr falls back to acquisition order as stored in the Record.
 
 ### Layout settings
 

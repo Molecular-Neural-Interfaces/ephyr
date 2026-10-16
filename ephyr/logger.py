@@ -25,10 +25,10 @@ _logger_name = 'ephyr'
 _log_dir = 'log'
 _env_var = 'EPHYR_LOG_DIRECTORY'
 
-_experiment_log_dir = 'logs'
-_experiment_log_filename = 'ephyr.log'
+_record_log_dir = 'logs'
+_record_log_filename = 'ephyr.log'
 
-_experiment_folder: Optional[Path] = None
+_record_folder: Optional[Path] = None
 _session_name: Optional[str] = None
 
 # _columns = ['[%(name)s]', '%(asctime)s', '%(threadName)s', '(%(thread)d)', '%(levelname)s',
@@ -104,8 +104,8 @@ def get_log_file_path() -> Path:
 
 
 def _target_log_file_path() -> Path:
-    if _experiment_folder is not None:
-        return _experiment_folder / _experiment_log_dir / _experiment_log_filename
+    if _record_folder is not None:
+        return _record_folder / _record_log_dir / _record_log_filename
     return _get_global_log_directory() / _filename
 
 
@@ -155,7 +155,7 @@ def _setup_handlers(logger: logging.Logger, user_interface: UserInterface, level
 
 
 def _switch_file_handler(logger: logging.Logger) -> None:
-    """Point the file handler to the log file of the current experiment (or the global one)."""
+    """Point the file handler to the log file of the current Record (or the global one)."""
     old_handler = _find_file_handler(logger)
     if old_handler is None:
         return
@@ -178,10 +178,10 @@ def _switch_file_handler(logger: logging.Logger) -> None:
     logger.info(f'Logs are saved to {new_path.parent}')
 
 
-def set_log_experiment(experiment_folder: Optional[Path]) -> None:
-    """Write logs into EXPERIMENT_ephyr/logs/ephyr.log; None switches back to the global log file."""
-    global _experiment_folder
-    _experiment_folder = Path(experiment_folder) if experiment_folder is not None else None
+def set_log_record(record_folder: Optional[Path]) -> None:
+    """Write logs into <record>/logs/ephyr.log; None switches back to the global log file."""
+    global _record_folder
+    _record_folder = Path(record_folder) if record_folder is not None else None
     _switch_file_handler(ephyr_logger())
 
 
@@ -242,4 +242,4 @@ def ephyr_logger():
 
 
 __all__ = ['ephyr_logger', 'setup_logging', 'UserInterface', 'QLogHandler', 'get_log_directory',
-           'get_log_file_path', 'set_log_experiment', 'set_log_session_name']
+           'get_log_file_path', 'set_log_record', 'set_log_session_name']

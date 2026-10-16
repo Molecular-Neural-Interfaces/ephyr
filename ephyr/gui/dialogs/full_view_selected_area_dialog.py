@@ -122,8 +122,8 @@ class SelectedAreaSignalWidget(QWidget):
                          Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, label)
 
         overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
-        for sweep_data in self._overlay_channel_data.values():
-            self._draw_trace(painter, sweep_data.get(channel_idx), rect, clip_rect,
+        for segment_data in self._overlay_channel_data.values():
+            self._draw_trace(painter, segment_data.get(channel_idx), rect, clip_rect,
                              scale, y_offset, overlay_color, settings.OVERLAY_TRACE_WIDTH, target_dots)
         self._draw_trace(painter, self._channel_data.get(channel_idx), rect, clip_rect,
                          scale, y_offset, color, 1.2, target_dots)
