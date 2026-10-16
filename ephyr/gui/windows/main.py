@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
+import gc
 import os
-import shutil
 import subprocess
 from copy import copy
 from datetime import datetime
@@ -14,7 +14,7 @@ from typing import Optional, List, Dict, Tuple
 from enum import Enum
 
 import numpy as np
-from PyQt6.QtCore import Qt, QRect, QDir, QUrl
+from PyQt6.QtCore import Qt, QRect, QUrl
 from PyQt6.QtGui import QAction, QDesktopServices, QGuiApplication
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QToolButton,
     QSplitter,
     QFileDialog,
-    QApplication, QStatusBar, QSizePolicy, QMessageBox, QProgressDialog,
+    QApplication, QStatusBar, QSizePolicy, QMessageBox,
     QFrame, QScrollArea, QStackedWidget, QStyle,
 )
 
@@ -34,15 +34,16 @@ from ephyr import version
 from ephyr.gui.mixins.qwidget_mixin import QWidgetMixin
 from ephyr.gui._utils import capture_widget_to_file
 from ephyr.gui.widgets import FocusWheelComboBox as QComboBox
-from ephyr.core.ephyr_session import EphyrSessionManager, RightPanelWidgetEnum, UserSession
+from ephyr.core import layout
+from ephyr.core.ephyr_session import RightPanelWidgetEnum, UserSession, is_valid_session_name
 from ephyr.core.global_storage import GlobalStorageManager, GuiMode
-from ephyr.converter.ephyr_io import EphyrIO
+from ephyr.core.workspace import Workspace, WorkspaceError, find_workspace_root
 from ephyr.converter.legacy_mat_events import (
     LegacyMatEventsImportError,
     import_legacy_events_from_mat,
 )
-from ephyr.converter.source_reader.source_reader_factory import SourceReaderFactory
-from ephyr.gui.dialogs.converter_dialog import ConverterDialog
+from ephyr.gui.dialogs.converter_dialog import CreateWorkspaceDialog, ImportSettingsDialog
+from ephyr.gui.workspace_actions import WorkspaceActions, records_with_sessions
 from ephyr.gui.dialogs.session_name_dialog import SessionNameDialog
 from ephyr.gui.dialogs.select_session_dialog import SelectSessionDialog
 from ephyr.gui.dialogs.events_vocabulary_dialog import EventsVocabularyDialog
@@ -56,10 +57,10 @@ from ephyr.gui.panels.information_panel import InformationPanel
 from ephyr.gui.panels.analysis_panel import AnalysisPanel
 from ephyr.gui.panels.logs_panel import LogsPanel
 from ephyr.gui.panels.channel_management_panel import ChannelManagementPanel
-from ephyr.gui.panels.recording_navigation_panel import RecordingNavigationPanel
+from ephyr.gui.panels.recording_navigation_panel import RecordingNavigationPanel, WorkspaceLevelEnum
 from ephyr.gui.panels.time_settings_panel import TimeSettingsPanel
 from ephyr.gui.panels.signal_panel import SignalPanel
-from ephyr.gui.panels.start_screen_panel import StartScreenPanel
+from ephyr.gui.panels.start_screen_panel import StartScreenPanel, StartScreenStateEnum
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 from ephyr.logger import ephyr_logger
 
@@ -93,11 +94,17 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         self.session_manager: QtEphyrSessionManagerWrapper = session_manager
         self.global_storage_manager = global_storage_manager
+        self.workspace_actions = WorkspaceActions(self, global_storage_manager)
+        self._workspace: Optional[Workspace] = None
+        # Config chosen in the navigation panel; it can have no open Record.
+        self._config_id: Optional[str] = None
         self._processed_channels_data_cache: Dict[int, np.ndarray[np.float64]] = {}
         self._overlay_channels_data_cache: Dict[int, Dict[int, np.ndarray[np.float64]]] = {}
-        self._overlay_cache_sweep_idxs: Tuple[int, ...] = ()
+        self._overlay_cache_segment_idxs: Tuple[int, ...] = ()
         self._overlay_data_version = 0
         self._filters_enabled_last = False
+
+        self.setAcceptDrops(True)
 
         # Menu bar and actions
         self.setup_ui()
@@ -243,11 +250,22 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
         # File menu
         file_menu = menubar.addMenu("File")
-        self.act_open = QAction("Open", self)
-        file_menu.addAction(self.act_open)
-
-        self.menu_open_recent = file_menu.addMenu("Open Recent")
+        self._add_labeled_menu_section(file_menu, "Workspace")
+        self.act_create_workspace = QAction("Create Ephyr Workspace…", self)
+        file_menu.addAction(self.act_create_workspace)
+        self.menu_open_workspace = file_menu.addMenu("Open Ephyr Workspace")
+        self.act_open_workspace_file = QAction("Open File (workspace.ephyr)…", self)
+        self.act_open_workspace_folder = QAction("Open Folder…", self)
+        self.menu_open_workspace.addAction(self.act_open_workspace_file)
+        self.menu_open_workspace.addAction(self.act_open_workspace_folder)
+        self.menu_open_recent = file_menu.addMenu("Recent Workspaces")
         self.__update_recent_dirs()
+        self.act_add_config = QAction("Add Config…", self)
+        self.act_add_record = QAction("Add Record…", self)
+        self.act_add_source = QAction("Add Source…", self)
+        file_menu.addAction(self.act_add_config)
+        file_menu.addAction(self.act_add_record)
+        file_menu.addAction(self.act_add_source)
 
         self._add_labeled_menu_section(file_menu, "Session")
         self.act_new_session = QAction("New", self)
@@ -259,7 +277,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.act_import_session = QAction("Full Session", self)
         self.act_import_events = QAction("Events", self)
         self.act_import_periods = QAction("Periods", self)
-        self.act_import_settings = QAction("Settings", self)
+        self.act_import_settings = QAction("Settings from Record…", self)
         self.menu_import.addAction(self.act_import_session)
         self.menu_import.addSeparator()
         self.menu_import.addAction(self.act_import_events)
@@ -364,11 +382,26 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.btn_screenshot.clicked.connect(self.on_screenshot)
         self.btn_right_panel_toggle.clicked.connect(self.toggle_right_panel)
         self.gui_mode_combo.currentIndexChanged.connect(self.on_gui_mode_changed)
-        self.start_screen_panel.open_requested.connect(self.on_open)
+        self.start_screen_panel.create_workspace_requested.connect(self.on_create_workspace)
+        self.start_screen_panel.open_workspace_file_requested.connect(self.on_open_workspace_file)
+        self.start_screen_panel.open_workspace_folder_requested.connect(self.on_open_workspace_folder)
+        self.start_screen_panel.recent_workspace_requested.connect(self.on_open_recent_workspace)
+        self.start_screen_panel.add_config_requested.connect(lambda: self.on_add_requested(WorkspaceLevelEnum.CONFIG))
+        self.start_screen_panel.add_record_requested.connect(lambda: self.on_add_requested(WorkspaceLevelEnum.RECORD))
+        self.recording_navigation_panel.config_selected.connect(self.on_config_selected)
+        self.recording_navigation_panel.record_selected.connect(self.on_record_selected)
+        self.recording_navigation_panel.add_requested.connect(self.on_add_requested)
+        self.recording_navigation_panel.remove_requested.connect(self.on_remove_requested)
+        self.recording_navigation_panel.rename_requested.connect(self.on_rename_requested)
         self.signal_panel.interaction_modes_changed.connect(self._sync_toolbar_modes)
 
         # Menus
-        self.act_open.triggered.connect(self.on_open)
+        self.act_create_workspace.triggered.connect(self.on_create_workspace)
+        self.act_open_workspace_file.triggered.connect(self.on_open_workspace_file)
+        self.act_open_workspace_folder.triggered.connect(self.on_open_workspace_folder)
+        self.act_add_config.triggered.connect(lambda: self.on_add_requested(WorkspaceLevelEnum.CONFIG))
+        self.act_add_record.triggered.connect(lambda: self.on_add_requested(WorkspaceLevelEnum.RECORD))
+        self.act_add_source.triggered.connect(lambda: self.on_add_requested(WorkspaceLevelEnum.SOURCE))
         self.act_new_session.triggered.connect(self.on_new_session)
         self.act_save_session.triggered.connect(self.on_save_session)
         self.act_import_session.triggered.connect(self.on_import_session)
@@ -415,9 +448,11 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.session_manager.periods_are_shown_changed.connect(self.on_view_categories_changed)
         self.session_manager.cut_traces_changed.connect(self.on_view_categories_changed)
         self.session_manager.channel_setup_changed.connect(self.on_channel_setup_changed)
-        self.session_manager.header_units_changed.connect(self.on_header_units_changed)
-        self.session_manager.current_sweep_idx_changed.connect(self.on_sweep_idx_changed)
-        self.session_manager.overlay_sweep_idxs_changed.connect(self.on_overlay_sweep_idxs_changed)
+        self.session_manager.channel_units_changed.connect(self.on_channel_units_changed)
+        self.session_manager.current_segment_idx_changed.connect(self.on_segment_idx_changed)
+        self.session_manager.overlay_segment_idxs_changed.connect(self.on_overlay_segment_idxs_changed)
+        self.session_manager.display_segments_changed.connect(self.on_overlay_segment_idxs_changed)
+        self.session_manager.active_source_changed.connect(self.on_active_source_changed)
         self.session_manager.add_ons_changed.connect(self.on_add_ons_changed)
         self.session_manager.add_ons_run.connect(self.on_add_ons_run)
         self.session_manager.filters_changed.connect(self.on_filters_changed)
@@ -442,7 +477,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
     def on_channel_setup_changed(self):
         self.__recalculate_and_redraw_necessary_signals(recalculate_data=False)
 
-    def on_header_units_changed(self, _units):
+    def on_channel_units_changed(self, _units):
         self.__recalculate_and_redraw_necessary_signals(recalculate_data=False)
 
     def on_time_window_changed(self):
@@ -463,13 +498,21 @@ class MainWindow(QMainWindow, QWidgetMixin):
             self.__recalculate_and_redraw_necessary_signals(recalculate_data=True)
         self._filters_enabled_last = any_enabled
 
-    def on_sweep_idx_changed(self):
-        # The gray overlay covers every selected sweep for the current window, so switching
-        # the active sweep only needs the black trace on top of the cached gray layer.
+    def on_segment_idx_changed(self):
+        # The gray overlay covers every selected segment for the current window, so switching
+        # the current segment only needs the black trace on top of the cached gray layer.
         self.__recalculate_and_redraw_necessary_signals(recalculate_data=True, recalculate_overlay=False)
 
-    def on_overlay_sweep_idxs_changed(self):
+    def on_overlay_segment_idxs_changed(self, *_args):
         self.__recalculate_and_redraw_necessary_signals(recalculate_data=True, )
+
+    def on_active_source_changed(self, _source_id: str):
+        self._processed_channels_data_cache = {}
+        self._overlay_channels_data_cache = {}
+        self._overlay_cache_segment_idxs = ()
+        self._restore_right_panel_widgets()
+        self.__recalculate_and_redraw_necessary_signals(recalculate_data=True)
+        self.__redraw_header()
 
     def __recalculate_and_redraw_necessary_signals(self, recalculate_data: bool = True,
                                                    recalculate_overlay: bool = True, ):
@@ -477,32 +520,34 @@ class MainWindow(QMainWindow, QWidgetMixin):
         channel_indexes = []
         for group in group_layouts:
             channel_indexes.extend(group.visible_enabled_channels())
+        if not self.session_manager.session_is_active or self.session_manager.record_data is None:
+            return
         if recalculate_data:
             gui_setup = self.session_manager.gui_setup
-            overlay_sweep_idxs = tuple(gui_setup.overlay_sweep_idxs)
-            if recalculate_overlay or overlay_sweep_idxs != self._overlay_cache_sweep_idxs:
+            overlay_segment_idxs = tuple(gui_setup.overlay_segment_idxs)
+            if recalculate_overlay or overlay_segment_idxs != self._overlay_cache_segment_idxs:
                 self._overlay_channels_data_cache = \
-                    self.session_manager.experiment_data.process_data_pipeline_multi_sweep(
+                    self.session_manager.record_data.process_data_pipeline_multi_segment(
                         params=gui_setup,
-                        sweep_indexes=list(overlay_sweep_idxs),
+                        segment_indexes=list(overlay_segment_idxs),
                         channel_indexes=channel_indexes,
                         output_number_of_dots=gui_setup.number_of_dots_to_display,
                         transformation_add_ons=self.session_manager.get_transformation_add_ons(),
                     )
-                self._overlay_cache_sweep_idxs = overlay_sweep_idxs
+                self._overlay_cache_segment_idxs = overlay_segment_idxs
                 self._overlay_data_version += 1
 
-            # An overlaid current sweep is already processed, so only reprocess it when it is not.
-            current_sweep_data = self._overlay_channels_data_cache.get(gui_setup.current_sweep_idx)
-            if current_sweep_data is None:
-                current_sweep_data = self.session_manager.experiment_data.process_data_pipeline(
+            # An overlaid current segment is already processed, so only reprocess it when it is not.
+            current_segment_data = self._overlay_channels_data_cache.get(gui_setup.current_segment_idx)
+            if current_segment_data is None:
+                current_segment_data = self.session_manager.record_data.process_data_pipeline(
                     params=gui_setup,
-                    sweep_idx=gui_setup.current_sweep_idx,
+                    segment_idx=gui_setup.current_segment_idx,
                     channel_indexes=channel_indexes,
                     output_number_of_dots=gui_setup.number_of_dots_to_display,
                     transformation_add_ons=self.session_manager.get_transformation_add_ons(),
                 )
-            self._processed_channels_data_cache = current_sweep_data
+            self._processed_channels_data_cache = current_segment_data
 
         self.signal_panel.reset_data_and_redraw(
             self._processed_channels_data_cache,
@@ -544,7 +589,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
     def add_widget_to_right_panel(self, widget_type: RightPanelWidgetEnum, update_session: bool = True):
         widget = self.__get_panel_by_type(widget_type)
-        self.remove_widget_from_right_panel(widget_type)
+        self.remove_widget_from_right_panel(widget_type, update_session=False)
         # self.right_panel_layout.insertWidget(self.right_panel_layout.count() - 1, widget)
         self.right_panel_layout.insertWidget(
             self.__get_right_panel_widget_position(widget_type, self.right_panel_widgets), widget)
@@ -577,6 +622,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
         desired_widgets = list(gui_setup.right_panel_widgets) if gui_setup else []
         for current_widget in copy(self.right_panel_widgets):
             self.remove_widget_from_right_panel(current_widget, update_session=False)
+        if self._workspace is not None and RightPanelWidgetEnum.RECORDING_NAVIGATION not in desired_widgets:
+            desired_widgets.insert(0, RightPanelWidgetEnum.RECORDING_NAVIGATION)
         for widget_type in desired_widgets:
             self.add_widget_to_right_panel(widget_type, update_session=False)
 
@@ -596,262 +643,497 @@ class MainWindow(QMainWindow, QWidgetMixin):
         )
         return result != QMessageBox.StandardButton.Cancel
 
-    def on_open(self):
-        if not self.__confirm_discard_unsaved_changes("Are you sure you want to open another experiment?"):
+    # ---------- Workspace ----------
+    def on_create_workspace(self):
+        if not self.__confirm_discard_unsaved_changes("Are you sure you want to create another workspace?"):
             return
-
-        dialog = QFileDialog(self, "Select experiment folder or source file", "")
-        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
-        dialog.setFileMode(QFileDialog.FileMode.AnyFile)
-        dialog.setFilter(QDir.Filter.AllEntries | QDir.Filter.NoDotAndDotDot)
-        dialog.setNameFilter(
-            "Supported source files "
-            "(*.lfp *.abf *.daq *.edf *.xdat *.xdat.json *.ncs *.nwb *.rhs *.rhd "
-            "*.mcd *.raw *.mcsraw *.h5 *.hdf5 *.cmcr *.cmtr *.continuous *.dat settings.xml);;"
-            "WEEGIT files (*.lfp);;"
-            "ABF files (*.abf);;DAQ files (*.daq);;EDF files (*.edf);;"
-            "XDAT files (*.xdat *.xdat.json);;Neuralynx files (*.ncs *.nev);;NWB files (*.nwb);;"
-            "Multi Channel Systems files (*.mcd *.raw *.mcsraw *.h5 *.hdf5 *.cmcr *.cmtr);;"
-            "Intan files (*.rhs *.rhd settings.xml);;"
-            "Open Ephys files (*.continuous *.dat settings.xml);;All files (*)"
-        )
-        dialog.setOption(QFileDialog.Option.DontConfirmOverwrite, True)
-
+        dialog = CreateWorkspaceDialog(self, self._workspace.root.parent if self._workspace else None)
         if not dialog.exec():
             return
-
-        selected_paths = dialog.selectedFiles()
-        if not selected_paths:
+        parent, name = dialog.values()
+        try:
+            workspace = Workspace.create(parent, name)
+        except (WorkspaceError, OSError) as exc:
+            QMessageBox.warning(self, "Cannot create workspace", str(exc))
             return
+        self.__set_workspace(workspace)
+        self.__set_status(f"Workspace created: {workspace.root}")
 
-        experiment_path = Path(selected_paths[0])
-        if not experiment_path.exists():
-            QMessageBox.warning(self, "Invalid path", f"Selected path does not exist: {experiment_path}")
+    def on_open_workspace_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Ephyr workspace", "",
+            f"Ephyr workspace ({settings.WORKSPACE_MANIFEST_FILENAME});;All files (*)",
+        )
+        if path:
+            self.open_workspace_path(Path(path))
+
+    def on_open_workspace_folder(self):
+        path = QFileDialog.getExistingDirectory(self, "Open Ephyr workspace folder", "",
+                                                QFileDialog.Option.ShowDirsOnly)
+        if path:
+            self.open_workspace_path(Path(path))
+
+    def on_open_recent_workspace(self, workspace_root: Path):
+        if not Path(workspace_root).exists():
+            self.global_storage_manager.update_recent_workspaces_list(workspace_root, to_delete=True)
+            self.__update_recent_dirs()
+            self.__set_status("Recent workspace folder does not exist")
             return
+        self.open_workspace_path(Path(workspace_root))
 
-        self.__open_experiment_path(experiment_path)
+    def open_workspace_path(self, path: Path) -> bool:
+        if not self.__confirm_discard_unsaved_changes("Are you sure you want to open another workspace?"):
+            return False
+        try:
+            workspace = Workspace.open(path)
+        except Exception as exc:
+            ephyr_logger().error(f"Cannot open workspace {path}", exc_info=exc)
+            QMessageBox.warning(self, "Cannot open workspace", str(exc))
+            return False
+        self.__set_workspace(workspace)
+        self.__set_status(f"Workspace opened: {workspace.root}")
+        return True
 
-    def __open_experiment_path(self, experiment_path: Path):
-        # fixme: we assume for now that only one folder will be created
-        is_ephyr, ephyr_experiment_folder_path = EphyrIO.ephyr_dir_of_experiment(experiment_path)
-        if not is_ephyr and not EphyrIO.is_valid_ephyr_folder(ephyr_experiment_folder_path):
-            try:
-                source_reader = SourceReaderFactory.get_reader(experiment_path)
-            except Exception as exc:
-                QMessageBox.warning(self, "Unsupported source", str(exc))
+    def __set_workspace(self, workspace: Workspace):
+        self.__close_record()
+        self._workspace = workspace
+        self.global_storage_manager.update_recent_workspaces_list(workspace.root)
+        self.__update_recent_dirs()
+        position = self.global_storage_manager.workspace_position(workspace.manifest.uid)
+        config_id, record_id = position.config_id, position.record_id
+        if workspace.record(config_id, record_id) is None:
+            config_id, record_id = self.__default_location(config_id)
+        self._config_id = config_id
+        if record_id is not None:
+            self.__open_record(config_id, record_id, preferred_session=position.session_name)
+        else:
+            self.__show_workspace_state()
+
+    def __default_location(self, config_id: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        """A Config (the given one when it exists) and its last opened or first Record."""
+        workspace = self._workspace
+        configs = workspace.configs()
+        if not configs:
+            return None, None
+        config = workspace.config(config_id) if config_id else None
+        config = config or configs[0]
+        position = self.global_storage_manager.workspace_position(workspace.manifest.uid)
+        record_id = position.last_record_by_config.get(config.config_id)
+        if workspace.record(config.config_id, record_id) is None:
+            records = workspace.records(config.config_id)
+            record_id = records[0].record_id if records else None
+        return config.config_id, record_id
+
+    def __close_record(self):
+        self.session_manager.close_record()
+        self._processed_channels_data_cache = {}
+        self._overlay_channels_data_cache = {}
+        self._overlay_cache_segment_idxs = ()
+        # Memmaps of the closed Record must be released before its files can be removed (Windows).
+        gc.collect()
+
+    def __open_record(self, config_id: str, record_id: str, preferred_session: Optional[str] = None) -> bool:
+        workspace = self._workspace
+        previous_record_id = self.global_storage_manager.workspace_position(
+            workspace.manifest.uid).last_record_by_config.get(config_id)
+        self.__close_record()
+        self._config_id = config_id
+        try:
+            record = workspace.record(config_id, record_id)
+            self.session_manager.open_record(
+                workspace, config_id, record_id,
+                original_source_path=(
+                    self.global_storage_manager.record_source_path(record.uid) if record else None),
+            )
+        except Exception as exc:
+            ephyr_logger().error(f"Cannot open Record {record_id}", exc_info=exc)
+            QMessageBox.warning(self, "Cannot open Record", f"Record '{record_id}' cannot be opened:\n\n{exc}")
+            self.__close_record()
+            self.__show_workspace_state()
+            return False
+
+        sessions = self.session_manager.other_session_names
+        selected_session = None
+        if preferred_session in sessions:
+            selected_session = preferred_session
+        elif len(sessions) == 1:
+            selected_session = sessions[0]
+        elif len(sessions) > 1:
+            selected_session = SelectSessionDialog(sessions, self).get_selected_item()
+
+        first_session = False
+        if selected_session is None:
+            session_name = self.__new_unique_session_name(
+                default=settings.DEFAULT_SESSION_NAME if not sessions else "")
+            if session_name is None:
+                self.__close_record()
+                self.__show_workspace_state()
+                return False
+            self.session_manager.new_user_session(session_name)
+            selected_session = session_name
+            first_session = not sessions
+
+        self.__switch_to_session(selected_session)
+        if first_session and previous_record_id and previous_record_id != record_id:
+            self.__offer_settings_from_record(config_id, previous_record_id)
+        self.__set_status(f"Record '{self.session_manager.record.name}' is opened")
+        return True
+
+    def __offer_settings_from_record(self, config_id: str, source_record_id: str):
+        """First session of a new Record: copy settings from the Record of this Config opened before."""
+        candidates = [item for item in records_with_sessions(self._workspace, config_id, None)
+                      if item[0] == source_record_id]
+        if not candidates:
+            return
+        _record_id, record_name, sessions = candidates[0]
+        position = self.global_storage_manager.workspace_position(self._workspace.manifest.uid)
+        session_name = position.session_name if position.session_name in sessions else sessions[0]
+        answer = QMessageBox.question(
+            self, "Copy settings",
+            f"This is the first session of the Record. Copy GUI settings and event/period vocabularies "
+            f"from Record '{record_name}' (session '{session_name}')?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.__import_settings_from(source_record_id, session_name, include_vocabularies=True)
+
+    def __import_settings_from(self, record_id: str, session_name: str, include_vocabularies: bool):
+        folder = layout.session_dir(self._workspace.record_dir(self.session_manager.config_id, record_id),
+                                    session_name)
+        try:
+            other = UserSession.load(folder)
+        except Exception as exc:
+            self.__set_status(f"Cannot read session '{session_name}': {exc}")
+            return
+        self.session_manager.import_settings_from_session(other, include_vocabularies)
+        self._restore_right_panel_widgets()
+        self.__update_menu()
+        self.__recalculate_and_redraw_necessary_signals(recalculate_data=True)
+        self.__set_status(f"GUI settings imported from session '{session_name}'")
+
+    def __show_workspace_state(self):
+        """Refresh navigation and, without an open session, the empty-workspace page."""
+        workspace = self._workspace
+        self.recording_navigation_panel.set_workspace(workspace, self._config_id, self.session_manager.record_id)
+        if workspace is not None:
+            config = workspace.config(self._config_id) if self._config_id else None
+            if not workspace.configs():
+                state = StartScreenStateEnum.EMPTY_WORKSPACE
+            elif config is None or not config.records:
+                state = StartScreenStateEnum.EMPTY_CONFIG
+            else:
+                state = StartScreenStateEnum.NO_RECORD_OPEN
+            self.start_screen_panel.set_state(state, workspace.name, config.name if config else "")
+            if RightPanelWidgetEnum.RECORDING_NAVIGATION not in self.right_panel_widgets:
+                self.add_widget_to_right_panel(RightPanelWidgetEnum.RECORDING_NAVIGATION,
+                                               update_session=self.session_manager.session_is_active)
+        else:
+            self.start_screen_panel.set_state(StartScreenStateEnum.NO_WORKSPACE)
+        self.__update_main_content_panel()
+        self.__redraw_header()
+
+    def __remember_position(self):
+        if self._workspace is None:
+            return
+        session = self.session_manager.current_user_session
+        self.global_storage_manager.remember_position(
+            self._workspace.manifest.uid,
+            self._config_id,
+            self.session_manager.record_id,
+            session.session_name if session else None,
+        )
+
+    # ---------- Config / Record / Source ----------
+    def on_config_selected(self, config_id: str):
+        if self._workspace is None or config_id == self._config_id:
+            return
+        if not self.__confirm_discard_unsaved_changes("Are you sure you want to switch to another Config?"):
+            self.__show_workspace_state()
+            return
+        config_id, record_id = self.__default_location(config_id)
+        self.__close_record()
+        self._config_id = config_id
+        if record_id is not None:
+            self.__open_record(config_id, record_id)
+        else:
+            self.__show_workspace_state()
+
+    def on_record_selected(self, record_id: str):
+        if self._workspace is None or self._config_id is None or record_id == self.session_manager.record_id:
+            return
+        if not self.__confirm_discard_unsaved_changes("Are you sure you want to switch to another Record?"):
+            self.__show_workspace_state()
+            return
+        self.__open_record(self._config_id, record_id)
+
+    def on_add_requested(self, level: str, path: Optional[Path] = None):
+        workspace = self._workspace
+        if workspace is None:
+            self.__set_status("Create or open a workspace first")
+            return
+        level = WorkspaceLevelEnum(level)
+        if level is WorkspaceLevelEnum.SOURCE:
+            if not self.session_manager.session_is_active:
+                self.__set_status("Open a Record to add a source to it")
                 return
+            new_ids = self.workspace_actions.add_source(workspace, self.session_manager.config_id,
+                                                        self.session_manager.record_id, path)
+            if new_ids:
+                self.session_manager.set_active_source(new_ids[0])
+                self.__show_workspace_state()
+                self.__set_status(f"Sources added: {', '.join(new_ids)}")
+            return
 
-            converter_dialog = ConverterDialog(source_reader, ephyr_experiment_folder_path, self)
-            if converter_dialog.exec():
-                progress = QProgressDialog("Converting to ephyr data...", "Cancel", 0, 100, self)
-                progress.setWindowModality(Qt.WindowModality.WindowModal)  # Block the entire app
-                progress.setWindowTitle("Please Wait")
-                progress.show()
-                try:
-                    for convertion_progress_percents in EphyrIO.convert_from_source_to_ephyr(
-                            experiment_path,
-                            ephyr_experiment_folder_path,
-                            reader_options=converter_dialog.conversion_options(),
-                    ):
-                        if progress.wasCanceled():
-                            shutil.rmtree(ephyr_experiment_folder_path, ignore_errors=True)
-                            return
+        if level is WorkspaceLevelEnum.RECORD:
+            if self._config_id is None:
+                self.__set_status("Add a Config first")
+                return
+            location = self.workspace_actions.add_record(workspace, self._config_id, path)
+        else:
+            location = self.workspace_actions.add_config(workspace, path)
+        if location is None:
+            self.__show_workspace_state()
+            return
+        if not self.__confirm_discard_unsaved_changes("The new Record is ready. Open it now?"):
+            self.__show_workspace_state()
+            return
+        self.__open_record(location.config_id, location.record_id)
 
-                        progress.setValue(convertion_progress_percents)
-                except Exception as exc:
-                    # header.json is written before the data, so a half-converted folder
-                    # would pass is_valid_ephyr_folder and load as a corrupt experiment.
-                    shutil.rmtree(ephyr_experiment_folder_path, ignore_errors=True)
-                    ephyr_logger().error(f"Conversion of {experiment_path} failed", exc_info=exc)
-                    QMessageBox.critical(
-                        self,
-                        "Conversion failed",
-                        f"Could not read {experiment_path}:\n\n{exc}",
-                    )
+    def on_remove_requested(self, level: str):
+        workspace = self._workspace
+        if workspace is None:
+            return
+        level = WorkspaceLevelEnum(level)
+        config_id = self._config_id
+        record_id = self.session_manager.record_id
+        actions = self.workspace_actions
+        try:
+            if level is WorkspaceLevelEnum.CONFIG and config_id:
+                if not actions.confirm_remove_config(workspace, config_id):
                     return
-                finally:
-                    progress.close()
+                self.__close_record()
+                workspace.remove_config(config_id)
+                self._config_id = None
+            elif level is WorkspaceLevelEnum.RECORD and config_id and record_id:
+                if not actions.confirm_remove_record(workspace, config_id, record_id):
+                    return
+                self.__close_record()
+                workspace.remove_record(config_id, record_id)
+            elif level is WorkspaceLevelEnum.SOURCE and record_id:
+                source_id = self.session_manager.active_source_id
+                if not actions.confirm_remove_source(workspace, config_id, record_id, source_id):
+                    return
+                self.session_manager.set_active_source(workspace.config(config_id).main_source_id)
+                gc.collect()
+                workspace.remove_source(config_id, record_id, source_id)
+                self.session_manager.save_user_session()
+                self.__show_workspace_state()
+                self.__set_status(f"Source '{source_id}' removed")
+                return
             else:
                 return
-
-        self.__load_session(ephyr_experiment_folder_path)
-
-    def on_open_recent_experiment(self, experiment_path: Path):
-        if not self.__confirm_discard_unsaved_changes("Are you sure you want to open another experiment?"):
+        except (WorkspaceError, OSError) as exc:
+            QMessageBox.warning(self, "Cannot remove", str(exc))
             return
+        self.__set_status(f"{level.value.capitalize()} removed")
+        config_id, next_record_id = self.__default_location(self._config_id)
+        self._config_id = config_id
+        if next_record_id is not None:
+            self.__open_record(config_id, next_record_id)
+        else:
+            self.__show_workspace_state()
 
-        try:
-            self.__load_session(experiment_path)
-        except FileNotFoundError:
-            self.global_storage_manager.update_recent_experiments_list(experiment_path, to_delete=True)
-            self.__update_recent_dirs()
-            self.__set_status("Recent experiment folder does not exist")
+    def on_rename_requested(self, level: str):
+        workspace = self._workspace
+        if workspace is None:
+            return
+        level = WorkspaceLevelEnum(level)
+        actions = self.workspace_actions
+        if level is WorkspaceLevelEnum.CONFIG and self._config_id:
+            renamed = actions.rename_config(workspace, self._config_id)
+        elif level is WorkspaceLevelEnum.RECORD and self.session_manager.record_id:
+            renamed = actions.rename_record(workspace, self._config_id, self.session_manager.record_id)
+        elif level is WorkspaceLevelEnum.SOURCE and self.session_manager.active_source_id:
+            renamed = actions.rename_source(workspace, self._config_id, self.session_manager.active_source_id)
+        else:
+            return
+        if renamed:
+            if self.session_manager.session_is_active:
+                self.session_manager.source_view.spec.name = (
+                    workspace.config(self._config_id).source(self.session_manager.active_source_id).name)
+            self.__show_workspace_state()
 
-    def on_open_another_session(self, session_filename: str):
+    # ---------- Drag and drop ----------
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        paths = [Path(url.toLocalFile()) for url in event.mimeData().urls() if url.isLocalFile()]
+        if not paths:
+            return
+        event.acceptProposedAction()
+        path = paths[0]
+        if find_workspace_root(path) is not None:
+            self.open_workspace_path(path)
+        elif self._workspace is not None:
+            self.on_add_requested(WorkspaceLevelEnum.CONFIG, path)
+        else:
+            self.__set_status("Drop a workspace folder or workspace.ephyr; recordings are added to an open workspace")
+
+    # ---------- Sessions ----------
+    def on_open_another_session(self, session_name: str):
         if not self.__confirm_discard_unsaved_changes("Are you sure you want to switch to another session?"):
             return
 
         try:
-            self.__switch_to_session(session_filename)
+            self.__switch_to_session(session_name)
         except Exception as e:
             self.__set_status(repr(e))
         else:
-            self.__set_status("Session was switched to " + self.session_manager.user_session.session_filename)
+            self.__set_status("Session was switched to " + self.session_manager.user_session.session_name)
 
     def on_new_session(self):
+        if self.session_manager.record_dir is None:
+            self.__set_status("Warning: open a Record first")
+            return
+        if not self.__confirm_discard_unsaved_changes("Are you sure you want to start a new session?"):
+            return
         session_name = self.__new_unique_session_name()
         if session_name is None:
             return
-        
-        selected_session = UserSession.session_name_to_filename(session_name)
-        self.session_manager.new_user_session(selected_session)
-        self.__switch_to_session(selected_session)
+
+        self.session_manager.new_user_session(session_name)
+        self.__switch_to_session(session_name)
 
     def on_save_session(self):
         if self.session_manager.session_is_active:
             self.session_manager.save_user_session()
             self.__set_status("Session was saved successfully")
 
+    def __choose_session_folder(self, title: str) -> Optional[Path]:
+        path = QFileDialog.getExistingDirectory(self, title, str(self.session_manager.sessions_folder or ""),
+                                                QFileDialog.Option.ShowDirsOnly)
+        return Path(path) if path else None
+
     def on_import_session(self):
-        if self.session_manager.session_is_active:
-            file_to_import, _ = QFileDialog.getOpenFileName(self, "Select a session file")
+        if not self.session_manager.session_is_active:
+            self.__set_status("Warning: there is no active Record to import to")
+            return
+        folder = self.__choose_session_folder("Select a session folder")
+        if folder is None:
+            return
+        try:
+            session_to_import = UserSession.load(folder)
+        except Exception as e:
+            self.__set_status(f"Corrupted session folder: {e}")
+            return
+        while self.session_manager.session_name_already_exists(session_to_import.session_name):
+            new_session_name = self.__new_unique_session_name()
+            if new_session_name is None:
+                return
+            session_to_import.session_name = new_session_name
 
-            if file_to_import:
-                session_to_import = EphyrSessionManager.parse_session_file(Path(file_to_import))
-                if session_to_import is not None:
-                    while self.session_manager.session_filename_already_exists(session_to_import.session_filename):
-                        new_session_name = self.__new_unique_session_name()
-                        if new_session_name is None:
-                            return
+        self.session_manager.import_new_session(session_to_import)
+        self.__update_sessions()
+        self.__set_status("Imported successfully as " + session_to_import.session_name)
 
-                        session_to_import.change_name(new_session_name)
-
-                    self.session_manager.import_new_session(session_to_import)
-                    self.__update_sessions()
-                    self.__set_status("Imported successfully as " + session_to_import.session_filename)
-                else:
-                    self.__set_status("Corrupted session file")
-        else:
-            self.__set_status("Warning: there is no active ephyr folder to import to")
+    def __load_annotations_session(self, file_path: Path) -> Optional[UserSession]:
+        folder = file_path if file_path.is_dir() else file_path.parent
+        try:
+            return UserSession.load(folder)
+        except Exception as e:
+            self.__set_status(f"Corrupted session folder: {e}")
+            return None
 
     def on_import_events(self):
-        if self.session_manager.session_is_active:
-            file_to_import, _ = QFileDialog.getOpenFileName(
-                self,
-                "Select events source",
-                "",
-                "Session/Legacy events (*.json *.mat);;Session files (*.json);;MAT files (*.mat);;All files (*)",
+        if not self.session_manager.session_is_active:
+            self.__set_status("Warning: there is no active Record to import to")
+            return
+        file_to_import, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select events source",
+            str(self.session_manager.sessions_folder or ""),
+            "Session or legacy events (events.csv settings.json *.mat);;MAT files (*.mat);;All files (*)",
+        )
+        if not file_to_import:
+            return
+
+        file_path = Path(file_to_import)
+        debug_info: Dict[str, str] = {}
+        try:
+            if file_path.suffix.lower() == ".mat":
+                imported_vocabulary, imported_events, debug_info = import_legacy_events_from_mat(
+                    file_path, self.session_manager.source_view)
+            else:
+                session_to_import = self.__load_annotations_session(file_path)
+                if session_to_import is None:
+                    return
+                imported_vocabulary = session_to_import.events_vocabulary
+                imported_events = session_to_import.events
+        except LegacyMatEventsImportError as e:
+            self.__set_status(f"Import error (.mat): {e}")
+            return
+        except Exception as e:
+            self.__set_status(f"Import error: {e}")
+            return
+
+        self.session_manager.import_vocabulary_and_events(imported_vocabulary, imported_events)
+        status_text = (
+            f"Imported events: {len(imported_events)}; "
+            f"vocabulary entries: {len(imported_vocabulary)}"
+        )
+        if file_path.suffix.lower() == ".mat":
+            status_text += (
+                f"; conversion={debug_info.get('time_conversion', 'n/a')}; "
+                f"skipped={debug_info.get('skipped_out_of_range', '0')}"
             )
-
-            if file_to_import:
-                header = self.session_manager.header
-                if header is None:
-                    self.__set_status("Header is not loaded")
-                    return
-
-                file_path = Path(file_to_import)
-                try:
-                    if file_path.suffix.lower() == ".mat":
-                        imported_vocabulary, imported_events, debug_info = import_legacy_events_from_mat(file_path, header)
-                    else:
-                        session_to_import = EphyrSessionManager.parse_session_file(file_path)
-                        if session_to_import is None:
-                            self.__set_status("Corrupted session file")
-                            return
-                        imported_vocabulary = session_to_import.events_vocabulary
-                        imported_events = session_to_import.events
-                        debug_info = {"source": "session_json"}
-                except LegacyMatEventsImportError as e:
-                    self.__set_status(f"Import error (.mat): {e}")
-                    return
-                except Exception as e:
-                    self.__set_status(f"Import error: {e}")
-                    return
-
-                for imported_event in imported_events:
-                    if imported_event.sweep_idx < 0 or imported_event.sweep_idx >= header.number_of_sweeps:
-                        self.__set_status(
-                            f"Import error: event sweep_idx={imported_event.sweep_idx} is out of range"
-                        )
-                        return
-                    sweep_duration_ms = self.__sweep_duration_ms(header, imported_event.sweep_idx)
-                    if imported_event.time_ms < 0 or imported_event.time_ms > sweep_duration_ms:
-                        self.__set_status(
-                            f"Import error: event time_ms={imported_event.time_ms:.3f} is out of sweep range"
-                        )
-                        return
-
-                self.session_manager.import_vocabulary_and_events(
-                    imported_vocabulary,
-                    imported_events,
-                )
-                status_text = (
-                    f"Imported events: {len(imported_events)}; "
-                    f"vocabulary entries: {len(imported_vocabulary)}"
-                )
-                if file_path.suffix.lower() == ".mat":
-                    status_text += (
-                        f"; conversion={debug_info.get('time_conversion', 'n/a')}; "
-                        f"skipped={debug_info.get('skipped_out_of_range', '0')}"
-                    )
-                self.__set_status(status_text)
-        else:
-            self.__set_status("Warning: there is no active ephyr folder to import to")
+        self.__set_status(status_text)
 
     def on_import_periods(self):
-        if self.session_manager.session_is_active:
-            file_to_import, _ = QFileDialog.getOpenFileName(self, "Select a session file")
+        if not self.session_manager.session_is_active:
+            self.__set_status("Warning: there is no active Record to import to")
+            return
+        file_to_import, _ = QFileDialog.getOpenFileName(
+            self, "Select periods of a session", str(self.session_manager.sessions_folder or ""),
+            "Session files (periods.csv settings.json);;All files (*)",
+        )
+        if not file_to_import:
+            return
+        session_to_import = self.__load_annotations_session(Path(file_to_import))
+        if session_to_import is None:
+            return
 
-            if file_to_import:
-                session_to_import = EphyrSessionManager.parse_session_file(Path(file_to_import))
-                if session_to_import is None:
-                    self.__set_status("Corrupted session file")
-                    return
+        self.session_manager.import_vocabulary_and_periods(
+            session_to_import.periods_vocabulary,
+            session_to_import.periods,
+        )
+        self.__set_status(
+            f"Imported periods: {len(session_to_import.periods)}; "
+            f"vocabulary entries: {len(session_to_import.periods_vocabulary)}"
+        )
 
-                self.session_manager.import_vocabulary_and_periods(
-                    session_to_import.periods_vocabulary,
-                    session_to_import.periods,
-                )
-                self.__set_status(
-                    f"Imported periods: {len(session_to_import.periods)}; "
-                    f"vocabulary entries: {len(session_to_import.periods_vocabulary)}"
-                )
-        else:
-            self.__set_status("Warning: there is no active ephyr folder to import to")
-    
     def on_import_settings(self):
-        if self.session_manager.session_is_active:
-            file_to_import, _ = QFileDialog.getOpenFileName(self, "Select a session file")
-
-            if file_to_import:
-                session_to_import = EphyrSessionManager.parse_session_file(Path(file_to_import))
-                if session_to_import is None:
-                    self.__set_status("Corrupted session file")
-                    return
-
-                header = self.session_manager.header
-                if header is None:
-                    self.__set_status("Header is not loaded")
-                    return
-
-                imported_setup = session_to_import.gui_setup
-                imported_setup.current_sweep_idx = 0
-                imported_setup.start_point = 0
-                # Keep imported duration, but clamp it to the current sweep length.
-                # Forcing full-sweep duration makes the time scrollbar unusable (max=0).
-                sweep_duration_ms = self.__sweep_duration_ms(header, imported_setup.current_sweep_idx)
-                imported_setup.duration_ms = max(
-                    settings.MIN_DURATION,
-                    min(int(imported_setup.duration_ms), sweep_duration_ms),
-                )
-
-                self.session_manager.replace_gui_setup(imported_setup)
-                self._restore_right_panel_widgets()
-                self.__recalculate_and_redraw_necessary_signals(recalculate_data=True)
-                self.__set_status("Imported GUI settings successfully")
-        else:
-            self.__set_status("Warning: there is no active ephyr folder to import to")
-
+        if not self.session_manager.session_is_active:
+            self.__set_status("Warning: there is no active Record to import to")
+            return
+        config_id = self.session_manager.config_id
+        records = records_with_sessions(self._workspace, config_id, self.session_manager.record_id)
+        if not records:
+            self.__set_status("Other Records of this Config have no sessions to import settings from")
+            return
+        position = self.global_storage_manager.workspace_position(self._workspace.manifest.uid)
+        previous = position.last_record_by_config.get(config_id)
+        dialog = ImportSettingsDialog(records, self, preferred=(previous, "") if previous else None)
+        if not dialog.exec():
+            return
+        record_id, session_name, include_vocabularies = dialog.selection()
+        if not session_name:
+            return
+        self.__import_settings_from(record_id, session_name, include_vocabularies)
 
     def on_export_session(self):
         destination_dir = QFileDialog.getExistingDirectory(
@@ -865,10 +1147,12 @@ class MainWindow(QMainWindow, QWidgetMixin):
 
     def on_open_session_in_explorer(self):
         if self.session_manager.session_is_active:
+            folder = str(layout.session_dir(self.session_manager.record_dir,
+                                            self.session_manager.user_session.session_name))
             if os.name == 'nt':  # Windows
-                subprocess.run(['explorer', self.session_manager.ephyr_experiment_folder])
+                subprocess.run(['explorer', folder])
             elif os.name == 'posix':  # macOS or Linux
-                subprocess.run(['open', self.session_manager.ephyr_experiment_folder])  # For macOS
+                subprocess.run(['open', folder])  # For macOS
                 # For Linux, you might need 'xdg-open' or a specific file manager command
                 # subprocess.run(['xdg-open', folder_path])
         else:
@@ -1102,7 +1386,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
             signal_widget=signal_widget,
             top_navigator_widget=top_navigator_widget,
             top_source_rect=top_source_rect,
-            current_sweep_idx=gui_setup.current_sweep_idx,
+            current_segment_idx=gui_setup.current_segment_idx,
             start_point=gui_setup.start_point,
             duration_ms=gui_setup.duration_ms,
             groups_layout=self.signal_panel.get_visible_groups_layout(),
@@ -1112,50 +1396,35 @@ class MainWindow(QMainWindow, QWidgetMixin):
         result = ScreenshotExportDialog.run_export(self, context)
         self.__set_status(result.message)
 
-    def __load_session(self, ephyr_experiment_folder_path: Path):
-        self.session_manager.init_from_folder(ephyr_experiment_folder_path)
-        sessions = self.session_manager.other_session_filenames
-        selected_session = None
-        if len(sessions) == 1:
-            selected_session = sessions[0]
-        elif len(sessions) > 1:
-            selected_session = SelectSessionDialog(sessions).get_selected_item()
-
-        if selected_session is None:
-            session_name = self.__new_unique_session_name()
-            if session_name is None:
-                return
-            
-            selected_session = UserSession.session_name_to_filename(session_name)
-            self.session_manager.new_user_session(selected_session)
-
-        self.__switch_to_session(selected_session)
-        self.global_storage_manager.update_recent_experiments_list(ephyr_experiment_folder_path)
-        self.__set_status("Session is loaded successfully")
-
-    def __switch_to_session(self, selected_session):
+    def __switch_to_session(self, selected_session: str):
         self.session_manager.switch_sessions(selected_session)
         self.__update_main_content_panel()
         self.__recalculate_and_redraw_necessary_signals(recalculate_data=True, )
         self.__update_recent_dirs()
         self.__update_sessions()
         self.__update_menu()
-        self.__redraw_header()
-
         self._restore_right_panel_widgets()
+        self.__show_workspace_state()
+        self.__remember_position()
 
     def __update_recent_dirs(self):
         self.menu_open_recent.clear()
-        for recent in self.global_storage_manager.recent_experiments:
+        recent_workspaces = list(self.global_storage_manager.recent_workspaces)
+        for recent in recent_workspaces:
             act_open_recent = QAction(str(recent), self)
-            act_open_recent.triggered.connect(partial(self.on_open_recent_experiment, recent))
+            act_open_recent.triggered.connect(partial(self.on_open_recent_workspace, recent))
             self.menu_open_recent.addAction(act_open_recent)
+        if hasattr(self, "start_screen_panel"):
+            self.start_screen_panel.set_recent_workspaces(recent_workspaces)
 
     def __update_sessions(self):
         self.menu_sessions.clear()
-        for session_filename in self.session_manager.other_session_filenames:
-            act_open_session = QAction(session_filename, self)
-            act_open_session.triggered.connect(partial(self.on_open_another_session, session_filename))
+        current = self.session_manager.current_user_session
+        for session_name in self.session_manager.other_session_names:
+            if current is not None and session_name == current.session_name:
+                continue
+            act_open_session = QAction(session_name, self)
+            act_open_session.triggered.connect(partial(self.on_open_another_session, session_name))
             self.menu_sessions.addAction(act_open_session)
 
     def __update_menu(self):
@@ -1166,27 +1435,24 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.view_periods.setChecked(self.session_manager.gui_setup.periods_are_shown)
 
     def __redraw_header(self):
-        experiment_folder = self.session_manager.ephyr_experiment_folder
-        experiment_name = experiment_folder.name
-        parent_folder = experiment_folder.parent.name
-        recording = f"{parent_folder}/{experiment_name}" if parent_folder else experiment_name
-        user_session = self.session_manager.user_session
-        if user_session is None:
-            self.current_session_label.setText(f"Recording: {recording}")
+        workspace = self._workspace
+        if workspace is None:
+            self.current_session_label.setText("No workspace")
             return
-        self.current_session_label.setText(
-            f"Session: {user_session.session_name}  |  Recording: {recording}"
-        )
-
-    @staticmethod
-    def __sweep_points(header, sweep_idx: int) -> int:
-        points = list(header.number_of_points_per_sweep)
-        sweep_idx = max(0, min(int(sweep_idx), len(points) - 1))
-        return int(points[sweep_idx])
-
-    @staticmethod
-    def __sweep_duration_ms(header, sweep_idx: int) -> int:
-        return int((header.sample_interval_microseconds / 10 ** 3) * MainWindow.__sweep_points(header, sweep_idx))
+        parts = [f"Workspace: {workspace.name}"]
+        config = workspace.config(self._config_id) if self._config_id else None
+        if config is not None:
+            parts.append(f"Config: {config.name}")
+        record = self.session_manager.record
+        if record is not None:
+            parts.append(f"Record: {record.name}")
+        view = self.session_manager.source_view
+        # if view is not None and config is not None and len(record.sources) > 1:
+        #     parts.append(f"Source: {view.source_name}")
+        session = self.session_manager.current_user_session
+        if session is not None:
+            parts.insert(0, f"Session: {session.session_name}")
+        self.current_session_label.setText("  |  ".join(parts))
 
     def __set_status(self, text: str):
         current_time = datetime.now()
@@ -1200,19 +1466,21 @@ class MainWindow(QMainWindow, QWidgetMixin):
         else:
             self.left_panel_stack.setCurrentWidget(self.start_screen_panel)
 
-    def __new_unique_session_name(self) -> Optional[str]:
-        is_created = False
-        while not is_created:
+    def __new_unique_session_name(self, default: str = "") -> Optional[str]:
+        while True:
             dialog = SessionNameDialog(self)
-            if dialog.exec():
-                session_name = dialog.line_edit.text()
-                if self.session_manager.session_name_already_exists(session_name):
-                    QMessageBox.warning(self, "Warning",
-                                        f"Session with the name {session_name} already exists.")
-                else:
-                    return session_name
-            else:
+            dialog.line_edit.setText(default)
+            if not dialog.exec():
                 return None
+            session_name = dialog.line_edit.text().strip()
+            if not is_valid_session_name(session_name):
+                QMessageBox.warning(self, "Warning",
+                                    "Session name must not be empty or contain any of < > : \" / \\ | ? *")
+            elif self.session_manager.session_name_already_exists(session_name):
+                QMessageBox.warning(self, "Warning",
+                                    f"Session with the name {session_name} already exists.")
+            else:
+                return session_name
 
     def _add_labeled_menu_section(self, menu, title: str) -> None:
         """Group title that stays visible when the style draws addSection() as a plain line."""

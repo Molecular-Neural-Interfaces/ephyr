@@ -12,10 +12,19 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import h5py
 import numpy as np
 
-from ephyr.core.header import ChannelInfo, Header, SignalUnitEnum, canonical_unit_label
+from ephyr.core.manifests import SegmentKindEnum
+from ephyr.core.units import SignalUnitEnum, canonical_unit_label, parse_unit
 
 from ._exceptions import WrongSourceReaderError
-from .abstract_source_reader import AbstractDataWriter, AbstractSourceReader
+from .abstract_source_reader import (
+    AbstractDataWriter,
+    AbstractSourceReader,
+    ChannelPlan,
+    ConversionPlan,
+    SourcePlan,
+    SourceRef,
+    contiguous_segments,
+)
 
 
 _CHUNK_SAMPLES = 65536
@@ -58,6 +67,7 @@ class MCSRecordingInfo:
     h5_dataset_paths: Tuple[str, ...] = ()
     h5_layout: str = "channels_samples"
     sweep_sample_counts: Tuple[int, ...] = ()
+    sweep_t_starts_ms: Tuple[float, ...] = ()
     mcd_channel_counts: Tuple[int, ...] = ()
     # (blocks, streams) byte offsets of interleaved uint16 frames and samples per block.
     mcd_block_offsets: Optional[np.ndarray] = None
@@ -493,19 +503,26 @@ def _select_mcd_streams(streams: Sequence[_MCDStream], options: Dict[str, Any]) 
         selected = [stream for stream in streams if stream.kind == "analog" and stream.gain_volts > 0]
         if not selected:
             raise ValueError("MCD file contains no continuous analog streams")
-    if any(stream.sample_rate != selected[0].sample_rate for stream in selected[1:]):
-        raise ValueError("MCD analog streams have different sample rates")
     if any(stream.bits != 16 for stream in selected):
         raise ValueError("Only 16-bit MCD analog streams are supported")
     return selected
 
 
-def _parse_mcs_mcd(path: Path, options: Dict[str, Any]) -> MCSRecordingInfo:
+def _group_by_rate(streams: Sequence[_MCDStream]) -> List[List[_MCDStream]]:
+    groups: Dict[float, List[_MCDStream]] = {}
+    for stream in streams:
+        groups.setdefault(stream.sample_rate, []).append(stream)
+    return sorted(groups.values(), key=lambda group: -sum(len(stream.channel_labels) for stream in group))
+
+
+_MCD_TICKS_PER_MS = 10_000  # MC_Rack block times are 100 ns ticks.
+
+
+def _scan_mcd_blocks(path: Path, selected: Sequence[_MCDStream],
+                     data_start: int) -> Dict[str, List[Tuple[int, int, int, int]]]:
     file_size = path.stat().st_size
+    blocks: Dict[str, List[Tuple[int, int, int, int]]] = {stream.stream_id: [] for stream in selected}
     with open(path, "rb") as source:
-        streams, data_start = _parse_mcd_header(source, file_size)
-        selected = _select_mcd_streams(streams, options)
-        blocks: Dict[str, List[Tuple[int, int, int, int]]] = {stream.stream_id: [] for stream in selected}
         position = data_start
         while position + _MCD_CHUNK.size <= file_size:
             source.seek(position)
@@ -519,13 +536,18 @@ def _parse_mcs_mcd(path: Path, options: Dict[str, Any]) -> MCSRecordingInfo:
                 data_offset = position + _MCD_CHUNK.size + _MCD_BLOCK_TIMES.size
                 stream_blocks.append((data_offset, size - _MCD_BLOCK_TIMES.size, start_time, end_time))
             position += _MCD_CHUNK.size + size
+    return blocks
 
-    block_count = min(len(stream_blocks) for stream_blocks in blocks.values())
+
+def _mcd_group_info(path: Path, selected: Sequence[_MCDStream],
+                    blocks: Dict[str, List[Tuple[int, int, int, int]]], t0_ticks: int) -> MCSRecordingInfo:
+    block_count = min(len(blocks[stream.stream_id]) for stream in selected)
     if block_count == 0:
         raise ValueError("MCD file contains no analog data blocks")
     offsets = np.empty((block_count, len(selected)), dtype=np.int64)
     samples = np.empty(block_count, dtype=np.int64)
     sweep_sample_counts: List[int] = []
+    sweep_t_starts: List[float] = []
     previous_end: Optional[int] = None
     for block_index in range(block_count):
         block_start: Optional[int] = None
@@ -543,6 +565,7 @@ def _parse_mcs_mcd(path: Path, options: Dict[str, Any]) -> MCSRecordingInfo:
         # Triggered recordings store sweeps as runs of contiguous blocks separated by time gaps.
         if previous_end is None or block_start != previous_end:
             sweep_sample_counts.append(0)
+            sweep_t_starts.append((block_start - t0_ticks) / _MCD_TICKS_PER_MS)
         sweep_sample_counts[-1] += int(samples[block_index])
         previous_end = block_end
 
@@ -572,23 +595,55 @@ def _parse_mcs_mcd(path: Path, options: Dict[str, Any]) -> MCSRecordingInfo:
         sample_count=int(samples.sum()),
         dtype=dtype,
         sweep_sample_counts=tuple(sweep_sample_counts),
+        sweep_t_starts_ms=tuple(sweep_t_starts),
         mcd_channel_counts=tuple(len(stream.channel_labels) for stream in selected),
         mcd_block_offsets=offsets,
         mcd_block_samples=samples,
     )
 
 
-def _parse_mcs(path: Path, options: Dict[str, Any]) -> MCSRecordingInfo:
+def _parse_mcs_mcd_sources(path: Path, options: Dict[str, Any]) -> List[Tuple[str, MCSRecordingInfo]]:
+    """One info per sample rate; every source shares the time origin of the earliest block."""
+    with open(path, "rb") as source:
+        streams, data_start = _parse_mcd_header(source, path.stat().st_size)
+    selected = _select_mcd_streams(streams, options)
+    blocks = _scan_mcd_blocks(path, selected, data_start)
+    first_starts = [stream_blocks[0][2] for stream_blocks in blocks.values() if stream_blocks]
+    if not first_starts:
+        raise ValueError("MCD file contains no analog data blocks")
+    t0 = min(first_starts)
+    return [
+        (", ".join(stream.stream_id for stream in group), _mcd_group_info(path, group, blocks, t0))
+        for group in _group_by_rate(selected)
+    ]
+
+
+def _h5_stream_ids(path: Path) -> List[int]:
+    with h5py.File(path, "r") as source:
+        group_path = "/Data/Recording_0/AnalogStream"
+        if group_path not in source:
+            return []
+        ids = []
+        for name in source[group_path].keys():
+            if name.startswith("Stream_") and name[len("Stream_"):].isdigit():
+                ids.append(int(name[len("Stream_"):]))
+        return sorted(ids)
+
+
+def _parse_mcs_sources(path: Path, options: Dict[str, Any]) -> List[Tuple[str, MCSRecordingInfo]]:
+    """(stream name, info) for every source of the file, the main one first."""
     suffix = path.suffix.lower()
     if suffix in _MCS_MCD_SUFFIXES:
-        return _parse_mcs_mcd(path, options)
+        return _parse_mcs_mcd_sources(path, options)
     if suffix in _MCS_RAW_SUFFIXES:
-        return _parse_mcs_raw(path)
+        return [("RAW", _parse_mcs_raw(path))]
     if suffix in _MCS_H5_SUFFIXES:
-        stream_id = options.get("mcs_stream_id", options.get("stream_id", 0))
-        return _parse_mcs_h5(path, int(stream_id))
+        requested = options.get("mcs_stream_id", options.get("stream_id"))
+        stream_ids = [int(requested)] if requested is not None else (_h5_stream_ids(path) or [0])
+        infos = [(f"Stream_{stream_id}", _parse_mcs_h5(path, stream_id)) for stream_id in stream_ids]
+        return sorted(infos, key=lambda item: -item[1].channel_count)
     if suffix in _MCS_CMOS_SUFFIXES:
-        return _parse_mcs_cmos(path, options)
+        return [("Sensor", _parse_mcs_cmos(path, options))]
     raise ValueError(f"Unsupported Multi Channel Systems file extension: {suffix}")
 
 
@@ -685,7 +740,7 @@ class MCSDataWriter(AbstractDataWriter):
         self._mcd_block_index = last_block
         return values
 
-    def total_chunks(self, header: Header) -> int:
+    def total_chunks(self) -> int:
         if self._info.mcd_block_samples is not None:
             chunks = 0
             filled = 0
@@ -712,72 +767,85 @@ class MCSDataWriter(AbstractDataWriter):
 
 
 class MCSSourceReader(AbstractSourceReader):
-    """Read MC_Rack MCD, MCS RAW, DataManager HDF5, and CMOS-MEA CMCR/CMTR files."""
+    """Read MC_Rack MCD, MCS RAW, DataManager HDF5, and CMOS-MEA CMCR/CMTR files.
 
-    def __init__(self, experiment_path: Path):
-        super().__init__(experiment_path)
-        self._yielded = False
-        self._options: Dict[str, Any] = {}
+    Triggered MCD blocks become segments; analog streams with different sample rates and separate
+    HDF5 analog streams become separate sources.
+    """
+
+    format_name = "mcs"
 
     @classmethod
-    def _try_to_open(cls, experiment_path: Path) -> None:
-        path = Path(experiment_path)
+    def resolve(cls, path: Path) -> SourceRef:
         supported_suffixes = _MCS_RAW_SUFFIXES | _MCS_H5_SUFFIXES | _MCS_CMOS_SUFFIXES | _MCS_MCD_SUFFIXES
         if not path.is_file() or path.suffix.lower() not in supported_suffixes:
             raise WrongSourceReaderError(cls)
-        try:
-            if path.suffix.lower() in _MCS_MCD_SUFFIXES:
-                # Avoid scanning every data block of multi-gigabyte recordings just to detect the format.
-                with open(path, "rb") as source:
-                    streams, _ = _parse_mcd_header(source, path.stat().st_size)
-                _select_mcd_streams(streams, {})
-            else:
-                _parse_mcs(path, {})
-        except Exception:
-            raise WrongSourceReaderError(cls)
+        if path.suffix.lower() in _MCS_MCD_SUFFIXES:
+            # Avoid scanning every data block of multi-gigabyte recordings just to detect the format.
+            with open(path, "rb") as source:
+                streams, _ = _parse_mcd_header(source, path.stat().st_size)
+            _select_mcd_streams(streams, {})
+        elif path.suffix.lower() in _MCS_H5_SUFFIXES:
+            _parse_mcs_h5(path, (_h5_stream_ids(path) or [0])[0])
+        else:
+            _parse_mcs_sources(path, {})
+        return SourceRef(format=cls.format_name, kind="file", root=path, name=path.name, files=[path])
 
-    def __iter__(self) -> "MCSSourceReader":
-        self._yielded = False
-        return self
-
-    def __next__(self) -> Tuple[Header, MCSDataWriter]:
-        if self._yielded:
-            raise StopIteration
-        self._yielded = True
-
-        path = Path(self._experiment_path)
-        info = _parse_mcs(path, self._options)
-        analog_min = (np.asarray(info.digital_min) * info.gains).tolist()
-        analog_max = (np.asarray(info.digital_max) * info.gains).tolist()
-        channel_info = ChannelInfo(
-            name=info.channel_names,
-            probe=[""] * info.channel_count,
-            units=info.units,
-            analog_min=analog_min,
-            analog_max=analog_max,
-            digital_min=info.digital_min,
-            digital_max=info.digital_max,
-            prefiltering=[""] * info.channel_count,
-            number_of_points_per_channel=[info.sample_count] * info.channel_count,
-        )
-        # MCS devices are extracellular MEAs: show voltage channels in µV regardless of the stored prefix.
-        channel_info.rescale_units(range(info.channel_count), SignalUnitEnum.MICROVOLT)
-
-        points_per_sweep = list(info.sweep_sample_counts) or [info.sample_count]
+    def probe(self, scan: bool = False) -> ConversionPlan:
+        path = self.ref.root
+        sources: List[SourcePlan] = []
+        source_type = ""
+        for idx, (stream_name, info) in enumerate(_parse_mcs_sources(path, self._options)):
+            source_type = source_type or info.source_type
+            analog_min = np.asarray(info.digital_min) * info.gains
+            analog_max = np.asarray(info.digital_max) * info.gains
+            channels = [
+                ChannelPlan(
+                    name=info.channel_names[ch],
+                    units=info.units[ch],
+                    analog_min=float(analog_min[ch]),
+                    analog_max=float(analog_max[ch]),
+                    digital_min=int(info.digital_min[ch]),
+                    digital_max=int(info.digital_max[ch]),
+                )
+                for ch in range(info.channel_count)
+            ]
+            # MCS devices are extracellular MEAs: show voltage channels in µV regardless of the stored prefix.
+            _rescale_to_microvolts(channels)
+            points = list(info.sweep_sample_counts) or [info.sample_count]
+            t_starts = list(info.sweep_t_starts_ms) or None
+            sources.append(
+                SourcePlan(
+                    source_id="main" if idx == 0 else _slug(stream_name),
+                    name=stream_name,
+                    sample_rate=info.sample_rate,
+                    channels=channels,
+                    segments=contiguous_segments(points, info.sample_rate, t_starts),
+                    segment_kind=SegmentKindEnum.SWEEP if len(points) > 1 else SegmentKindEnum.CONTINUOUS,
+                    source_format=info.source_type,
+                    writer_factory=lambda info=info: MCSDataWriter(info),
+                )
+            )
         created = datetime.fromtimestamp(path.stat().st_mtime)
-        header = Header(
-            type_before_conversion=info.source_type,
-            name_before_conversion=path.name,
-            creation_date_before_conversion=str(created.date()),
-            creation_time_before_conversion=str(created.time()),
-            sample_interval_microseconds=1e6 / info.sample_rate,
-            sample_rate=info.sample_rate,
-            number_of_channels=info.channel_count,
-            number_of_sweeps=len(points_per_sweep),
-            number_of_points_per_sweep=points_per_sweep,
-            channel_info=channel_info,
+        return ConversionPlan(
+            ref=self.ref,
+            sources=sources,
+            start_datetime=created.isoformat(),
+            recording_name=path.stem,
+            reader_options=dict(self._options),
         )
-        return header, MCSDataWriter(info)
 
-    def set_conversion_options(self, options: Optional[Dict[str, Any]] = None) -> None:
-        self._options = dict(options or {})
+
+def _slug(text: str) -> str:
+    return "".join(char if char.isalnum() else "_" for char in text.lower()).strip("_") or "stream"
+
+
+def _rescale_to_microvolts(channels: List[ChannelPlan]) -> None:
+    for channel in channels:
+        unit = parse_unit(channel.units)
+        factor = unit.factor_to(SignalUnitEnum.MICROVOLT) if unit is not None else None
+        if factor is None:
+            continue
+        channel.analog_min *= factor
+        channel.analog_max *= factor
+        channel.units = SignalUnitEnum.MICROVOLT.value

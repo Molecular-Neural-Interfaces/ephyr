@@ -105,16 +105,17 @@ class TimeSettingsPanel(QWidget):
         self._session_manager.session_loaded.connect(self._sync_time_controls)
         self._session_manager.start_point_changed.connect(self._sync_time_controls)
         self._session_manager.duration_ms_changed.connect(self._sync_time_controls)
-        self._session_manager.current_sweep_idx_changed.connect(self._sync_time_controls)
+        self._session_manager.current_segment_idx_changed.connect(self._sync_time_controls)
+        self._session_manager.display_segments_changed.connect(self._sync_time_controls)
         self._session_manager.time_step_ms_changed.connect(self._sync_time_controls)
         self._session_manager.autoscroll_step_interval_ms_changed.connect(self._sync_time_controls)
         self._session_manager.number_of_dots_to_display_changed.connect(self._sync_time_controls)
 
     def _sample_rate(self) -> float:
-        header = self._session_manager.header
-        if not header:
+        view = self._session_manager.source_view
+        if not view:
             return 0.0
-        return float(header.sample_rate)
+        return float(view.sample_rate)
 
     def _start_ms_from_idx(self, start_point: int) -> int:
         sample_rate = self._sample_rate()
@@ -130,16 +131,16 @@ class TimeSettingsPanel(QWidget):
 
     def _max_start_point_ms(self) -> int:
         gui_setup = self._session_manager.gui_setup
-        header = self._session_manager.header
+        view = self._session_manager.source_view
         sample_rate = self._sample_rate()
-        if not gui_setup or not header or sample_rate <= 0:
+        if not gui_setup or not view or sample_rate <= 0:
             return settings.MAX_START_POINT
         visible_points = int((int(gui_setup.duration_ms) / 1000.0) * sample_rate)
-        points_per_sweep = list(header.number_of_points_per_sweep)
-        if not points_per_sweep:
+        segment_points = view.segment_points
+        if not segment_points:
             return 0
-        sweep_idx = max(0, min(int(gui_setup.current_sweep_idx), len(points_per_sweep) - 1))
-        max_start_idx = max(0, int(points_per_sweep[sweep_idx]) - max(0, visible_points))
+        segment_idx = max(0, min(int(gui_setup.current_segment_idx), len(segment_points) - 1))
+        max_start_idx = max(0, int(segment_points[segment_idx]) - max(0, visible_points))
         return self._start_ms_from_idx(max_start_idx)
 
     def _on_start_point_ms_changed(self, start_ms: int):
@@ -160,14 +161,13 @@ class TimeSettingsPanel(QWidget):
         gui_setup = self._session_manager.gui_setup
         if gui_setup is not None and int(gui_setup.duration_ms) == duration_ms:
             return
-        header = self._session_manager.header
-        if not gui_setup or not header or float(header.sample_rate) <= 0:
+        sample_rate = self._sample_rate()
+        if not gui_setup or sample_rate <= 0:
             self._session_manager.set_duration_ms(duration_ms)
             return
 
         old_duration_ms = int(gui_setup.duration_ms)
         old_start = int(gui_setup.start_point)
-        sample_rate = float(header.sample_rate)
         center_sample = old_start + int((old_duration_ms / 2000.0) * sample_rate)
 
         self._session_manager.set_duration_ms(duration_ms)

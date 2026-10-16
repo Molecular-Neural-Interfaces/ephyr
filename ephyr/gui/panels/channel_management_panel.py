@@ -42,8 +42,8 @@ from ephyr.converter.source_reader.nwb import (
 )
 from ephyr.core.global_storage import GuiMode
 from ephyr.core.ephyr_session import ChannelsLayout, GroupLayout, ChannelGroup
-from ephyr.core.header import Header
-from ephyr.gui.dialogs.header_units_management_dialog import HeaderUnitsManagementDialog
+from ephyr.core.source_view import SourceView
+from ephyr.gui.dialogs.channel_units_management_dialog import ChannelUnitsManagementDialog
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 from ephyr.gui.widgets import (
     FocusWheelComboBox as QComboBox,
@@ -71,16 +71,16 @@ class ChannelLayoutDialog(QDialog):
         parent=None,
         *,
         enabled_indexes: Optional[Set[int]] = None,
-        header: Optional[Header] = None,
-        ephyr_folder: Optional[Path] = None,
+        source_view: Optional[SourceView] = None,
+        source_path: Optional[Path] = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Channels layout")
         self.resize(480, 560)
         self._channel_name_getter = channel_name_getter
         self._channels_layout = channels_layout
-        self._header = header
-        self._ephyr_folder = ephyr_folder
+        self._source_view = source_view
+        self._source_path = source_path
         self._enabled_indexes: Set[int] = set(channels if enabled_indexes is None else enabled_indexes)
 
         layout = QVBoxLayout(self)
@@ -153,11 +153,11 @@ class ChannelLayoutDialog(QDialog):
         self.ok_btn.clicked.connect(self.accept)
 
     def _pick_source_path(self) -> Optional[Path]:
-        header = self._header
-        if header is None:
+        view = self._source_view
+        if view is None:
             return None
-        name_filter, prefer_directory = source_file_dialog_filter(header.type_before_conversion)
-        start = str(self._ephyr_folder or Path.home())
+        name_filter, prefer_directory = source_file_dialog_filter(view.source_format)
+        start = str(self._source_path.parent if self._source_path else Path.home())
         if prefer_directory:
             chosen = QFileDialog.getExistingDirectory(self, "Select source folder", start)
             return Path(chosen) if chosen else None
@@ -170,13 +170,13 @@ class ChannelLayoutDialog(QDialog):
         return Path(chosen) if chosen else None
 
     def _import_order_from_source(self) -> None:
-        header = self._header
-        if header is None:
-            QMessageBox.warning(self, "Import from source", "No experiment header is loaded.")
+        view = self._source_view
+        if view is None:
+            QMessageBox.warning(self, "Import from source", "No Record is open.")
             return
 
-        src_type = str(header.type_before_conversion or "").lower()
-        source_path = resolve_source_path(self._ephyr_folder, header)
+        src_type = str(view.source_format or "").lower()
+        source_path = resolve_source_path(self._source_path)
         if source_path is None and src_type in {"nwb", "rhs", "rhd"}:
             source_path = self._pick_source_path()
             if source_path is None:
@@ -184,7 +184,7 @@ class ChannelLayoutDialog(QDialog):
 
         try:
             new_order, method = import_channel_order(
-                header,
+                view,
                 self.get_order(),
                 source_path=source_path,
             )
@@ -196,7 +196,7 @@ class ChannelLayoutDialog(QDialog):
                     return
                 try:
                     new_order, method = import_channel_order(
-                        header,
+                        view,
                         self.get_order(),
                         source_path=source_path,
                     )
@@ -220,8 +220,8 @@ class ChannelLayoutDialog(QDialog):
             self.get_order(),
             self._channel_name_getter,
             self,
-            header=self._header,
-            ephyr_folder=self._ephyr_folder,
+            source_view=self._source_view,
+            source_path=self._source_path,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._channels_layout = dialog.get_channels_layout()
@@ -357,8 +357,8 @@ class LayoutSettingsDialog(QDialog):
         channel_name_getter,
         parent=None,
         *,
-        header: Optional[Header] = None,
-        ephyr_folder: Optional[Path] = None,
+        source_view: Optional[SourceView] = None,
+        source_path: Optional[Path] = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Layout settings")
@@ -366,8 +366,8 @@ class LayoutSettingsDialog(QDialog):
         self._channel_order = list(channel_order)
         self._channel_count = len(self._channel_order)
         self._channel_name_getter = channel_name_getter
-        self._header = header
-        self._ephyr_folder = Path(ephyr_folder) if ephyr_folder is not None else None
+        self._source_view = source_view
+        self._source_path = Path(source_path) if source_path is not None else None
         self._mask: List[List[bool]] = []
         self._view_row = 0
         self._view_col = 0
@@ -668,8 +668,9 @@ class LayoutSettingsDialog(QDialog):
                 name_label.setStyleSheet("color: #336699; font-size: 9pt;")
 
     def _import_from_source(self) -> None:
-        header = self._header
-        if header is not None and header.type_before_conversion != "nwb":
+        view = self._source_view
+        source_format = view.source_format if view is not None else "nwb"
+        if source_format != "nwb":
             QMessageBox.information(
                 self,
                 "Import from source",
@@ -677,9 +678,9 @@ class LayoutSettingsDialog(QDialog):
             )
             return
 
-        path = resolve_nwb_source_path(self._ephyr_folder, header)
+        path = resolve_nwb_source_path(self._source_path, source_format)
         if path is None:
-            start = str(self._ephyr_folder or Path.home())
+            start = str(self._source_path.parent if self._source_path else Path.home())
             chosen, _ = QFileDialog.getOpenFileName(
                 self,
                 "Select NWB source",
@@ -1252,7 +1253,8 @@ class ChannelManagementPanel(QWidget):
         self._session_manager.session_loaded.connect(self.on_session_loaded)
         self._session_manager.channels_groups_changed.connect(self._on_channels_groups_changed)
         self._session_manager.filters_changed.connect(self.on_filters_changed)
-        self._session_manager.header_units_changed.connect(lambda _units: self.rebuild_groups_ui())
+        self._session_manager.channel_units_changed.connect(lambda _units: self.rebuild_groups_ui())
+        self._session_manager.active_source_changed.connect(lambda _source_id: self.on_session_loaded())
 
     def on_session_loaded(self):
         gui_setup = self._session_manager.gui_setup
@@ -1414,8 +1416,7 @@ class ChannelManagementPanel(QWidget):
 
     def rebuild_groups_ui(self):
         gui_setup = self._session_manager.gui_setup
-        header = self._session_manager.header
-        if not gui_setup or not header:
+        if not gui_setup or not self._session_manager.source_view:
             return
         self._rebuilding_groups = True
         prev_tab_idx = self.groups_tabs.currentIndex()
@@ -1761,12 +1762,8 @@ class ChannelManagementPanel(QWidget):
             self.get_channel_name,
             self,
             enabled_indexes=set(group.enabled_indexes),
-            header=self._session_manager.header,
-            ephyr_folder=(
-                Path(self._session_manager.ephyr_experiment_folder)
-                if self._session_manager.ephyr_experiment_folder
-                else None
-            ),
+            source_view=self._session_manager.source_view,
+            source_path=self._session_manager.original_source_path,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -1958,11 +1955,11 @@ class ChannelManagementPanel(QWidget):
         checkbox.blockSignals(False)
 
     def get_channel_name(self, channel_idx: int) -> str:
-        header = self._session_manager.header
-        if (header and header.channel_info and header.channel_info.name
-                and 0 <= channel_idx < len(header.channel_info.name)):
-            base_name = header.channel_info.name[channel_idx]
-            impedance_values = header.channel_info.impedance_ohm or []
+        view = self._session_manager.source_view
+        if (view and view.channel_info and view.channel_info.name
+                and 0 <= channel_idx < len(view.channel_info.name)):
+            base_name = view.channel_info.name[channel_idx]
+            impedance_values = view.channel_info.impedance_ohm or []
             if channel_idx < len(impedance_values):
                 formatted = self._format_impedance(impedance_values[channel_idx])
                 if formatted:
@@ -1994,7 +1991,7 @@ class ChannelManagementPanel(QWidget):
         return f"{text} {units[idx]}"
 
     def on_set_units_clicked(self):
-        if not self._session_manager.header:
+        if not self._session_manager.source_view:
             return
-        HeaderUnitsManagementDialog(self._session_manager, self).exec()
+        ChannelUnitsManagementDialog(self._session_manager, self).exec()
 

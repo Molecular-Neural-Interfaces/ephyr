@@ -66,14 +66,13 @@ class AddEventCommand(ModifyEventsCommand):
     description = "add event"
     should_emit_events_changed = True
 
-    def __init__(self, event_name_id: int, sweep_idx: int, time_ms: float):
+    def __init__(self, event_name_id: int, t_ms: float):
         super().__init__()
         self.event_name_id = event_name_id
-        self.sweep_idx = sweep_idx
-        self.time_ms = time_ms
+        self.t_ms = t_ms
 
     def _apply_change(self, session: UserSession) -> None:
-        session.add_event(self.event_name_id, self.sweep_idx, self.time_ms)
+        session.add_event(self.event_name_id, self.t_ms)
 
 
 class AddEventsCommand(ModifyEventsCommand):
@@ -81,16 +80,16 @@ class AddEventsCommand(ModifyEventsCommand):
     description = "add events"
     should_emit_events_changed = True
 
-    def __init__(self, events_specs: List[Tuple[int, int, float]]):
+    def __init__(self, events_specs: List[Tuple[int, float]]):
         """
-        events_specs: list of (event_name_id, sweep_idx, time_ms)
+        events_specs: list of (event_name_id, t_ms)
         """
         super().__init__()
-        self._events_specs: List[Tuple[int, int, float]] = list(events_specs)
+        self._events_specs: List[Tuple[int, float]] = list(events_specs)
 
     def _apply_change(self, session: UserSession) -> None:
-        for event_name_id, sweep_idx, time_ms in self._events_specs:
-            session.add_event(event_name_id, sweep_idx, time_ms)
+        for event_name_id, t_ms in self._events_specs:
+            session.add_event(event_name_id, t_ms)
 
 
 class RemoveEventsCommand(ModifyEventsCommand):
@@ -100,19 +99,10 @@ class RemoveEventsCommand(ModifyEventsCommand):
 
     def __init__(self, events: List[Event]):
         super().__init__()
-        # Store event identifiers instead of references (for deepcopy compatibility)
-        self._events_to_remove_ids: List[tuple[int, int, float]] = [
-            (ev.event_name_id, ev.sweep_idx, ev.time_ms) for ev in events
-        ]
+        self._event_ids = {ev.id for ev in events}
 
     def _apply_change(self, session: UserSession) -> None:
-        # Find and remove events by their identifiers
-        events_to_remove = [
-            ev for ev in session.events
-            if (ev.event_name_id, ev.sweep_idx, ev.time_ms) in self._events_to_remove_ids
-        ]
-        for ev in events_to_remove:
-            session.remove_event(ev)
+        session.events = [ev for ev in session.events if ev.id not in self._event_ids]
 
 
 class SetEventsBadFlagCommand(ModifyEventsCommand):
@@ -121,21 +111,14 @@ class SetEventsBadFlagCommand(ModifyEventsCommand):
 
     def __init__(self, events: List[Event], is_bad: bool):
         super().__init__()
-        # Store event identifiers instead of references (for deepcopy compatibility)
-        self._events_ids: List[tuple[int, int, float]] = [
-            (ev.event_name_id, ev.sweep_idx, ev.time_ms) for ev in events
-        ]
+        self._event_ids = {ev.id for ev in events}
         self._new_is_bad: bool = is_bad
         self.description = "mark as invalid" if is_bad else "remove invalid mark"
 
     def _apply_change(self, session: UserSession) -> None:
-        # Find events by their identifiers
-        events_to_modify = [
-            ev for ev in session.events
-            if (ev.event_name_id, ev.sweep_idx, ev.time_ms) in self._events_ids
-        ]
-        for ev in events_to_modify:
-            session.event_set_bad_flag(ev, self._new_is_bad)
+        for ev in session.events:
+            if ev.id in self._event_ids:
+                ev.is_bad = self._new_is_bad
 
 
 class AddEventVocabularyCommand(ModifyEventsCommand):
@@ -232,17 +215,14 @@ class ImportVocabularyAndEventsCommand(ModifyEventsCommand):
             session.events_vocabulary[new_id] = deepcopy(entry)
             id_mapping[old_id] = new_id
 
+        next_event_id = session.next_event_id()
         for event in self._imported_events:
             mapped_event_name_id = id_mapping.get(event.event_name_id)
             if mapped_event_name_id is None:
                 continue
             session.events.append(
-                Event(
-                    event_name_id=mapped_event_name_id,
-                    sweep_idx=event.sweep_idx,
-                    time_ms=event.time_ms,
-                    is_bad=event.is_bad,
-                )
+                event.model_copy(update={"id": next_event_id, "event_name_id": mapped_event_name_id}, deep=True)
             )
+            next_event_id += 1
 
-        session.events.sort(key=lambda ev: (ev.sweep_idx, ev.time_ms))
+        session.sort_events()

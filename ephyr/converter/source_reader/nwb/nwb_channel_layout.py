@@ -14,29 +14,12 @@ from pynwb.ecephys import ElectricalSeries
 from .nwb_source_reader import _choose_series, _iter_series
 
 
-def resolve_nwb_source_path(ephyr_folder: Optional[Path], header) -> Optional[Path]:
-    """Best-effort locate the original .nwb next to an ephyr experiment folder."""
-    if header is None or getattr(header, "type_before_conversion", None) != "nwb":
+def resolve_nwb_source_path(source_path: Optional[Path], source_format: str) -> Optional[Path]:
+    """The original .nwb of a Record if its last known location on this machine still exists."""
+    if source_format != "nwb" or source_path is None:
         return None
-    name = str(getattr(header, "name_before_conversion", "") or "")
-    source_name = name.split(":", 1)[0].strip()
-    if not source_name.lower().endswith(".nwb"):
-        source_name = ""
-
-    candidates: List[Path] = []
-    if ephyr_folder is not None:
-        folder = Path(ephyr_folder)
-        parent = folder.parent
-        if source_name:
-            candidates.append(parent / source_name)
-        suffix = "_ephyr"
-        if folder.name.endswith(suffix):
-            candidates.append(parent / f"{folder.name[: -len(suffix)]}.nwb")
-
-    for path in candidates:
-        if path.is_file():
-            return path
-    return None
+    path = Path(source_path)
+    return path if path.is_file() and path.suffix.lower() == ".nwb" else None
 
 
 def _electrode_xy(series: ElectricalSeries) -> Optional[Tuple[List[float], List[float]]]:

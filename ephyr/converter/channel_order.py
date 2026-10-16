@@ -9,9 +9,7 @@ import re
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Tuple
 
-from ephyr.core.header import Header
-
-_EPHYR_SUFFIX = "_ephyr"
+from ephyr.core.source_view import SourceView
 
 
 def natural_key(value: str) -> Tuple:
@@ -36,57 +34,12 @@ def apply_preferred_order(current: Sequence[int], preferred: Sequence[int]) -> L
     return ordered
 
 
-def resolve_source_path(ephyr_folder: Optional[Path], header: Optional[Header]) -> Optional[Path]:
-    """Best-effort locate the original source next to an ephyr experiment folder."""
-    if header is None or ephyr_folder is None:
+def resolve_source_path(source_path: Optional[Path]) -> Optional[Path]:
+    """The original recording of a Record if its last known location on this machine still exists."""
+    if source_path is None:
         return None
-    folder = Path(ephyr_folder)
-    parent = folder.parent
-    src_type = str(header.type_before_conversion or "").lower()
-    name = str(header.name_before_conversion or "").split(":", 1)[0].strip()
-    candidates: List[Path] = []
-
-    if name:
-        candidates.append(parent / name)
-
-    stem = folder.name[: -len(_EPHYR_SUFFIX)] if folder.name.endswith(_EPHYR_SUFFIX) else folder.stem
-    if src_type == "nwb":
-        candidates.append(parent / f"{stem}.nwb")
-        if name and not name.lower().endswith(".nwb"):
-            candidates.append(parent / f"{name}.nwb")
-    elif src_type == "abf":
-        candidates.append(parent / f"{stem}.abf")
-    elif src_type == "edf":
-        candidates.append(parent / f"{stem}.edf")
-    elif src_type == "daq":
-        candidates.append(parent / f"{stem}.daq")
-    elif src_type == "xdat":
-        candidates.extend(
-            [
-                parent / name if name else parent,
-                parent / f"{stem}.xdat.json",
-                parent / f"{stem}_data.xdat",
-                parent / stem,
-            ]
-        )
-    elif src_type == "mcs_mcd":
-        candidates.append(parent / f"{stem}.mcd")
-    elif src_type == "mcs_raw":
-        candidates.extend([parent / f"{stem}.raw", parent / f"{stem}.mcsraw"])
-    elif src_type == "mcs_h5":
-        candidates.extend([parent / f"{stem}.h5", parent / f"{stem}.hdf5"])
-    elif src_type in {"mcs_cmcr", "mcs_cmtr"}:
-        suffix = src_type.removeprefix("mcs_")
-        candidates.append(parent / f"{stem}.{suffix}")
-    elif src_type in {"rhs", "rhd", "ncs", "openephys"}:
-        candidates.append(parent / name if name else parent / stem)
-        candidates.append(parent / stem)
-        candidates.append(parent)
-
-    for path in candidates:
-        if path.is_file() or path.is_dir():
-            return path
-    return None
+    path = Path(source_path)
+    return path if path.is_file() or path.is_dir() else None
 
 
 def source_file_dialog_filter(src_type: str) -> Tuple[str, bool]:
@@ -102,45 +55,36 @@ def source_file_dialog_filter(src_type: str) -> Tuple[str, bool]:
         return "DAQ files (*.daq);;All files (*)", False
     if src_type == "xdat":
         return "XDAT metadata (*.xdat.json *.json);;All files (*)", False
-    if src_type == "mcs_mcd":
-        return "MC_Rack MCD files (*.mcd);;All files (*)", False
-    if src_type == "mcs_raw":
-        return "Multi Channel Systems RAW files (*.raw *.mcsraw);;All files (*)", False
-    if src_type == "mcs_h5":
-        return "Multi Channel Systems HDF5 files (*.h5 *.hdf5);;All files (*)", False
-    if src_type in {"mcs_cmcr", "mcs_cmtr"}:
-        return "MCS CMOS-MEA files (*.cmcr *.cmtr);;All files (*)", False
+    if src_type == "mcs":
+        return ("Multi Channel Systems files (*.mcd *.raw *.mcsraw *.h5 *.hdf5 *.cmcr *.cmtr);;"
+                "All files (*)"), False
     if src_type in {"rhs", "rhd", "ncs", "openephys"}:
         return "", True
     return "All files (*)", False
 
 
 def preferred_channel_order(
-    header: Header,
+    view: SourceView,
     *,
     source_path: Optional[Path] = None,
 ) -> Tuple[List[int], str]:
-    """Return ``(order for all experiment channels, human-readable method)``."""
-    n_channels = int(header.number_of_channels)
+    """Return ``(order for all channels of the source, human-readable method)``."""
+    n_channels = int(view.number_of_channels)
     if n_channels <= 0:
-        raise ValueError("Header has no channels")
-    src_type = str(header.type_before_conversion or "").lower()
+        raise ValueError("Source has no channels")
+    src_type = str(view.source_format or "").lower()
 
     handlers: dict[str, Callable[[], Optional[Tuple[List[int], str]]]] = {
         "nwb": lambda: _order_from_nwb(source_path, n_channels),
         "rhs": lambda: _order_from_intan(source_path, n_channels, kind="rhs"),
         "rhd": lambda: _order_from_intan(source_path, n_channels, kind="rhd"),
-        "xdat": lambda: _order_from_xdat(source_path, header, n_channels),
-        "daq": lambda: _order_from_daq(source_path, header, n_channels),
-        "ncs": lambda: _order_from_ncs(source_path, header, n_channels),
-        "edf": lambda: _order_from_names(header, n_channels, "EDF signal labels"),
-        "abf": lambda: _order_from_names(header, n_channels, "ABF ADC names"),
-        "openephys": lambda: _order_from_names(header, n_channels, "Open Ephys channel names"),
-        "mcs_mcd": lambda: _order_from_mcd_labels(header, n_channels),
-        "mcs_raw": lambda: _order_from_names(header, n_channels, "MCS channel labels"),
-        "mcs_h5": lambda: _order_from_names(header, n_channels, "MCS electrode labels"),
-        "mcs_cmcr": lambda: _order_from_names(header, n_channels, "CMOS-MEA sensor coordinates"),
-        "mcs_cmtr": lambda: _order_from_names(header, n_channels, "CMOS-MEA sensor coordinates"),
+        "xdat": lambda: _order_from_xdat(source_path, view, n_channels),
+        "daq": lambda: _order_from_daq(source_path, view, n_channels),
+        "ncs": lambda: _order_from_ncs(source_path, view, n_channels),
+        "edf": lambda: _order_from_names(view, n_channels, "EDF signal labels"),
+        "abf": lambda: _order_from_names(view, n_channels, "ABF ADC names"),
+        "openephys": lambda: _order_from_names(view, n_channels, "Open Ephys channel names"),
+        "mcs": lambda: _order_from_mcs(source_path, view, n_channels),
     }
 
     handler = handlers.get(src_type)
@@ -153,12 +97,12 @@ def preferred_channel_order(
 
 
 def import_channel_order(
-    header: Header,
+    view: SourceView,
     current_channels: Sequence[int],
     *,
     source_path: Optional[Path] = None,
 ) -> Tuple[List[int], str]:
-    preferred, method = preferred_channel_order(header, source_path=source_path)
+    preferred, method = preferred_channel_order(view, source_path=source_path)
     return apply_preferred_order(current_channels, preferred), method
 
 
@@ -172,17 +116,17 @@ def _validate_full_order(order: Sequence[int], n_channels: int) -> List[int]:
     return values
 
 
-def _order_from_names(header: Header, n_channels: int, method: str) -> Tuple[List[int], str]:
-    names = list(header.channel_info.name or [])
+def _order_from_names(view: SourceView, n_channels: int, method: str) -> Tuple[List[int], str]:
+    names = list(view.channel_info.name or [])
     while len(names) < n_channels:
         names.append(f"ch_{len(names)}")
     order = sorted(range(n_channels), key=lambda idx: natural_key(names[idx]))
     return order, method
 
 
-def _order_from_mcd_labels(header: Header, n_channels: int) -> Tuple[List[int], str]:
+def _order_from_mcd_labels(view: SourceView, n_channels: int) -> Tuple[List[int], str]:
     # MC_Rack labels carry the amplifier/MEA letter as a suffix ("47A", "47B"); keep each MEA together.
-    names = list(header.channel_info.name or [])
+    names = list(view.channel_info.name or [])
     while len(names) < n_channels:
         names.append(f"ch_{len(names)}")
 
@@ -193,6 +137,15 @@ def _order_from_mcd_labels(header: Header, n_channels: int) -> Tuple[List[int], 
         return (match.group(2).upper(), natural_key(match.group(1)))
 
     return sorted(range(n_channels), key=key), "MC_Rack electrode labels"
+
+
+def _order_from_mcs(source_path: Optional[Path], view: SourceView, n_channels: int) -> Tuple[List[int], str]:
+    suffix = Path(source_path).suffix.lower() if source_path is not None else ""
+    if suffix == ".mcd" or not suffix:
+        return _order_from_mcd_labels(view, n_channels)
+    if suffix in {".cmcr", ".cmtr"}:
+        return _order_from_names(view, n_channels, "CMOS-MEA sensor coordinates")
+    return _order_from_names(view, n_channels, "MCS channel labels")
 
 
 def _order_from_nwb(source_path: Optional[Path], n_channels: int) -> Optional[Tuple[List[int], str]]:
@@ -263,11 +216,11 @@ def _order_from_intan(
 
 def _order_from_xdat(
     source_path: Optional[Path],
-    header: Header,
+    view: SourceView,
     n_channels: int,
 ) -> Optional[Tuple[List[int], str]]:
-    names = list(header.channel_info.name or [])
-    probes = list(header.channel_info.probe or [])
+    names = list(view.channel_info.name or [])
+    probes = list(view.channel_info.probe or [])
     while len(names) < n_channels:
         names.append(f"ch_{len(names)}")
     while len(probes) < n_channels:
@@ -306,7 +259,7 @@ def _order_from_xdat(
 
 def _order_from_daq(
     source_path: Optional[Path],
-    header: Header,
+    view: SourceView,
     n_channels: int,
 ) -> Optional[Tuple[List[int], str]]:
     hw_numbers: List[int] = []
@@ -321,7 +274,7 @@ def _order_from_daq(
             hw_numbers = []
 
     if not hw_numbers:
-        names = list(header.channel_info.name or [])
+        names = list(view.channel_info.name or [])
         for idx in range(n_channels):
             name = names[idx] if idx < len(names) else ""
             match = re.search(r"(\d+)", str(name))
@@ -333,10 +286,10 @@ def _order_from_daq(
 
 def _order_from_ncs(
     source_path: Optional[Path],
-    header: Header,
+    view: SourceView,
     n_channels: int,
 ) -> Optional[Tuple[List[int], str]]:
-    names = list(header.channel_info.name or [])
+    names = list(view.channel_info.name or [])
     while len(names) < n_channels:
         names.append(f"ch_{len(names)}")
 

@@ -66,22 +66,14 @@ class AddPeriodCommand(ModifyPeriodsCommand):
     description = "add period"
     should_emit_periods_changed = True
 
-    def __init__(self,        
-        period_name_id: int,
-        start_sweep_idx: int,
-        start_time_ms: float,
-        end_sweep_idx: int,
-        end_time_ms: float,):
+    def __init__(self, period_name_id: int, start_t_ms: float, end_t_ms: float):
         super().__init__()
-        self.period_name_id=period_name_id
-        self.start_sweep_idx=start_sweep_idx
-        self.start_time_ms=start_time_ms
-        self.end_sweep_idx=end_sweep_idx
-        self.end_time_ms=end_time_ms
+        self.period_name_id = period_name_id
+        self.start_t_ms = start_t_ms
+        self.end_t_ms = end_t_ms
 
     def _apply_change(self, session: UserSession) -> None:
-        session.add_period(self.period_name_id, self.start_sweep_idx, 
-                           self.start_time_ms, self.end_sweep_idx, self.end_time_ms)
+        session.add_period(self.period_name_id, self.start_t_ms, self.end_t_ms)
 
 
 class RemovePeriodsCommand(ModifyPeriodsCommand):
@@ -91,26 +83,10 @@ class RemovePeriodsCommand(ModifyPeriodsCommand):
 
     def __init__(self, periods: List[Period]):
         super().__init__()
-        # Store period identifiers instead of references (for deepcopy compatibility)
-        self._periods_to_remove_ids: List[tuple[int, int, float, int, float]] = [
-            (ev.period_name_id, ev.start_sweep_idx, ev.start_time_ms, ev.end_sweep_idx, ev.end_time_ms)
-            for ev in periods
-        ]
+        self._period_ids = {period.id for period in periods}
 
     def _apply_change(self, session: UserSession) -> None:
-        # Find and remove periods by their identifiers
-        periods_to_remove = [
-            ev for ev in session.periods
-            if (
-                ev.period_name_id,
-                ev.start_sweep_idx,
-                ev.start_time_ms,
-                ev.end_sweep_idx,
-                ev.end_time_ms,
-            ) in self._periods_to_remove_ids
-        ]
-        for ev in periods_to_remove:
-            session.remove_period(ev)
+        session.periods = [period for period in session.periods if period.id not in self._period_ids]
 
 
 class AddPeriodVocabularyCommand(ModifyPeriodsCommand):
@@ -207,16 +183,13 @@ class ImportVocabularyAndPeriodsCommand(ModifyPeriodsCommand):
             session.periods_vocabulary[new_id] = deepcopy(entry)
             id_mapping[old_id] = new_id
 
+        next_period_id = session.next_period_id()
         for period in self._imported_periods:
             mapped_period_name_id = id_mapping.get(period.period_name_id)
             if mapped_period_name_id is None:
                 continue
             session.periods.append(
-                Period(
-                    period_name_id=mapped_period_name_id,
-                    start_sweep_idx=period.start_sweep_idx,
-                    start_time_ms=period.start_time_ms,
-                    end_sweep_idx=period.end_sweep_idx,
-                    end_time_ms=period.end_time_ms,
-                )
+                period.model_copy(update={"id": next_period_id, "period_name_id": mapped_period_name_id}, deep=True)
             )
+            next_period_id += 1
+        session.sort_periods()

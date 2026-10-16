@@ -9,8 +9,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from ephyr.core.header import Header
 from ephyr.core.ephyr_session import Event, EventVocabularyEntry
+from ephyr.core.source_view import SourceView
 
 
 class LegacyMatEventsImportError(Exception):
@@ -19,7 +19,7 @@ class LegacyMatEventsImportError(Exception):
 
 def import_legacy_events_from_mat(
         mat_filepath: Path,
-        header: Header,
+        source_view: SourceView,
 ) -> Tuple[Dict[int, EventVocabularyEntry], List[Event], Dict[str, str]]:
     data = _load_mat_data(mat_filepath)
     data = _replace_original_tables_if_needed(data)
@@ -46,7 +46,8 @@ def import_legacy_events_from_mat(
         required=False,
     )
 
-    times_ms, time_conversion = _convert_time_values_to_ms(raw_time_values, header)
+    times_ms, time_conversion = _convert_time_values_to_ms(raw_time_values, source_view)
+    mapper = source_view.time_mapper
 
     vocabulary: Dict[int, EventVocabularyEntry] = {}
     name_to_id: Dict[str, int] = {}
@@ -58,22 +59,23 @@ def import_legacy_events_from_mat(
         is_bad = _to_bool(_value_at(raw_bad_values, idx))
         raw_sweep_idx = _to_int(_value_at(raw_sweep_values, idx))
 
-        # NOTE: old MAT events can store either absolute timeline values or per-sweep values.
+        # NOTE: old MAT events store either time over all sweeps joined back to back or time inside a sweep.
         # We map best-effort; if shape is unclear, debugger can inspect `debug_info`.
         if raw_sweep_idx is not None:
-            sweep_idx = raw_sweep_idx
-            time_ms = float(time_ms_candidate)
+            if not 0 <= raw_sweep_idx < len(mapper.segments):
+                skipped_out_of_range += 1
+                continue
+            time_in_segment = float(time_ms_candidate)
+            if time_in_segment < 0 or time_in_segment > mapper.segment_duration_ms(raw_sweep_idx):
+                skipped_out_of_range += 1
+                continue
+            t_ms = mapper.segments[raw_sweep_idx].t_start_ms + time_in_segment
         else:
-            sweep_idx, time_ms = _split_absolute_time_to_sweep_time(time_ms_candidate, header)
-
-        if sweep_idx < 0 or sweep_idx >= header.number_of_sweeps:
-            skipped_out_of_range += 1
-            continue
-
-        sweep_duration = _sweep_duration_ms(header, sweep_idx)
-        if time_ms < 0 or time_ms > sweep_duration:
-            skipped_out_of_range += 1
-            continue
+            sample = float(time_ms_candidate) * source_view.sample_rate / 1000.0
+            if sample < 0 or sample > source_view.total_samples:
+                skipped_out_of_range += 1
+                continue
+            t_ms = mapper.time_of_sample(sample)
 
         event_name_id = name_to_id.get(event_name)
         if event_name_id is None:
@@ -83,14 +85,14 @@ def import_legacy_events_from_mat(
 
         imported_events.append(
             Event(
+                id=len(imported_events),
                 event_name_id=event_name_id,
-                sweep_idx=int(sweep_idx),
-                time_ms=float(time_ms),
+                t_ms=float(t_ms),
                 is_bad=is_bad,
             )
         )
 
-    imported_events.sort(key=lambda ev: (ev.sweep_idx, ev.time_ms))
+    imported_events.sort(key=lambda ev: ev.t_ms)
     debug_info = {
         "source": "legacy_mat",
         "ts_time_column": used_time_column or "",
@@ -208,7 +210,7 @@ def _extract_column_values(
     return [], None
 
 
-def _convert_time_values_to_ms(raw_values: List[Any], header: Header) -> Tuple[List[float], str]:
+def _convert_time_values_to_ms(raw_values: List[Any], source_view: SourceView) -> Tuple[List[float], str]:
     normalized_values: List[float] = []
     for item in raw_values:
         value = _to_float(item)
@@ -220,39 +222,18 @@ def _convert_time_values_to_ms(raw_values: List[Any], header: Header) -> Tuple[L
         raise LegacyMatEventsImportError("No numeric event times found in .mat events table.")
 
     max_value = max(normalized_values)
-    total_duration_ms = sum(_sweep_duration_ms(header, idx) for idx in range(max(1, header.number_of_sweeps)))
-    total_duration_sec = total_duration_ms / 1000.0 if total_duration_ms > 0 else 0.0
-    total_points = sum(header.number_of_points_per_sweep)
+    total_points = source_view.total_samples
+    total_duration_ms = total_points * 1000.0 / source_view.sample_rate
+    total_duration_sec = total_duration_ms / 1000.0
 
     if total_duration_ms > 0 and max_value <= total_duration_ms * 1.2:
         return normalized_values, "absolute_ms"
     if total_duration_sec > 0 and max_value <= total_duration_sec * 1.2:
         return [value * 1000.0 for value in normalized_values], "absolute_seconds"
     if total_points > 0 and max_value <= total_points * 1.2:
-        ms_per_point = header.sample_interval_microseconds / 1000.0
+        ms_per_point = 1000.0 / source_view.sample_rate
         return [value * ms_per_point for value in normalized_values], "absolute_points"
     return normalized_values, "unknown_assume_ms"
-
-
-def _split_absolute_time_to_sweep_time(absolute_time_ms: float, header: Header) -> Tuple[int, float]:
-    if header.number_of_sweeps <= 1:
-        return 0, float(max(0.0, absolute_time_ms))
-
-    remaining = float(absolute_time_ms)
-    for sweep_idx in range(header.number_of_sweeps):
-        duration = _sweep_duration_ms(header, sweep_idx)
-        if remaining <= duration:
-            return sweep_idx, remaining
-        remaining -= duration
-
-    last_sweep = max(0, header.number_of_sweeps - 1)
-    return last_sweep, _sweep_duration_ms(header, last_sweep)
-
-
-def _sweep_duration_ms(header: Header, sweep_idx: int) -> float:
-    points = list(header.number_of_points_per_sweep)
-    sweep_idx = max(0, min(int(sweep_idx), len(points) - 1))
-    return (header.sample_interval_microseconds / 1000.0) * float(points[sweep_idx])
 
 
 def _value_at(values: List[Any], idx: int) -> Any:

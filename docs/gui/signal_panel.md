@@ -1,11 +1,12 @@
 # Signal Panel
 
-The signal panel is the main workspace for viewing and labeling recordings after an experiment session is loaded.
+The signal panel is the main workspace for viewing and labeling recordings after a Record session is loaded.
 
 ## How data is shown
 
-Signal samples are loaded from the Ephyr experiment folder (`data/sweep_*/*.samples`) together with
-`header.json`. Traces are arranged into **channel groups** defined in the current session’s GUI setup.
+Signal samples are loaded from `sources/<source_id>/channel_N.samples` of the open Record. Traces are
+arranged into **channel groups** defined in the current session’s GUI setup. In **Continuous** mode a
+dotted line marks where the recording was interrupted between physical segments.
 
 Each group can show a classic single-column stack of channels or a custom electrode grid (see
 [Channel Management](settings_panel.md#channel-management)). Per-channel scale, color, Y offset, and
@@ -16,10 +17,10 @@ optional clipping apply when drawing. Channel name labels on each cell can be hi
 
 On top of the traces you can place:
 
-- **Events** — vertical markers at a specific time in a sweep, colored by vocabulary entry. Events can be
+- **Events** — vertical markers at a Record time, colored by vocabulary entry. Events can be
   flagged as bad. Use **Events → Manage** for vocabulary and to add events; **Remove in Range**, **Mark as Invalid**,
   and **Remove Invalid Mark** start the corresponding interactive modes.
-- **Periods** — labeled intervals (optionally spanning sweeps). Use **Periods → Manage** for vocabulary
+- **Periods** — labeled intervals (optionally spanning segments). Use **Periods → Manage** for vocabulary
   and to add intervals with two clicks.
 
 Global visibility of traces, channel names, events, and periods is controlled from **View**. Individual event
@@ -44,9 +45,9 @@ session labels or files that Viewable tools then display.
 Below the traces:
 
 1. **Event / period navigator** — a strip of labels for events and period starts/ends in the current view.
-   Arrow controls jump to the previous or next occurrence of the same event name within the sweep and
+   Arrow controls jump to the previous or next occurrence of the same event name within the display segment and
    recenters the time window. A period start has a right arrow that jumps to its end; a period end has a
-   left arrow that jumps to its start, including periods whose boundaries are in different sweeps.
+   left arrow that jumps to its start, including periods whose boundaries are in different segments.
 2. **Time controls** — `<<` `<` scrollbar `>` `>>`:
    - Scrollbar sets the window start sample
    - `<` / `>` step by the configured timebar step

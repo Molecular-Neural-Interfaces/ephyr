@@ -1,65 +1,75 @@
 # Menu
 
 The menu bar provides the main application actions. Items that require an open session are enabled after
-you load an experiment.
+you open a Record.
 
 ## File
 
-### Open
+### Create Ephyr Workspace…
 
-Opens a dialog titled **Select experiment folder or source file**. Choose either:
+Pick a parent folder and a name. Ephyr creates `<name>_ephyr` there with an empty `workspace.ephyr`.
 
-- a supported source file or recording folder (Ephyr converts it to a `*_ephyr` experiment), or
-- an existing Ephyr experiment folder that already contains `header.json`.
+### Open Ephyr Workspace
 
-See [Files Format](../files_format.md) for supported formats and how to select them.
+- **File…** — select `workspace.ephyr`.
+- **Folder…** — select the workspace folder (any folder inside the workspace also works).
 
-### Open Recent
+You can also drop a workspace folder or `workspace.ephyr` onto the window. See [Files Format](../files_format.md).
 
-Lists recently opened Ephyr experiment folders. Selecting an entry reloads that experiment.
+### Recent Workspaces
+
+Lists recently opened workspaces. Selecting an entry reloads that workspace.
 Missing folders are removed from the list automatically.
+
+### Add Config / Record / Source
+
+Same as the **+** buttons on the recording navigation panel. **Add Config** imports a recording as a
+new Config (or offers to add it as a Record when a matching Config already exists). **Add Record**
+checks the recording against the current Config. **Add Source** attaches another file to the open Record.
 
 ### Session
 
 #### New
 
-Creates a new annotation session inside the current experiment. You are prompted for a unique session name.
-The new session gets default channel groups and GUI setup and becomes the active session.
+Creates a new annotation session inside the current Record. You are prompted for a unique session name.
+The new session gets default channel groups and GUI setup and becomes the active session. Events and
+periods found in the original recording (`source_annotations/`) are copied in as a starting set.
 
 #### Save
 
-Saves the current user session to `sessions/<name>.json` in the experiment folder.
+Saves the current user session to `sessions/<name>/` in the Record folder.
 Shortcut: **Ctrl+S** (Windows/Linux) or **Cmd+S** (macOS).
 
 #### Import → Full Session
 
-Imports a session JSON file into the current experiment. If the session name already exists, you can rename it.
+Imports a session folder into the current Record. If the session name already exists, you can rename it.
 
 #### Import → Events
 
-Imports events and their vocabulary from another session JSON file, or from a WEEGIT `.mat` events file.
-Imported times are validated against the experiment’s sweeps and duration.
+Imports events and their vocabulary from another session folder, or from a WEEGIT `.mat` events file.
+Imported times are stored as Record time (`t_ms`).
 
 #### Import → Periods
 
-Imports periods and their vocabulary from another session JSON file.
+Imports periods and their vocabulary from another session folder.
 
-#### Import → Settings
+#### Import → Settings from Record…
 
-Imports GUI setup (channel groups, time window defaults, visibility flags, and related view settings)
-from another session. Sweep index and start point are reset as needed; duration is clamped to valid bounds.
+Copies GUI setup (channel groups, filters, layout, visibility flags, navigation mode) from another
+Record of the **same Config**. Vocabularies are merged by name when the checkbox is on (the default).
+Segment index and start point stay those of the current Record.
 
 #### Export
 
-Copies the current session JSON file to a directory you choose.
+Copies the current session folder to a directory you choose.
 
 #### Open in Explorer
 
-Opens the current Ephyr experiment folder in the system file manager (Finder / Explorer / equivalent).
+Opens the current session folder in the system file manager (Finder / Explorer / equivalent).
 
 #### Other Sessions
 
-Dynamic submenu listing other session files in the same experiment. Selecting one switches the active
+Dynamic submenu listing other session folders of the same Record. Selecting one switches the active
 session without reloading the underlying signal data.
 
 ### Exit
@@ -103,7 +113,7 @@ Checkable items that show or hide sections of the right-hand settings panel:
 
 | Item                      | Panel section |
 |---------------------------|----------------|
-| **Recording Navigation**  | Current sweep, sweep info, and overlay of other sweeps |
+| **Recording Navigation**  | Config / Record / Source, navigation mode, current segment, overlay |
 | **Timeline Settings**     | Visible time-window controls |
 | **Channel Management**    | Channel groups, layouts, filters, and units |
 | **Add-ons**               | Searchable add-on list with View / Transform / Run |
@@ -117,8 +127,8 @@ to show or hide the whole right panel.
 
 ### Manage
 
-Opens the events vocabulary dialog: visibility, event IDs, names, colors, and counts in the current sweep /
-across sweeps. You can show or hide individual event types, add or remove vocabulary entries, rename names
+Opens the events vocabulary dialog: visibility, event IDs, names, colors, and counts in the current segment /
+across the Record. You can show or hide individual event types, add or remove vocabulary entries, rename names
 in place, and pick colors. The **Add** button is enabled when a type is selected: it places you in
 interactive mode so you can click on the signal to add an event at that time. Right-click or **Esc** cancels.
 
@@ -142,7 +152,7 @@ Two-click range that clears the bad flag on events inside the range.
 Opens the periods vocabulary dialog: visibility, period IDs, names, and colors. You can show or hide
 individual period types and use the same editing patterns as events (add/remove, rename, color pick).
 The **Add** button is enabled when a type is selected: click twice on the signal to set the start and end
-(can span sweeps). Right-click or **Esc** cancels.
+(can span segments). Right-click or **Esc** cancels.
 
 ## Add-ons
 

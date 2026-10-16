@@ -24,7 +24,7 @@ flowchart LR
   runnable[Runnable_add_ons] --> sessionData[Session_and_add_ons_data]
 ```
 
-1. Raw int16 samples are read from `data/sweep_*/*.samples`.
+1. Raw int16 samples are read from `sources/<source_id>/channel_N.samples`.
 2. Values are converted to voltage for display.
 3. Enabled **Transformation** add-ons reshape those samples per channel (when applicable).
 4. Channel-group filters run next.
@@ -34,7 +34,7 @@ flowchart LR
    analyses, or write result files that other Viewable tools later overlay.
 
 Session toggles for View / Transform are stored in `gui_setup.add_ons`. Persistent outputs usually live
-under `{experiment}_ephyr/add_ons/data/$ADD_ON_MODULE_NAME/`.
+under the Record’s `add_ons/data/$ADD_ON_MODULE_NAME/`.
 
 ## Example: Viewable — Spike viewer
 

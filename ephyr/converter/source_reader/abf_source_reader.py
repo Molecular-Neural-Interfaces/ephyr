@@ -12,8 +12,17 @@ import numpy as np
 import pyabf
 
 from ._exceptions import WrongSourceReaderError
-from .abstract_source_reader import AbstractDataWriter, AbstractSourceReader
-from ephyr.core.header import ChannelInfo, Header, canonical_unit_label
+from .abstract_source_reader import (
+    AbstractDataWriter,
+    AbstractSourceReader,
+    ChannelPlan,
+    ConversionPlan,
+    SourcePlan,
+    SourceRef,
+    contiguous_segments,
+)
+from ephyr.core.manifests import SegmentKindEnum
+from ephyr.core.units import canonical_unit_label
 
 _CHUNK_SAMPLES = 512
 _DIGITAL_MIN = -32768
@@ -132,8 +141,8 @@ class AbfDataWriter(AbstractDataWriter):
 
         raise StopIteration
 
-    def total_chunks(self, header: Header) -> int:
-        total_points = sum(header.number_of_points_per_sweep)
+    def total_chunks(self) -> int:
+        total_points = sum(end - start for start, end in self._sweep_bounds)
         return max(1, (total_points + _CHUNK_SAMPLES - 1) // _CHUNK_SAMPLES)
 
 
@@ -143,66 +152,68 @@ class AbfSourceReader(AbstractSourceReader):
 
     ABF stores ADC values with per-channel scale/offset. Ephyr stores int16 data
     and a zero-centered per-channel scale, so this reader converts physical ABF
-    values into int16 while preserving the original channel units in the header.
+    values into int16 while preserving the original channel units.
     """
 
-    def __init__(self, experiment_path: Path):
-        super().__init__(experiment_path)
-        self._yielded = False
+    format_name = "abf"
 
     @classmethod
-    def _try_to_open(cls, experiment_path: Path) -> None:
-        if not experiment_path.is_file() or experiment_path.suffix.lower() != ".abf":
+    def resolve(cls, path: Path) -> SourceRef:
+        if not path.is_file() or path.suffix.lower() != ".abf":
             raise WrongSourceReaderError(cls)
-        try:
-            pyabf.ABF(experiment_path, loadData=False)
-        except Exception:
-            raise WrongSourceReaderError(cls)
+        pyabf.ABF(path, loadData=False)
+        return SourceRef(format=cls.format_name, kind="file", root=path, name=path.name, files=[path])
 
-    def __iter__(self) -> "AbfSourceReader":
-        self._yielded = False
-        return self
-
-    def __next__(self) -> Tuple[Header, AbfDataWriter]:
-        if self._yielded:
-            raise StopIteration
-        self._yielded = True
-
-        abf = pyabf.ABF(self._experiment_path, loadData=False)
+    def probe(self, scan: bool = False) -> ConversionPlan:
+        path = self.ref.root
+        abf = pyabf.ABF(path, loadData=False)
         sweep_bounds = _sweep_bounds(abf)
         if not sweep_bounds:
-            raise ValueError(f"ABF file contains no sweeps: {self._experiment_path}")
+            raise ValueError(f"ABF file contains no sweeps: {path}")
 
-        quant_scales, analog_abs_max = self._channel_quantization(abf)
+        n_channels = int(abf.channelCount)
+        if scan:
+            quant_scales, analog_abs_max = self._channel_quantization(abf)
+        else:
+            analog_abs_max = np.ones(n_channels, dtype=np.float64)
+            quant_scales = (2.0 * analog_abs_max) / float(_DIGITAL_MAX - _DIGITAL_MIN)
         points_per_sweep = [end - start for start, end in sweep_bounds]
-        total_points = sum(points_per_sweep)
-        dt = _abf_datetime(abf, self._experiment_path)
+        sample_rate = float(abf.dataRate)
+        sweep_interval_ms = float(getattr(abf, "sweepIntervalSec", 0.0) or 0.0) * 1000.0
+        t_starts = [idx * sweep_interval_ms for idx in range(len(points_per_sweep))] if sweep_interval_ms > 0 else None
+        protocol = str(getattr(abf, "protocol", "") or "")
 
-        channel_info = ChannelInfo(
-            name=[str(name or f"ADC {idx}") for idx, name in enumerate(abf.adcNames)],
-            probe=[str(getattr(abf, "protocol", "") or "")] * int(abf.channelCount),
-            units=[canonical_unit_label(unit) for unit in abf.adcUnits],
-            analog_min=(-analog_abs_max).tolist(),
-            analog_max=analog_abs_max.tolist(),
-            digital_min=[_DIGITAL_MIN] * int(abf.channelCount),
-            digital_max=[_DIGITAL_MAX] * int(abf.channelCount),
-            prefiltering=[_prefiltering(abf, idx) for idx in range(int(abf.channelCount))],
-            number_of_points_per_channel=[total_points] * int(abf.channelCount),
+        channels = [
+            ChannelPlan(
+                name=str(name or f"ADC {idx}"),
+                units=canonical_unit_label(abf.adcUnits[idx]),
+                analog_min=-float(analog_abs_max[idx]),
+                analog_max=float(analog_abs_max[idx]),
+                digital_min=_DIGITAL_MIN,
+                digital_max=_DIGITAL_MAX,
+                probe=protocol,
+                prefiltering=_prefiltering(abf, idx),
+            )
+            for idx, name in enumerate(abf.adcNames)
+        ]
+        segment_kind = SegmentKindEnum.SWEEP if len(points_per_sweep) > 1 else SegmentKindEnum.CONTINUOUS
+        source = SourcePlan(
+            source_id="main",
+            name="ADC",
+            sample_rate=sample_rate,
+            channels=channels,
+            segments=contiguous_segments(points_per_sweep, sample_rate, t_starts),
+            segment_kind=segment_kind,
+            source_format=self.format_name,
+            writer_factory=lambda: AbfDataWriter(abf, sweep_bounds, quant_scales),
         )
-
-        header = Header(
-            type_before_conversion="abf",
-            name_before_conversion=self._experiment_path.name,
-            creation_date_before_conversion=str(dt.date()),
-            creation_time_before_conversion=str(dt.time()),
-            sample_interval_microseconds=1e6 / float(abf.dataRate),
-            sample_rate=float(abf.dataRate),
-            number_of_channels=int(abf.channelCount),
-            number_of_sweeps=len(points_per_sweep),
-            number_of_points_per_sweep=points_per_sweep,
-            channel_info=channel_info,
+        return ConversionPlan(
+            ref=self.ref,
+            sources=[source],
+            start_datetime=_abf_datetime(abf, path).isoformat(),
+            recording_name=path.stem,
+            reader_options=dict(self._options),
         )
-        return header, AbfDataWriter(abf, sweep_bounds, quant_scales)
 
     @staticmethod
     def _channel_quantization(abf: pyabf.ABF) -> Tuple[np.ndarray, np.ndarray]:

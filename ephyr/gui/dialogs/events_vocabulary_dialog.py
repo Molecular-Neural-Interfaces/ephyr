@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ephyr.core.ephyr_session import EventVocabularyEntry
+from ephyr.core.source_view import shown_events
 from ephyr.gui._utils import pick_saturated_color
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 
@@ -45,7 +46,7 @@ class EventsVocabularyDialog(QDialog):
 
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
-            ["Visible", "ID", "Name", "Color", "Num per sweep", "Num per record"]
+            ["Visible", "ID", "Name", "Color", "Num per segment", "Num per record"]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -74,13 +75,14 @@ class EventsVocabularyDialog(QDialog):
 
         self._session_manager.events_vocabulary_changed.connect(self._populate_table)
         self._session_manager.events_changed.connect(self._refresh_table)
-        self._session_manager.current_sweep_idx_changed.connect(self._on_current_sweep_changed)
+        self._session_manager.current_segment_idx_changed.connect(self._on_current_segment_changed)
+        self._session_manager.display_segments_changed.connect(self._refresh_table)
         self._session_manager.session_loaded.connect(self._refresh_table)
 
     def _refresh_table(self, *_args):
         self._populate_table(self._session_manager.events_vocabulary)
 
-    def _on_current_sweep_changed(self, _sweep_idx: int):
+    def _on_current_segment_changed(self, _segment_idx: int):
         self._refresh_table()
 
     def _populate_table(self, vocabulary: Dict[int, EventVocabularyEntry]):
@@ -88,15 +90,15 @@ class EventsVocabularyDialog(QDialog):
         target_selection_id = self._pending_selection_id if self._pending_selection_id is not None else selected_id
 
         gui_setup = self._session_manager.gui_setup
-        current_sweep_idx = gui_setup.current_sweep_idx if gui_setup is not None else 0
+        view = self._session_manager.source_view
         events = self._session_manager.events
         total_counts: Dict[int, int] = {}
-        current_sweep_counts: Dict[int, int] = {}
         for ev in events:
-            event_name_id = ev.event_name_id
-            total_counts[event_name_id] = total_counts.get(event_name_id, 0) + 1
-            if ev.sweep_idx == current_sweep_idx:
-                current_sweep_counts[event_name_id] = current_sweep_counts.get(event_name_id, 0) + 1
+            total_counts[ev.event_name_id] = total_counts.get(ev.event_name_id, 0) + 1
+        current_segment_counts: Dict[int, int] = {}
+        if gui_setup is not None and view is not None and view.number_of_segments > 0:
+            for shown in shown_events(view, gui_setup.current_segment_idx, events):
+                current_segment_counts[shown.event_name_id] = current_segment_counts.get(shown.event_name_id, 0) + 1
 
         self._is_updating_table = True
         self.table.setRowCount(0)
@@ -130,9 +132,9 @@ class EventsVocabularyDialog(QDialog):
                 color_item.setBackground(color)
             self.table.setItem(row_idx, 3, color_item)
 
-            current_sweep_count_item = QTableWidgetItem(str(current_sweep_counts.get(event_vocabulary_id, 0)))
-            current_sweep_count_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            self.table.setItem(row_idx, 4, current_sweep_count_item)
+            current_segment_count_item = QTableWidgetItem(str(current_segment_counts.get(event_vocabulary_id, 0)))
+            current_segment_count_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.table.setItem(row_idx, 4, current_segment_count_item)
 
             total_count_item = QTableWidgetItem(str(total_counts.get(event_vocabulary_id, 0)))
             total_count_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)

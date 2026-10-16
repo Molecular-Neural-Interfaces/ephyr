@@ -7,13 +7,22 @@ from platformdirs import user_log_dir, user_data_dir
 
 
 EPHYR_FOLDER_SUFFIX = "_ephyr"
-SIGNAL_DATA_SUBFOLDER = "data"
-SIGNAL_DATA_SWEEP_SUBFOLDER_PREFIX = "sweep_"
+MANIFEST_EXTENSION = ".ephyr"
+WORKSPACE_MANIFEST_FILENAME = "workspace.ephyr"
+CONFIG_MANIFEST_FILENAME = "config.ephyr"
+RECORD_MANIFEST_FILENAME = "record.ephyr"
+CONFIGS_SUBFOLDER = "configs"
+RECORDS_SUBFOLDER = "records"
+SOURCES_SUBFOLDER = "sources"
+SOURCE_ANNOTATIONS_SUBFOLDER = "source_annotations"
+PARTIAL_RECORD_SUFFIX = ".partial"
 SIGNAL_DATA_CHANNEL_FILE_PREFIX = "channel_"
 SIGNAL_DATA_EXTENSION = ".samples"  # ephyr signal data
-HEADER_FILENAME = "header.json"
-SESSION_EXTENSION = ".json"
-OTHER_SESSIONS_FOLDER = "sessions"
+SESSIONS_SUBFOLDER = "sessions"
+SESSION_SETTINGS_FILENAME = "settings.json"
+EVENTS_FILENAME = "events.csv"
+PERIODS_FILENAME = "periods.csv"
+DEFAULT_SESSION_NAME = "default"
 ADD_ONS_SUBFOLDER = "add_ons"
 ADD_ONS_DATA_SUBFOLDER = "data"
 MAX_UNDO_HISTORY_SIZE = 30
@@ -47,7 +56,7 @@ MEASURE_BAR_TIME_VALUES = [1, 2, 5, 10, 20, 50, 100, 200, 500]
 # global storage
 APP_NAME = "ephyr"
 GLOBAL_STORAGE_FILENAME = "ephyr.json"
-RECENT_EXPERIMENTS_LIST_MAX_LENGTH = 8
+RECENT_WORKSPACES_LIST_MAX_LENGTH = 8
 LOG_DIRECTORY = user_log_dir(APP_NAME, appauthor=False)
 ADD_ONS_DIRECTORY = user_data_dir(APP_NAME, appauthor=False)
 

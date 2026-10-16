@@ -37,7 +37,7 @@ class ScreenshotRenderContext:
     signal_widget: QWidget
     top_navigator_widget: QWidget
     top_source_rect: QRect
-    current_sweep_idx: int
+    current_segment_idx: int
     start_point: int
     duration_ms: float
     groups_layout: List[ChannelGroup]
@@ -273,7 +273,7 @@ class ScreenshotExportDialog(QDialog):
         painter.restore()
 
         base_footer_text = (
-            f"current_sweep_idx={context.current_sweep_idx}    "
+            f"current_segment_idx={context.current_segment_idx}    "
             f"start_point={context.start_point}    "
             f"duration_ms={context.duration_ms}"
         )
@@ -357,7 +357,7 @@ class ScreenshotExportDialog(QDialog):
         painter.restore()
 
         base_footer_text = (
-            f"current_sweep_idx={context.current_sweep_idx}    "
+            f"current_segment_idx={context.current_segment_idx}    "
             f"start_point={context.start_point}    "
             f"duration_ms={context.duration_ms}"
         )
@@ -413,11 +413,11 @@ class ScreenshotExportDialog(QDialog):
             for _channel_idx, channel_rect in digital_rects:
                 sw._draw_middle_line(painter, channel_rect)
             overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
-            for sweep_data in overlay_processed_data.values():
+            for segment_data in overlay_processed_data.values():
                 for channel_idx, channel_rect in digital_rects:
                     cls._draw_trace_resampled(
                         painter=painter,
-                        channel_data=sweep_data.get(channel_idx),
+                        channel_data=segment_data.get(channel_idx),
                         channel_rect=channel_rect,
                         channel_idx=channel_idx,
                         channels_setup=channels_setup,
@@ -587,10 +587,10 @@ class ScreenshotExportDialog(QDialog):
         overlay_processed_data: Optional[Dict[int, Dict[int, np.ndarray]]] = None,
     ):
         overlay_color = QColor(settings.OVERLAY_TRACE_COLOR)
-        # Overlay sweeps first so the current sweep stays on top.
+        # Overlay segments first so the current segment stays on top.
         draw_passes: List[Tuple[Dict[int, np.ndarray], Optional[QColor], float]] = [
-            (sweep_data, overlay_color, settings.OVERLAY_TRACE_WIDTH)
-            for sweep_data in (overlay_processed_data or {}).values()
+            (segment_data, overlay_color, settings.OVERLAY_TRACE_WIDTH)
+            for segment_data in (overlay_processed_data or {}).values()
         ]
         draw_passes.append((processed_data, None, 1.1))
 
@@ -690,7 +690,7 @@ class ScreenshotExportDialog(QDialog):
         from datetime import datetime
 
         return (
-            f"screenshot_sweep_{context.current_sweep_idx}_"
+            f"screenshot_segment_{context.current_segment_idx}_"
             f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.{image_format}"
         )
 

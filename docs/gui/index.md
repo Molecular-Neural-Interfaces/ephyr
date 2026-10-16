@@ -1,6 +1,6 @@
 # Main Window
 
-When an experiment session is open, the Ephyr window is organized as follows.
+When a Record session is open, the Ephyr window is organized as follows.
 
 ![Annotated main window](../source/_static/gui/main_window_annotated.png)
 
@@ -8,13 +8,15 @@ When an experiment session is open, the Ephyr window is organized as follows.
 
 | Region | Role |
 |--------|------|
-| **Menu** | Global actions: open experiments, manage sessions, toggle visibility, label events/periods, manage add-ons, and open Help. See [Menu](menu.md). |
+| **Menu** | Global actions: create/open workspaces, import recordings, manage sessions, toggle visibility, label events/periods, manage add-ons, and open Help. See [Menu](menu.md). |
 | **Header bar** | **Scalebar** turns the time/voltage bar on or off. **Zoom to area** starts area selection (same as **V**). **Export Canvas** exports the current signal view (PNG/SVG). **Show session panel** / **Hide session panel** shows or hides the right-hand settings panel. |
 | **Signal panel** (left) | Channel groups with traces, events, periods, optional add-on overlays, and time navigation. See [Signal Panel](signal_panel.md). |
 | **Settings panel** (right) | Session panel (Beginner / Expert), timeline and channel settings, recording description, add-ons list, and application logs. See [Settings Panel](settings_panel.md). |
-| **Status bar** | Timestamped status messages on the left. On the right: `Session: SESSION  |  Recording: parent_folder/EXP_NAME`. |
+| **Status bar** | Timestamped status messages on the left. On the right: `Session  |  Workspace  |  Config  |  Record  |  Source`. |
 
-Before any experiment is loaded, the left area shows a start screen with a quick Open action and a short hotkey list.
+Before any workspace is open, the left area shows a start screen with Create / Open / Recent. An empty
+workspace shows **Add config** in the centre. A workspace with Configs but no open Record still shows
+the recording navigation panel.
 
 ## Signal panel highlights
 

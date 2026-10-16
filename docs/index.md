@@ -19,8 +19,8 @@ installed version as `Ephyr v…`.
 Depending on what you need, continue with one of these sections:
 
 - **[Installation](installation.md)** — install Ephyr from PyPI (or check the status of the `.exe` installer) and start the GUI.
-- **[Files Format](files_format.md)** — which source formats Ephyr can open, how to open them (file vs folder), and the layout of a `*_ephyr` experiment folder.
+- **[Files Format](files_format.md)** — Workspace → Config → Record → Source → Segment, how to import recordings, and the on-disk layout.
 - **[Graphic User Interface](gui/index.md)** — main window layout, menus, signal panel, and settings panel.
 - **[Add-ons](add_ons/index.md)** — how Viewable, Runnable, and Transformation add-ons fit into the workflow, how to install and run them, and how to develop your own.
-- **[Reading Sources](analysis/sources.md)** — how to convert recordings into `*_ephyr` folders from Python, one at a time or in batches.
-- **[Using Labeled Data](analysis/labeled_data.md)** — how to load labeled experiments in Python (`EphyrSessionManager`), read signals, sessions, events, periods, and spike sets.
+- **[Reading Sources](analysis/sources.md)** — how to import recordings into a workspace from Python, one at a time or in batches.
+- **[Using Labeled Data](analysis/labeled_data.md)** — how to load a labeled Record in Python (`EphyrSessionManager`), read signals, sessions, events, periods, and spike sets.

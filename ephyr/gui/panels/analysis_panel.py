@@ -208,12 +208,7 @@ class AnalysisPanel(QWidget):
         runtime_add_on = self._session_manager.get_runtime_add_on(module_name)
         if runtime_add_on is None:
             return
-        add_ons_data_dir = (
-            Path(self._session_manager.ephyr_experiment_folder)
-            / settings.ADD_ONS_SUBFOLDER
-            / settings.ADD_ONS_DATA_SUBFOLDER
-            / module_name
-        )
+        add_ons_data_dir = self._session_manager.add_ons_data_folder / module_name
         add_ons_data_dir.mkdir(parents=True, exist_ok=True)
 
         loading: Optional[LoadingDialog] = None

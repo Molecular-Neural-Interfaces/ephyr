@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QLabel,
 )
 
-from ephyr.core.header import PhysicalQuantityEnum, SignalUnitEnum, canonical_unit_label
+from ephyr.core.units import PhysicalQuantityEnum, SignalUnitEnum, canonical_unit_label
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 
 
@@ -39,12 +39,12 @@ def _make_units_combo(current_unit: str = "") -> QComboBox:
     return combo
 
 
-class HeaderUnitsManagementDialog(QDialog):
+class ChannelUnitsManagementDialog(QDialog):
     def __init__(self, session_manager: QtEphyrSessionManagerWrapper, parent=None):
         super().__init__(parent)
         self._session_manager = session_manager
         self._row_combos: Dict[int, QComboBox] = {}
-        self.setWindowTitle("Header units management")
+        self.setWindowTitle("Channel units management")
         self.resize(760, 520)
         self._build_ui()
         self._populate_rows()
@@ -54,7 +54,8 @@ class HeaderUnitsManagementDialog(QDialog):
 
         info = QLabel(
             "Set units for channels. Select rows to apply one unit to many channels at once. "
-            "Changing a unit only relabels the channel: signal values are not rescaled."
+            "Changing a unit only relabels the channel: signal values are not rescaled. "
+            "Units belong to the Config, so the change applies to every Record of it."
         )
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -88,14 +89,14 @@ class HeaderUnitsManagementDialog(QDialog):
         layout.addLayout(buttons_layout)
 
     def _populate_rows(self):
-        header = self._session_manager.header
-        if not header:
+        view = self._session_manager.source_view
+        if not view:
             return
-        channel_names = list(header.channel_info.name or [])
+        channel_names = list(view.channel_info.name or [])
 
         self.table.setRowCount(0)
         self._row_combos.clear()
-        for channel_idx in range(header.number_of_channels):
+        for channel_idx in range(view.number_of_channels):
             self.table.insertRow(channel_idx)
 
             index_item = QTableWidgetItem(str(channel_idx))
@@ -107,7 +108,7 @@ class HeaderUnitsManagementDialog(QDialog):
             name_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             self.table.setItem(channel_idx, 1, name_item)
 
-            combo = _make_units_combo(header.channel_unit_label(channel_idx))
+            combo = _make_units_combo(view.channel_unit_label(channel_idx))
             self.table.setCellWidget(channel_idx, 2, combo)
             self._row_combos[channel_idx] = combo
 
@@ -132,6 +133,6 @@ class HeaderUnitsManagementDialog(QDialog):
             grouped_indexes.setdefault(unit, []).append(row)
 
         for unit, indexes in grouped_indexes.items():
-            self._session_manager.set_header_channel_units(indexes, unit)
+            self._session_manager.set_channel_units(indexes, unit)
 
         self.accept()
