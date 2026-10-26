@@ -1,4 +1,40 @@
 
+## Version Unreleased (2026-10-26)
+
+
+
+  
+
+  
+
+  
+
+  
+### Documentation
+    
+- refactor files
+    
+  
+
+
+## Version 1.0.16 (2026-10-19)
+
+
+
+  
+### Features
+    
+- implement workspaces and navigation workspace/config/record/stream/segment
+    
+  
+
+  
+
+  
+
+  
+
+
 ## Version 1.0.15 (2026-10-12)
 
 
