@@ -1,21 +1,21 @@
 # Files Format
 
-Ephyr keeps converted recordings in a **workspace**: one folder that holds every recording of a study,
-grouped by acquisition setup. The original recordings are never modified and are not needed after
-conversion.
+Ephyr keeps converted recordings in a **workspace** — a single folder containing all recordings for a study, 
+grouped by acquisition setup. Original recordings are never modified and are no longer required after conversion.
 
 ## Hierarchy
 
 | Level | What it is | Holds |
 |-------|------------|-------|
-| **Workspace** | A study or project folder `<name>_ephyr`. | Configs. |
-| **Config** | One acquisition setup: the same channels, in the same order, at the same sample rate. | Records and the source signatures every Record must match. |
-| **Record** | One recording session (one imported file or folder). | Sources, sessions, events, periods, add-on data. |
-| **Source** | One signal stream of a Record with its own sample rate and channel set (for example the wideband electrode stream and a 1 kHz analog stream). | Samples, one file per channel. |
-| **Segment** | A continuous piece of a source: a sweep, a trigger block, an Open Ephys recording, the part between two gaps of a Neuralynx file. | Position in the samples and its start time. |
+| **Workspace** | The top-level study or project folder, named `<name>_ephyr`. | Configs. |
+| **Config** | A single acquisition setup: a fixed set of channels, in a fixed order, at a fixed sample rate. | Records, together with the source signatures that every Record must match. |
+| **Record** | A single recording session, corresponding to one imported file or folder. | Sources, sessions, events, periods, and add-on data. |
+| **Source** | A single signal stream within a Record, with its own sample rate and channel set (for example, the wideband electrode stream and a 1 kHz analog stream). | Samples, stored as one file per channel. |
+| **Segment** | A continuous piece of a source: a sweep, a trigger block, an Open Ephys recording, or the interval between two gaps of a Neuralynx file. | Position in the samples and its start time. |
 
-Records of one Config share GUI settings: channel groups, filters and layout refer to channels by
-index, so they can be copied from one Record to another (**Import → Settings from Record…**).
+Records within the same Config share GUI settings: channel groups, filters, and layout refer to channels by index, 
+so these settings can be copied from one Record to another (**Import → Settings from Record…**).
+
 
 ## Workspace on disk
 
@@ -47,33 +47,31 @@ index, so they can be copied from one Record to another (**Import → Settings f
                 └── logs/
 ```
 
-- Folder ids (`config_id`, `record_id`, `source_id`) are lower-case slugs made from the names you
-  enter. Renaming a Config, Record or Source changes only its display name, never the folder.
-- The main source of every Record is called `main`. Further sources get ids such as `rate_1000hz`
-  or a slug of the stream name.
-- The workspace contains no absolute paths, so it can be copied or moved to another computer as is.
+- Folder IDs (`config_id`, `record_id`, `source_id`) are lowercase slugs derived from the names you
+  enter. Renaming a Config, Record or Source changes only its display name; the folder name remains unchanged.
+- Every Record has a main source with the ID `main`. Additional sources receive IDs such as `rate_1000hz` or a slug of the stream name.
+- The workspace contains no absolute paths and can therefore be copied or moved to another computer without modification.
 - A workspace cannot be created inside another workspace.
 
 ### Manifests
 
-All `*.ephyr` files are JSON with a `format` and `format_version` field. Each Workspace, Config and
-Record has a random `uid` that does not depend on its name or folder.
+All `*.ephyr` files are JSON files containing with a `format` and `format_version` field. Every Workspace, Config and
+Record has a randomly generated `uid` that is independent of its name and folder.
 
 | File | Contents |
 |------|----------|
-| `workspace.ephyr` | Workspace name, `uid`, ordered list of Config ids. |
-| `config.ephyr` | Config name, `uid`, `main_source_id`, ordered list of Record ids, and for each source: name, **signature** (`sample_rate`, `dtype`, channel names and units in order) and descriptive fields (`source_format`, `segment_kind`, probes, prefiltering). |
+| `workspace.ephyr` | Workspace name, `uid`, and an ordered list of Config IDs. |
+| `config.ephyr` | Config name, `uid`, `main_source_id`, an ordered list of Record IDs, and for each source: name, **signature** (`sample_rate`, `dtype`, channel names and units in order) and descriptive fields (`source_format`, `segment_kind`, probes, prefiltering). |
 | `record.ephyr` | Record name, `uid`, `start_datetime`, **inputs** (format, root name, content fingerprint, reader options), and for each source: per-channel calibration (`analog_min/max`, `digital_min/max`, impedance), `t_start_ms` and **segments** (`start_sample_idx`, `number_of_samples`, `t_start_ms`, `label`). |
 
-Channel units are part of the Config signature: relabelling units in **Set units** changes them for
-every Record of the Config. Calibration lives in the Record, because two recordings of one setup may be
-quantized differently.
+Channel units are part of the Config signature: changing units in **Set units** updates them for every Record in that Config.
+Calibration is stored in the Record, since two recordings from the same setup may be quantized differently.
 
 ### Samples
 
-`sources/<source_id>/channel_N.samples` is a raw little-endian **int16** array (`<i2`), one file per
-channel, 0-based channel index. All segments of a source are stored back to back in the same file; the
-`segments` list in `record.ephyr` says where each one starts. The physical value of a sample is
+`sources/<source_id>/channel_N.samples` is a raw little-endian **int16** array (`<i2`), with one file per
+channel, 0-based channel index. All segments of a source are stored consecutively in the same file; the
+`segments` list in `record.ephyr` specifies where each segment starts. The physical value of a sample is
 
 ```text
 value = analog_min + (sample - digital_min) * (analog_max - analog_min) / (digital_max - digital_min)
@@ -83,10 +81,10 @@ in the channel unit from the Config signature.
 
 ### Time
 
-Every annotation is stored in **Record time** `t_ms`: milliseconds since the start of the recording,
-including the gaps between segments. A segment starts at its `t_start_ms`; sample `i` of a segment is at
-`t_start_ms + i * 1000 / sample_rate`. Annotations therefore stay valid whichever source or navigation
-mode you look at them in.
+All annotation is stored in **Record time** (`t_ms`): milliseconds since the start of the recording,
+including intervals between segments. A segment starts at its `t_start_ms`; sample `i` of a segment occurs at
+`t_start_ms + i * 1000 / sample_rate`. Annotations therefore remain valid regardless of the source or navigation 
+mode used to view them.
 
 ### Events and periods
 
@@ -94,58 +92,58 @@ mode you look at them in.
 
 | Column | Meaning |
 |--------|---------|
-| `id` | Unique id inside the file. |
-| `t_ms` | Record time in milliseconds. |
-| `source_id`, `channel` | Optional: the source and channel the event belongs to; empty for record-wide events. |
+| `id` | Unique ID within the file. |
+| `t_ms` | Record time, in milliseconds. |
+| `source_id`, `channel` | Optional: the source and channel to which the event belongs; empty for record-wide events. |
 | `label` | Name from the session vocabulary. |
-| `value` | Optional number (for example an amplitude). |
+| `value` | Optional numeric number (for example an amplitude). |
 | `is_bad` | `1` for events marked bad, otherwise `0`. |
 
-`periods.csv` has the same columns, with `start_t_ms` and `end_t_ms` instead of `t_ms` and no `is_bad`.
+`periods.csv` contains the same columns, except that `start_t_ms` and `end_t_ms` replace `t_ms`, and the `is_bad` column is omitted.
 
-- `source_annotations/` holds what was found in the original recording: Neuralynx `Events.nev`,
-  Open Ephys TTL events, EDF+ annotations, NWB `trials` / `epochs`. It is written once on import.
-- `sessions/<name>/events.csv` and `periods.csv` hold the user's own annotations.
+- `source_annotations/` contains annotations found in the original recording: Neuralynx `Events.nev`,
+  Open Ephys TTL events, EDF+ annotations, NWB `trials` / `epochs`. This directory is written once during import.
+- `sessions/<name>/events.csv` and `periods.csv` contain user-created annotations.
 
 ### Sessions
 
-A session is one user's view and annotation of a Record. `settings.json` stores the event and period
-vocabularies (names, colors, visibility), the recording description and the GUI setup: active source,
-navigation mode, visible window, channel groups and layout, filters, add-on toggles and panel layout.
-You can switch between sessions without reloading the signal.
+A session represents a single user's view and annotation of a Record. `settings.json` stores the event and period
+vocabularies (names, colors, visibility), the recording description, and the GUI setup: active source,
+navigation mode, visible window, channel groups and layout, filters, add-on toggles, and panel layout.
+Sessions can be switched without reloading the signal.
 
 ### Add-on data
 
-`add_ons/data/<add_on_module_name>/` is created when an add-on stores results or parameters for this
-Record (for example spike detection payloads).
+The `add_ons/data/<add_on_module_name>/` directory is created when an add-on stores results or parameters for this
+Record (for example, spike detection payloads).
 
 ## Importing recordings
 
 | Action | Where | Result |
 |--------|-------|--------|
-| **Create Ephyr Workspace…** | File menu, start page | Pick a parent folder and a name; `<name>_ephyr` is created there. |
-| **Open Ephyr Workspace → File…** / **Folder…** | File menu, start page, recent list, drag-and-drop | Select `workspace.ephyr` or the workspace folder (any folder inside the workspace also works). |
-| **Add Config** | Navigation panel **+** next to *Config*, start page, drag-and-drop of a recording | A new Config with the recording as its first Record. If an existing Config already has the same signature, Ephyr offers to add the recording there as a Record instead. |
+| **Create Ephyr Workspace…** | File menu, start page | Select a parent folder and enter a name; `<name>_ephyr` is created that folder. |
+| **Open Ephyr Workspace → File…** / **Folder…** | File menu, start page, recent list, drag-and-drop | Select `workspace.ephyr` or the workspace folder (any folder whithin the workspace is also accepted). |
+| **Add Config** | Navigation panel **+** next to *Config*, start page, drag-and-drop of a recording |  A new Config is created with the recording as its first Record. If an existing Config has the same signature, Ephyr offers to add the recording to that Config as a Record instead. |
 | **Add Record** | **+** next to *Record* | The recording is checked against the current Config before conversion. |
-| **Add Source** | **+** next to *Source* | A further file of the same recording becomes an extra source of the open Record. Its channels are not checked against the Config. |
-| **Remove** | **−** next to each level | Asks for confirmation and shows the number of Records and sessions and the size on disk. The original recording is not touched. The main source cannot be removed. |
+| **Add Source** | **+** next to *Source* | A additional file of the same recording becomes an extra source of the open Record. Its channels are not checked against the Config. |
+| **Remove** | **−** next to each level | Requests confirmation and displays the number of Records and sessions, as well as the size on disk. The original recording is not modified. The main source cannot be removed. |
 | **Rename** | **✎** next to each level | Changes the display name only. |
 
-Conversion writes into a temporary `*.partial` folder that is moved into place when it is complete, so
-a cancelled or failed import leaves nothing behind.
+Conversion writes to a temporary `*.partial` folder, witch is moved into place upon completion; thus,
+a cancelled or failed import leaves no residual files.
 
 ### Duplicates
 
-Each input is identified by a content **fingerprint** that does not depend on where the files are:
-for every file of the recording its path inside the recording folder, its size and a SHA-256 of its
-first, middle and last MiB; the `digest` combines them. A recording whose digest already exists in the
-workspace is refused with a pointer to the Record that holds it. The last known location of the
-original recording on this computer is remembered outside the workspace, so that tools such as
-**Channels layout → Import from source** can find it again.
+Each input is identified by a content **fingerprint** that is independent of file locations.
+For each file in the recording, the fingerprint includes its path within the recording folder, its size, 
+and a SHA-256 hash of its first, middle, and last MiB; the `digest` combines these values. A recording whose digest already exists in the
+workspace is rejected, with a reference to the Record that contains it. The last known location of the
+original recording on the local computer is stored outside the workspace, so that tools such as
+**Channels layout → Import from source** can locate it again.
 
 ### Validation
 
-When a recording is added to a Config, its main source is compared with the Config main source:
+When a recording is added to a Config, its main source is compared against the Config's main source:
 
 | Field | Rule | Effect |
 |-------|------|--------|
@@ -159,7 +157,7 @@ When a recording is added to a Config, its main source is compared with the Conf
 | Calibration, impedance, number and length of segments, date | Not compared | — |
 | Other sources | Not compared | — |
 
-A different channel order means a different Config. On a blocking mismatch Ephyr shows a table of the
+A different channel order implies a different Config. On a blocking mismatch Ephyr shows a table of the
 differences and offers to create a new Config from the recording instead.
 
 ## Supported recordings
