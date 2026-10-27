@@ -542,6 +542,63 @@ class EphyrAddOnMixin:
         gui = getattr(session_manager, "gui_setup", None)
         return int(getattr(gui, "current_segment_idx", 0) or 0) if gui is not None else 0
 
+    def visible_window_ms(self, session_manager, view) -> Tuple[float, float]:
+        """Start and end of the on-screen time window, in milliseconds of the display segment."""
+        sample_rate = float(getattr(view, "sample_rate", 0.0) or 0.0)
+        gui = getattr(session_manager, "gui_setup", None)
+        start_point = float(getattr(gui, "start_point", 0) or 0) if gui is not None else 0.0
+        duration_ms = float(getattr(gui, "duration_ms", 0) or 0) if gui is not None else 0.0
+        start_ms = start_point * 1000.0 / sample_rate if sample_rate > 0 else 0.0
+        return start_ms, start_ms + duration_ms
+
+    def add_time_window_rows(
+        self,
+        form: QFormLayout,
+        *,
+        segment_duration_ms: float,
+        start_ms: float,
+        end_ms: float,
+    ) -> Tuple[QDoubleSpinBox, QDoubleSpinBox]:
+        """From/To fields filled with the current time window, plus Start and End buttons."""
+        limit = max(0.0, float(segment_duration_ms))
+        start_ms = min(max(0.0, float(start_ms)), limit)
+        end_ms = min(max(0.0, float(end_ms)), limit)
+
+        from_spin = QDoubleSpinBox()
+        from_spin.setRange(0.0, limit)
+        from_spin.setDecimals(3)
+        from_spin.setValue(start_ms)
+
+        to_spin = QDoubleSpinBox()
+        to_spin.setRange(0.0, limit)
+        to_spin.setDecimals(3)
+        to_spin.setValue(end_ms)
+
+        def apply_bound(spin: QDoubleSpinBox, value: float) -> None:
+            spin.setValue(min(max(0.0, value), limit))
+
+        form.addRow(
+            "Window from (ms):",
+            self._spin_with_button(from_spin, "Start", lambda: apply_bound(from_spin, 0)),
+        )
+        form.addRow(
+            "Window to (ms):",
+            self._spin_with_button(to_spin, "End", lambda: apply_bound(to_spin, limit)),
+        )
+        return from_spin, to_spin
+
+    @staticmethod
+    def _spin_with_button(spin: QDoubleSpinBox, text: str, on_click) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(spin, 1)
+        button = QPushButton(text)
+        button.setAutoDefault(False)
+        button.setDefault(False)
+        button.clicked.connect(lambda _checked=False: on_click())
+        row.addWidget(button)
+        return row
+
     @staticmethod
     def display_segment_points(session_manager, segment_idx: Optional[int] = None) -> int:
         view = session_manager.source_view
