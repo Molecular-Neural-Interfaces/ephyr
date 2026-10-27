@@ -282,8 +282,22 @@ class QtEphyrSessionManagerWrapper(QObject):
                                   lambda setup: not setup.view_enabled)
 
     def get_transformation_add_ons(self) -> Dict[str, BaseAddOn]:
-        return self.__get_add_ons(lambda add_on: add_on.TRANSFORMATION == False, 
-                                  lambda setup: not setup.transform_enabled)
+        add_ons = self.__get_add_ons(lambda add_on: add_on.TRANSFORMATION == False,
+                                     lambda setup: not setup.transform_enabled)
+        # ``transform`` is not given a data directory. Stamp the per-add-on folder
+        # so a transformation can read the settings saved by Run.
+        self._attach_add_on_data_dirs(add_ons)
+        return add_ons
+
+    def _attach_add_on_data_dirs(self, add_ons) -> None:
+        root = self.add_ons_data_folder
+        if root is None:
+            return
+        for add_on in add_ons:
+            module_name = getattr(add_on, "_ephyr_module_name", None)
+            if not module_name:
+                continue
+            setattr(add_on, "_ephyr_data_dir", Path(root) / str(module_name))
 
     def __get_add_ons(self, filter_by_add_on_field, filter_by_setup_func):
         add_ons = []

@@ -10,7 +10,6 @@ from typing import List
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QCheckBox,
     QDialog,
     QFormLayout,
     QHBoxLayout,
@@ -70,20 +69,6 @@ class AddOnDevelopmentDialog(QDialog):
         self.btn_add_author = QPushButton("Add author")
         self.btn_add_author.clicked.connect(self._on_add_author_clicked)
         root.addWidget(self.btn_add_author, alignment=Qt.AlignmentFlag.AlignLeft)
-
-        options_row = QHBoxLayout()
-        options_row.setSpacing(16)
-        self.cb_viewable = QCheckBox("viewable")
-        self.cb_transformation = QCheckBox("transformation")
-        self.cb_runnable = QCheckBox("runnable")
-        self.cb_viewable.setChecked(True)
-        self.cb_transformation.setChecked(False)
-        self.cb_runnable.setChecked(True)
-        options_row.addWidget(self.cb_viewable)
-        options_row.addWidget(self.cb_transformation)
-        options_row.addWidget(self.cb_runnable)
-        options_row.addStretch(1)
-        root.addLayout(options_row)
 
         repo_root = settings.ADD_ONS_REPOSITORY[:-4] if settings.ADD_ONS_REPOSITORY.endswith(".git") else settings.ADD_ONS_REPOSITORY
         link_label = QLabel(f'Guide: <a href="{repo_root}">{repo_root}</a>')
@@ -189,86 +174,6 @@ class AddOnDevelopmentDialog(QDialog):
             authors_block=authors_block,
         )
 
-    def _render_example_py(self, template_py: str) -> str:
-        transform_block = ""
-        view_block = ""
-        run_block = ""
-
-        if self.cb_transformation.isChecked():
-            transform_block = """
-    def transform(self, channel_data: np.ndarray, sample_rate: float):
-        if not self.TRANSFORMATION:
-            return channel_data
-
-        # TODO: Implement transformation logic.
-        return channel_data
-
-    def applicable(self, channel_idx: int) -> bool:
-        # TODO: Return False for channels this add-on should skip.
-        _ = channel_idx
-        return True
-"""
-
-        if self.cb_viewable.isChecked():
-            view_block = """
-    def view(
-            self,
-            add_on_data_dir: Path,
-            processed_data: Dict[int, np.ndarray[np.float64]],
-            amplitude_scale: float,
-            start_point: int,
-            duration_ms: float,
-            start_time_ms: float,
-            end_time_ms: float,
-            sample_rate: float,
-            axis_duration_ms: float,
-            segment_idx: int,
-            visible_channel_indexes: List[int],
-            channel_names: List[str],
-            visible_events: List[Any],
-            visible_periods: List[Any],
-            channel_groups: List[Any],
-            channels_setup: Dict[int, Any],
-            channel_units: Dict[int, str],
-            painter: QPainter,
-            signal_widget: QWidget,
-            channel_rects: List[Tuple[int, QRect]],
-            signal_width: int,
-            draw_area_height: int,
-            bg_color: QColor,
-            grid_color: QColor,
-            signal_color: QColor,
-            text_color: QColor,
-            axis_color: QColor,
-    ):
-        if not self.VIEWABLE:
-            return
-
-        # TODO: Draw custom entities on the signal panel.
-        return
-"""
-
-        if self.cb_runnable.isChecked():
-            run_block = """
-    def run(self, session_manager, add_on_data_dir):
-        if not self.RUNNABLE:
-            return
-
-        add_on_data_dir = Path(add_on_data_dir)
-        add_on_data_dir.mkdir(parents=True, exist_ok=True)
-        # TODO: Add your computation here.
-        yield {"progress": 100, "message": "Example add-on finished"}
-"""
-
-        return template_py.format(
-            transformation_enabled=str(self.cb_transformation.isChecked()),
-            viewable_enabled=str(self.cb_viewable.isChecked()),
-            runnable_enabled=str(self.cb_runnable.isChecked()),
-            transform_block=transform_block.strip("\n"),
-            view_block=view_block.strip("\n"),
-            run_block=run_block.strip("\n"),
-        )
-
     def _read_templates(self) -> tuple[str, str]:
         template_dir = Path(__file__).resolve().parents[2] / "core" / "add_ons" / "template"
         py_template = (template_dir / "template.py").read_text(encoding="utf-8")
@@ -279,7 +184,10 @@ class AddOnDevelopmentDialog(QDialog):
         package_dir = target_dir / "ephyr_add_ons" / project_name
         readme_content = (
             f"# {project_name}\n\n"
-            "Generated add-on template.\n\n"
+            "Generated Ephyr add-on with Run, Transform, and View.\n\n"
+            "Run configures an offset and a sine for selected channels of selected groups. "
+            "Transform adds that sine to the channel values. "
+            "View draws the same sine on those channels.\n\n"
             "## Files\n"
             f"- `ephyr_add_ons/{project_name}/entry_point.py`: add-on implementation\n"
             f"- `ephyr_add_ons/{project_name}/__init__.py`: package marker for helpers\n"
@@ -313,7 +221,7 @@ class AddOnDevelopmentDialog(QDialog):
         try:
             py_template, toml_template = self._read_templates()
             pyproject_content = self._render_pyproject(toml_template, project_name, description, authors)
-            example_content = self._render_example_py(py_template)
+            example_content = py_template
             target_dir = Path.cwd() / "add_on_development"
 
             existing_paths = [
