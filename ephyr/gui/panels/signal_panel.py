@@ -968,10 +968,19 @@ class SignalWidget(QWidget):
                 painter.drawLine(x_int, rect.top(), x_int, rect.bottom())
 
     def _draw_gaps(self, painter: QPainter):
-        """Dotted lines where the recording was interrupted between physical segments."""
+        """Seams between physical segments in continuous mode.
+
+        The stitch is a long dash and one dot, so it does not read as the even
+        dash of an invalid event.
+        """
         if not self._gap_positions_ms or self._axis_duration_ms <= 0:
             return
-        painter.setPen(QPen(QColor(150, 60, 60), 1, Qt.PenStyle.DotLine))
+        pen = QPen(QColor(0, 0, 0), 1)
+        pen.setCosmetic(True)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        pen.setStyle(Qt.PenStyle.CustomDashLine)
+        pen.setDashPattern([12, 4, 2, 4])
+        painter.setPen(pen)
         for gap_ms in self._gap_positions_ms:
             if not (self._start_time_ms <= gap_ms <= self._end_time_ms):
                 continue
