@@ -402,6 +402,7 @@ class ScreenshotExportDialog(QDialog):
         painter.save()
         painter.translate(left_margin, 0)
         painter.setClipping(False)
+        sw._draw_period_backgrounds(painter)
         sw._draw_group_titles(painter)
         def clip_rect_for(channel_idx: int, channel_rect: QRect) -> QRect:
             # Mirrors SignalWidget._draw_trace: only a cut group is clipped to its own cell.
