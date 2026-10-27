@@ -2962,9 +2962,9 @@ class SignalPanel(QWidget):
     def _step_time_by_wheel(self, event: QWheelEvent) -> bool:
         """Move the visible window by one time_step_ms, same as the time scrollbar."""
         delta = event.angleDelta().y() or event.angleDelta().x()
-        if delta > 0:
+        if delta < 0:
             self.on_single_right_click()
-        elif delta < 0:
+        elif delta > 0:
             self.on_single_left_click()
         else:
             return False
