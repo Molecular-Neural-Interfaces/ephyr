@@ -33,12 +33,19 @@ class WorkspacePosition(BaseModel):
     last_record_by_config: Dict[str, str] = Field(default_factory=dict)
 
 
+def default_local_add_ons_dir() -> Path:
+    """Development add-ons folder used until the user picks another one."""
+    return (Path.cwd() / "add_on_development").resolve()
+
+
 class GlobalStorage(BaseModel):
     recent_workspaces: List[Path] = Field(default_factory=list)
     workspace_positions: Dict[str, WorkspacePosition] = Field(default_factory=dict)
     # Last known location of the recording each Record was converted from, on this machine only.
     record_source_paths: Dict[str, Path] = Field(default_factory=dict)
     gui_mode: GuiMode = GuiMode.BEGINNER
+    # Absolute folder of local (development) add-ons. Unset uses ./add_on_development in the working directory.
+    local_add_ons_dir: Optional[Path] = None
 
     def update_recent_workspaces_list(self, workspace_root: Path, to_delete: bool):
         try:
@@ -77,6 +84,17 @@ class GlobalStorageManager:
 
     def set_gui_mode(self, gui_mode: GuiMode):
         self._global_storage.gui_mode = gui_mode
+        self._save_global_storage()
+
+    @property
+    def local_add_ons_dir(self) -> Path:
+        stored = self._global_storage.local_add_ons_dir
+        if stored is None:
+            return default_local_add_ons_dir()
+        return Path(stored)
+
+    def set_local_add_ons_dir(self, path: Path):
+        self._global_storage.local_add_ons_dir = Path(path).resolve()
         self._save_global_storage()
 
     def update_recent_workspaces_list(self, workspace_root: Path, to_delete: bool = False):

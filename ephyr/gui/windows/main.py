@@ -1329,10 +1329,10 @@ class MainWindow(QMainWindow, QWidgetMixin):
             self.__set_status("Warning: ephyr session is not active")
             return
 
-        AddOnsDialog(self.session_manager, self).exec()
+        AddOnsDialog(self.session_manager, self.global_storage_manager, self).exec()
 
     def on_add_ons_create_template(self):
-        AddOnDevelopmentDialog(self).exec()
+        AddOnDevelopmentDialog(self.global_storage_manager, self).exec()
 
     def on_ephyr_guide(self):
         QDesktopServices.openUrl(QUrl(settings.DOCUMENTATION_LINK))

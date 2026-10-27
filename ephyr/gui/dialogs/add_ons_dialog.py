@@ -29,20 +29,22 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QDialog,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
-    QSizePolicy,
 )
 
 from ephyr import settings
+from ephyr.core.global_storage import GlobalStorageManager
 from ephyr.gui.dialogs.loading_dialog import LoadingDialog
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
 from ephyr.logger import ephyr_logger
@@ -57,9 +59,15 @@ class _IndexItem:
 
 
 class AddOnsDialog(QDialog):
-    def __init__(self, session_manager: QtEphyrSessionManagerWrapper, parent=None):
+    def __init__(
+            self,
+            session_manager: QtEphyrSessionManagerWrapper,
+            global_storage_manager: GlobalStorageManager,
+            parent=None,
+    ):
         super().__init__(parent)
         self._session_manager = session_manager
+        self._global_storage = global_storage_manager
         self._index_items: List[_IndexItem] = []
         self._selected_module_name: Optional[str] = None
         self._is_populating_table = False
@@ -88,6 +96,18 @@ class AddOnsDialog(QDialog):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setColumnWidth(0, 28)
         left_layout.addWidget(self.table)
+
+        local_caption = QLabel("Local add-ons:")
+        left_layout.addWidget(local_caption)
+        self.lbl_local_add_ons_dir = QLabel()
+        self.lbl_local_add_ons_dir.setWordWrap(True)
+        self.lbl_local_add_ons_dir.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.lbl_local_add_ons_dir.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        left_layout.addWidget(self.lbl_local_add_ons_dir)
+        self.btn_choose_local_dir = QPushButton("Choose folder")
+        self.btn_choose_local_dir.clicked.connect(self._on_choose_local_add_ons_dir)
+        left_layout.addWidget(self.btn_choose_local_dir, alignment=Qt.AlignmentFlag.AlignLeft)
+        self._show_local_add_ons_dir()
 
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
@@ -146,6 +166,32 @@ class AddOnsDialog(QDialog):
         self.table.itemSelectionChanged.connect(self._on_table_selection_changed)
         self.btn_install_toggle.clicked.connect(self._on_install_toggle_clicked)
         self.btn_update.clicked.connect(self._on_update_clicked)
+
+    def _show_local_add_ons_dir(self):
+        path = str(self._global_storage.local_add_ons_dir)
+        self.lbl_local_add_ons_dir.setText(path)
+        self.lbl_local_add_ons_dir.setToolTip(path)
+
+    def _on_choose_local_add_ons_dir(self):
+        current = self._global_storage.local_add_ons_dir
+        chosen = QFileDialog.getExistingDirectory(
+            self,
+            "Local add-ons folder",
+            str(current),
+            QFileDialog.Option.ShowDirsOnly,
+        )
+        if not chosen:
+            return
+        chosen_path = Path(chosen).resolve()
+        if chosen_path == current.resolve():
+            return
+        self._global_storage.set_local_add_ons_dir(chosen_path)
+        self._show_local_add_ons_dir()
+        QMessageBox.information(
+            self,
+            "Add-ons",
+            "The local add-ons folder was saved.\n\nRestart Ephyr for this change to take effect.",
+        )
 
     def _candidate_installed_names(self, item: _IndexItem) -> tuple[List[str], List[str]]:
         entry_point_names = [item.module_name]
