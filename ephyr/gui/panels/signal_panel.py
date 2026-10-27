@@ -400,6 +400,8 @@ class SignalWidget(QWidget):
         self._DISABLED_TEXT_COLOR = QColor(150, 150, 150)
         self._CHANNEL_SPACING = 5
         self._GROUP_GAP = 16
+        # Period wash is the vocabulary color at this opacity. Overlaps composite.
+        self._PERIOD_WASH_ALPHA = 80
         self._left_margin = left_margin
         self._right_margin = right_margin
         self._bottom_margin = bottom_margin
@@ -557,6 +559,7 @@ class SignalWidget(QWidget):
         self.pixmap_cache = QPixmap(self._axis_width, self._draw_area_height)
         painter = QPainter(self.pixmap_cache)
         painter.fillRect(0, 0, self._axis_width, self._draw_area_height, self._BG_COLOR)
+        self._draw_period_backgrounds(painter)
 
         self._draw_add_ons(0, ViewEntitiesZIndexEnum.MIDDLE_LINE.value, painter)
         self._draw_group_titles(painter)
@@ -985,6 +988,123 @@ class SignalWidget(QWidget):
         for _group_idx, group_rect in self._auxiliary_group_rects:
             if group_rect.width() > 0:
                 yield group_rect
+
+    def _period_time_rects(self) -> List[QRect]:
+        """One rect per time axis: an auxiliary group, or each column of a channel group.
+
+        Every column maps the same window across its own width, so a period is a
+        vertical band inside the column rather than one band across the whole group.
+        """
+        rects: List[QRect] = []
+        layouts = self._group_layouts
+        group_rects = self._group_layout_rects
+        for list_idx, group in enumerate(layouts):
+            if list_idx >= len(group_rects):
+                break
+            group_rect = group_rects[list_idx]
+            if group_rect.width() <= 0 or group_rect.height() <= 0:
+                continue
+            if group.is_auxiliary:
+                rects.append(group_rect)
+                continue
+            _rows, cols, *_rest = group.visible_window()
+            if cols <= 1:
+                rects.append(group_rect)
+                continue
+            col_w = group_rect.width() / cols
+            left = group_rect.left()
+            top = group_rect.top()
+            height = group_rect.height()
+            for col in range(cols):
+                x = left + int(round(col * col_w))
+                width = left + int(round((col + 1) * col_w)) - x
+                if width > 0:
+                    rects.append(QRect(x, top, width, height))
+        return rects
+
+    def _visible_period_spans(self) -> List[Tuple[float, float, int, int, int]]:
+        """Periods clipped to the window, as (start_ms, end_ms, r, g, b)."""
+        if self._axis_duration_ms <= 0:
+            return []
+        t0 = self._start_time_ms
+        t1 = t0 + self._axis_duration_ms
+        colors: Dict[int, Tuple[int, int, int]] = {}
+        spans: List[Tuple[float, float, int, int, int]] = []
+        for period in self._visible_periods:
+            start = float(period.start_time_ms)
+            end = float(period.end_time_ms)
+            if end <= start or end <= t0 or start >= t1:
+                continue
+            if start < t0:
+                start = t0
+            if end > t1:
+                end = t1
+            name_id = int(period.period_name_id)
+            rgb = colors.get(name_id)
+            if rgb is None:
+                color = self.top_level_period_color(period)
+                rgb = (color.red(), color.green(), color.blue())
+                colors[name_id] = rgb
+            spans.append((start, end, rgb[0], rgb[1], rgb[2]))
+        return spans
+
+    def _period_wash_image(self, width: int, spans: List[Tuple[float, float, int, int, int]]) -> Optional[QImage]:
+        """One premultiplied scanline. Drawing it stretched paints a whole column."""
+        if width <= 0 or not spans:
+            return None
+        t0 = self._start_time_ms
+        scale = width / self._axis_duration_ms
+        alpha = int(self._PERIOD_WASH_ALPHA)
+        inv = np.uint32(255 - alpha)
+        src_a = np.uint32(alpha)
+        # B, G, R, A. Source-over in integer arithmetic, so overlaps mix.
+        acc = np.zeros((width, 4), dtype=np.uint32)
+        for start, end, red, green, blue in spans:
+            x0 = int((start - t0) * scale)
+            x1 = int((end - t0) * scale)
+            if x0 < 0:
+                x0 = 0
+            if x1 > width:
+                x1 = width
+            if x1 <= x0:
+                x1 = x0 + 1
+                if x1 > width:
+                    continue
+            seg = acc[x0:x1]
+            seg *= inv
+            seg[:, 0] += np.uint32(blue) * src_a
+            seg[:, 1] += np.uint32(green) * src_a
+            seg[:, 2] += np.uint32(red) * src_a
+            seg[:, 3] += np.uint32(255) * src_a
+            seg //= np.uint32(255)
+        raw = np.ascontiguousarray(acc, dtype=np.uint8)
+        image = QImage(raw.data, width, 1, width * 4, QImage.Format.Format_ARGB32_Premultiplied)
+        return image.copy()
+
+    def _draw_period_backgrounds(self, painter: QPainter):
+        if not self._periods_are_visible or not self._visible_periods or self._axis_duration_ms <= 0:
+            return
+        spans = self._visible_period_spans()
+        if not spans:
+            return
+        rects = self._period_time_rects()
+        if not rects:
+            return
+
+        by_width: Dict[int, List[QRect]] = {}
+        for rect in rects:
+            by_width.setdefault(rect.width(), []).append(rect)
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        for width, same_width in by_width.items():
+            image = self._period_wash_image(width, spans)
+            if image is None or image.isNull():
+                continue
+            for rect in same_width:
+                painter.drawImage(rect, image)
+        painter.restore()
 
     def _draw_periods(self, painter: QPainter):
         if not self._visible_periods or self._axis_duration_ms <= 0 or self._sample_rate <= 0:
