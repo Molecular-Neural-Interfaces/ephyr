@@ -6,8 +6,7 @@ You can extend Ephyr with custom Transformation, Viewable, and/or Runnable add-o
 
 1. Open Ephyr.
 2. Choose **Add-ons → Create**.
-3. Fill in project metadata (`name`, `description`, authors) and capability flags
-   (`viewable`, `transformation`, `runnable`).
+3. Fill in project metadata (`name`, `description`, authors).
 4. Click **Generate template**.
 
 Ephyr writes a scaffold under the current working directory:
@@ -22,8 +21,15 @@ add_on_development/
         └── entry_point.py
 ```
 
-Implement your logic in `entry_point.py` (a subclass of `BaseAddOn`). Metadata and the
-`ephyr.add_ons` entry point are declared in `pyproject.toml`.
+`entry_point.py` is a working example with all three capabilities:
+
+- **Run** opens a dialog for channel groups, channels, a constant offset, and a sine
+  (amplitude, frequency, phase).
+- **Transform** adds that sine to the selected channels.
+- **View** draws the same sine on those channels.
+
+Edit that class for your own tool. Metadata and the `ephyr.add_ons` entry point are
+declared in `pyproject.toml`.
 
 ## How development add-ons are loaded
 
