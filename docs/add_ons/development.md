@@ -9,7 +9,8 @@ You can extend Ephyr with custom Transformation, Viewable, and/or Runnable add-o
 3. Fill in project metadata (`name`, `description`, authors).
 4. Click **Generate template**.
 
-Ephyr writes a scaffold under the current working directory:
+Ephyr writes a scaffold into the local add-ons folder (Add-ons → Manage, bottom left).
+Until you choose another folder, that is `./add_on_development` in the working directory:
 
 ```text
 add_on_development/
@@ -36,7 +37,9 @@ declared in `pyproject.toml`.
 On startup (and when the runtime add-on list is refreshed), Ephyr:
 
 1. Loads **installed** packages via the `ephyr.add_ons` entry-point group.
-2. Loads **development** modules from `./add_on_development` if that folder exists:
+2. Loads **development** modules from the local add-ons folder if it exists
+   (Add-ons → Manage; the default is `./add_on_development`). A new folder is used
+   after Ephyr is restarted:
       - top-level `*.py` files appear as `dev_<stem>`
       - packages under `ephyr_add_ons/<name>/` (including `entry_point.py` and nested modules) appear as `dev_*` entries
 

@@ -29,14 +29,14 @@ Show the Add-ons section with **View → Session Panel → Add-ons** (or ensure 
 | Control | Purpose |
 |---------|---------|
 | **Search** | Filters the list by add-on label |
-| Groups | Installed distributions and **Development add-ons** (`dev_*` modules loaded from `./add_on_development`) |
+| Groups | Installed distributions and **Development add-ons** (`dev_*` modules loaded from the local add-ons folder; default `./add_on_development`, change it in **Add-ons → Manage**) |
 | **View** | Enables Viewable drawing when the add-on supports it |
 | **Transform** | Enables Transformation in the display pipeline when supported |
 | **Run** | Starts a Runnable add-on; progress may appear in a loading dialog |
 
 Typical workflow:
 
-1. Install the package from Manage (or develop locally under `add_on_development`).
+1. Install the package from Manage (or develop locally in the local add-ons folder).
 2. Open the side panel and find the add-on.
 3. Click **Run** if it needs configuration or batch processing.
 4. Enable **View** and/or **Transform** so results affect the signal panel while you annotate.

@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ephyr import settings
+from ephyr.core.global_storage import GlobalStorageManager
 
 
 @dataclass
@@ -33,8 +34,9 @@ class _AuthorInput:
 
 
 class AddOnDevelopmentDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, global_storage_manager: GlobalStorageManager, parent=None):
         super().__init__(parent)
+        self._global_storage = global_storage_manager
         self._authors: List[_AuthorInput] = []
         self._build_ui()
 
@@ -222,7 +224,7 @@ class AddOnDevelopmentDialog(QDialog):
             py_template, toml_template = self._read_templates()
             pyproject_content = self._render_pyproject(toml_template, project_name, description, authors)
             example_content = py_template
-            target_dir = Path.cwd() / "add_on_development"
+            target_dir = self._global_storage.local_add_ons_dir
 
             existing_paths = [
                 target_dir / "README.md",
@@ -235,7 +237,7 @@ class AddOnDevelopmentDialog(QDialog):
                 reply = QMessageBox.question(
                     self,
                     "Overwrite files",
-                    "Files already exist in add_on_development:\n"
+                    f"Files already exist in {target_dir}:\n"
                     + "\n".join(f"- {name}" for name in existing_files)
                     + "\n\nOverwrite them?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,

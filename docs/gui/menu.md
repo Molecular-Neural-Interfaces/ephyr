@@ -166,7 +166,7 @@ See [Add-ons Usage](../add_ons/usage.md).
 
 ### Create
 
-Opens the template generator that scaffolds a development add-on under `./add_on_development`.
+Opens the template generator that scaffolds a development add-on in the local add-ons folder (`./add_on_development` by default; choose another folder in **Add-ons → Manage**).
 See [Add-on Development](../add_ons/development.md).
 
 ## Help
