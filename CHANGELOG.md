@@ -1,5 +1,29 @@
 
-## Version Unreleased (2026-10-26)
+## Version 1.0.18 (2026-10-27)
+
+
+
+  
+### Features
+    
+- window from-to default from current window
+    
+- periods shaded background
+    
+- support custom local add-ons dir
+    
+- add new add-on template with VIEW/TRANSFORM/RUN
+    
+  
+
+  
+
+  
+
+  
+
+
+## Version 1.0.17 (2026-10-26)
 
 
 
@@ -11,6 +35,8 @@
 
   
 ### Documentation
+    
+- changelog
     
 - refactor files
     
