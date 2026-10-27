@@ -5,7 +5,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from typing import List, Optional, Dict, Tuple
 from pathlib import Path
 
-from ephyr.core.add_ons.utils import load_installed_add_ons, load_dev_add_ons
+from ephyr.core.add_ons.utils import load_installed_add_ons, load_dev_add_ons, prefer_local_add_ons_path
 from ephyr import settings
 from ephyr.core.conversions.filters import ensure_filters_list
 
@@ -250,6 +250,8 @@ class QtEphyrSessionManagerWrapper(QObject):
         self.add_ons_run.emit(module_name)
 
     def refresh_runtime_add_ons(self):
+        # Local packages override installed ones, including entry points loaded first.
+        prefer_local_add_ons_path()
         self._runtime_add_ons = load_installed_add_ons() | load_dev_add_ons()
         self._sync_add_on_setups_with_runtime()
 

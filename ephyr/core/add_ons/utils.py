@@ -99,6 +99,8 @@ def _load_quietly(label: str, load: Callable[[], Optional[int]]) -> None:
 
 def load_installed_add_ons():
     importlib.invalidate_caches()
+    # A local package of the same name replaces the installed copy.
+    prefer_local_add_ons_path()
 
     runtime_add_ons: Dict[str, BaseAddOn] = {}
     for ep in entry_points().select(group="ephyr.add_ons"):
@@ -131,18 +133,50 @@ def _configured_local_add_ons_dir() -> Path:
         return Path("./add_on_development")
 
 
-def load_dev_add_ons():
+def active_local_add_ons_dir() -> Path:
+    """Local add-on folder for this process. Frozen on the first lookup."""
     global _active_local_add_ons_dir
-    runtime_add_ons: Dict[str, BaseAddOn] = {}
     if _active_local_add_ons_dir is None:
         _active_local_add_ons_dir = _configured_local_add_ons_dir()
-    dev_folder = _active_local_add_ons_dir
+    return _active_local_add_ons_dir
+
+
+def prefer_local_add_ons_path() -> None:
+    """Search the local add-on folder before site-packages.
+
+    Installed and local trees share the ``ephyr_add_ons`` namespace. The folder
+    stays behind the standard library, so a local ``os.py`` cannot replace it,
+    but a copied package overrides the installed one of the same name.
+    """
+    dev_folder = active_local_add_ons_dir()
+    if not dev_folder.is_dir():
+        return
+    folder = str(dev_folder.resolve())
+    if folder in sys.path:
+        sys.path.remove(folder)
+    site_indexes = [
+        index for index, entry in enumerate(sys.path)
+        if Path(entry).name == "site-packages"
+    ]
+    sys.path.insert(site_indexes[0] if site_indexes else len(sys.path), folder)
+    # A namespace already imported keeps its own path. Put the local tree first.
+    parent = sys.modules.get("ephyr_add_ons")
+    local_namespace = dev_folder / "ephyr_add_ons"
+    if parent is None or not local_namespace.is_dir():
+        return
+    local_namespace_str = str(local_namespace.resolve())
+    current = [str(Path(entry).resolve()) for entry in getattr(parent, "__path__", [])]
+    if local_namespace_str in current:
+        current.remove(local_namespace_str)
+    current.insert(0, local_namespace_str)
+    parent.__path__ = current
+
+
+def load_dev_add_ons():
+    runtime_add_ons: Dict[str, BaseAddOn] = {}
+    dev_folder = active_local_add_ons_dir()
     if dev_folder.is_dir():
-        # Keep the folder at the end of the path so a project directory cannot
-        # shadow Ephyr or the standard library. It still supplies ephyr_add_ons.*.
-        dev_folder_str = str(dev_folder.resolve())
-        if dev_folder_str not in sys.path:
-            sys.path.append(dev_folder_str)
+        prefer_local_add_ons_path()
 
         for py_file in sorted(dev_folder.glob("*.py"), key=lambda path: path.name):
             # setup.py runs setuptools and exits the process when imported.
