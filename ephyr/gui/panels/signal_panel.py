@@ -3052,12 +3052,18 @@ class SignalPanel(QWidget):
         self._toggle_auto_scroll(direction=-1)
 
     def _time_step_samples(self) -> int:
-        if not self._session_manager.gui_setup or not self._session_manager.source_view:
+        """Samples to move for one time-bar step.
+
+        Slow series (NWB event streams and the like) have a sample longer than
+        time_step_ms. Truncating that to int would be 0, and the arrows and wheel
+        would then leave start_point unchanged. The smallest move is one sample.
+        """
+        gui_setup = self._session_manager.gui_setup
+        view = self._session_manager.source_view
+        if not gui_setup or not view or view.sample_rate <= 0 or gui_setup.time_step_ms <= 0:
             return 0
-        interval = self._session_manager.source_view.sample_interval_microseconds
-        if interval <= 0:
-            return 0
-        return int((self._session_manager.gui_setup.time_step_ms * 1000) / interval)
+        samples = gui_setup.time_step_ms * view.sample_rate / 1000.0
+        return max(1, int(round(samples)))
 
     def _on_autoscroll_interval_changed(self, interval_ms: int):
         if int(interval_ms) > 0:
