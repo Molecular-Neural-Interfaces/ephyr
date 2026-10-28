@@ -126,6 +126,10 @@ class InformationPanel(QWidget):
     def on_session_loaded(self):
         session = self._session_manager.current_user_session
         if session is None:
+            self.text_edit.blockSignals(True)
+            self.text_edit.clear()
+            self.text_edit.blockSignals(False)
+            self._update_mapping_display("")
             return
         self.text_edit.setText(session.experiment_description)
         gui_setup = self._session_manager.gui_setup

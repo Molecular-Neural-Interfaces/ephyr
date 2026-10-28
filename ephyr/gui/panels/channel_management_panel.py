@@ -1258,7 +1258,8 @@ class ChannelManagementPanel(QWidget):
 
     def on_session_loaded(self):
         gui_setup = self._session_manager.gui_setup
-        if not gui_setup:
+        if not gui_setup or not self._session_manager.source_view:
+            self._clear_groups_ui()
             return
         updated_groups = [g.model_copy(deep=True) for g in gui_setup.channels_groups]
         changed = False
@@ -1413,6 +1414,25 @@ class ChannelManagementPanel(QWidget):
         sync_label(filters)
         selector.setCurrentIndex(0)
         build_form(0)
+
+    def _clear_groups_ui(self):
+        self._rebuilding_groups = True
+        self._group_tabs_updating = True
+        self._pending_group_tab_move = None
+        self.groups_tabs.blockSignals(True)
+        while self.groups_tabs.count():
+            tab = self.groups_tabs.widget(0)
+            self.groups_tabs.removeTab(0)
+            if tab is not None:
+                tab.deleteLater()
+        self._group_list_widgets.clear()
+        self._group_move_checkboxes.clear()
+        self._move_checkbox_anchor.clear()
+        self._group_channel_labels.clear()
+        self._last_groups_structure_signature = tuple()
+        self.groups_tabs.blockSignals(False)
+        self._group_tabs_updating = False
+        self._rebuilding_groups = False
 
     def rebuild_groups_ui(self):
         gui_setup = self._session_manager.gui_setup

@@ -297,7 +297,16 @@ class RecordingNavigationPanel(QWidget):
         if not active:
             self.source_info_label.setText("")
             self.segment_info_label.setText("")
+            self.period_label_combo.clear()
             self.period_box.setVisible(False)
+            self.segment_box.setVisible(False)
+            self.set_overlay_button.setEnabled(False)
+            self.segments_count_label.setText("")
+            self.pre_spinbox.setValue(0.0)
+            self.post_spinbox.setValue(0.0)
+            self.current_segment_spinbox.setValue(1)
+            mode_idx = self.mode_combo.findData(NavigationModeEnum.SEGMENT)
+            self.mode_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
             return
 
         duration_ms = view.total_samples * 1000.0 / view.sample_rate

@@ -729,8 +729,22 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self._processed_channels_data_cache = {}
         self._overlay_channels_data_cache = {}
         self._overlay_cache_segment_idxs = ()
+        self.__hide_session_panels()
+        self.__update_sessions()
         # Memmaps of the closed Record must be released before its files can be removed (Windows).
         gc.collect()
+
+    def __hide_session_panels(self):
+        """Remove Record panels from the side bar. Navigation and logs are not session data."""
+        if self.session_manager.session_is_active:
+            return
+        for widget_type in (
+                RightPanelWidgetEnum.TIME_SETTINGS,
+                RightPanelWidgetEnum.CHANNEL_MANAGEMENT,
+                RightPanelWidgetEnum.INFORMATION,
+                RightPanelWidgetEnum.ANALYSIS,
+        ):
+            self.remove_widget_from_right_panel(widget_type, update_session=False)
 
     def __open_record(self, config_id: str, record_id: str, preferred_session: Optional[str] = None) -> bool:
         workspace = self._workspace
@@ -830,6 +844,9 @@ class MainWindow(QMainWindow, QWidgetMixin):
                                                update_session=self.session_manager.session_is_active)
         else:
             self.start_screen_panel.set_state(StartScreenStateEnum.NO_WORKSPACE)
+        if not self.session_manager.session_is_active:
+            self.__hide_session_panels()
+            self.__update_sessions()
         self.__update_main_content_panel()
         self.__redraw_header()
 

@@ -958,6 +958,7 @@ class EphyrSessionManager:
     def close_record(self):
         self.current_user_session = None
         self.record_data = None
+        self.workspace = None
         self.config_id = None
         self.record_id = None
         self.record_dir = None
