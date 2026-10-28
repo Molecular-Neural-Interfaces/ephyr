@@ -1760,9 +1760,45 @@ class OverlayWidget(QWidget):
 
         value = self._scale_value / settings.MEASURE_BAR_DIVIDER
         label_text = format_amplitude(value, self._unit_label)
-        x_size = self._font_metrics.horizontalAdvance(label_text) + 10
-        label_rect = QRect(int(x) - x_size, int(y + bar_height // 2), x_size, 16)
-        painter.drawText(label_rect, Qt.AlignmentFlag.AlignCenter, label_text)
+        bounds = self._measure_label_bounds(painter, label_text)
+        # Just left of the bar, vertically centered on it. A taller Windows
+        # font stays next to the bar instead of hanging off a 16px box.
+        ink_left = float(int(x) - 4 - bounds.width())
+        ink_top = float(y) + (bar_height - bounds.height()) / 2.0
+        ink_left, ink_top = self._clamp_measure_label(ink_left, ink_top, bounds)
+        self._draw_measure_label(painter, label_text, bounds, ink_left, ink_top)
+
+    def _measure_label_bounds(self, painter: QPainter, text: str) -> QRect:
+        """Ink box of `text` relative to the drawText() baseline origin.
+
+        Labels used to go into a rect 16px tall and horizontalAdvance()+10 wide.
+        drawText() clips to that rect. On Windows a 16pt font is 16 * dpi/72
+        pixels tall (about 21px at 96 DPI, more with display scaling), and
+        DirectWrite paints the last glyph past horizontalAdvance(), so the
+        caption was cut off. boundingRect() is the ink, not the pen advance.
+        """
+        return painter.fontMetrics().boundingRect(text)
+
+    def _draw_measure_label(self, painter: QPainter, text: str, bounds: QRect,
+                            ink_left: float, ink_top: float) -> None:
+        """Draw `text` with its ink starting at (ink_left, ink_top).
+
+        drawText(x, y) uses the baseline and does not clip to a rectangle, so
+        the glyph bearings that a tight QRect would cut off stay visible.
+        """
+        painter.drawText(
+            int(round(ink_left - bounds.x())),
+            int(round(ink_top - bounds.y())),
+            text,
+        )
+
+    def _clamp_measure_label(self, ink_left: float, ink_top: float, bounds: QRect) -> Tuple[float, float]:
+        max_left = max(0, self.width() - bounds.width())
+        max_top = max(0, self.height() - bounds.height())
+        return (
+            min(max(0.0, ink_left), float(max_left)),
+            min(max(0.0, ink_top), float(max_top)),
+        )
 
     def _draw_time_scale_bar(self, painter: QPainter):
         # Use the width of the cell/group under the cursor: each cell maps the full
@@ -1784,14 +1820,17 @@ class OverlayWidget(QWidget):
 
         painter.fillRect(int(x), int(y), time_bar_pixels, self._bar_width, QColor(255, 0, 0))
 
-        # Draw the full label (don't clip to the tick width); clamp inside widget.
-        text_width = self._font_metrics.horizontalAdvance(label_text) + 10
-        label_x = int(x)
-        if label_x + text_width > self.width():
-            label_x = self.width() - text_width
-        label_x = max(0, label_x)
-        label_rect = QRect(label_x, int(y) + self._bar_width + 2, text_width, 16)
-        painter.drawText(label_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label_text)
+        # Center on the bar that was actually drawn. Its width follows the snapped
+        # duration, so a 1 s bar and a 500 ms bar do not share a fixed midpoint.
+        bounds = self._measure_label_bounds(painter, label_text)
+        bar_left = float(int(x))
+        bar_right = min(float(self.width()), bar_left + time_bar_pixels)
+        ink_left = (bar_left + bar_right) / 2.0 - bounds.width() / 2.0
+        ink_top = float(int(y) + self._bar_width + 2)
+        if ink_top + bounds.height() > self.height():
+            ink_top = float(int(y) - 2 - bounds.height())
+        ink_left, ink_top = self._clamp_measure_label(ink_left, ink_top, bounds)
+        self._draw_measure_label(painter, label_text, bounds, ink_left, ink_top)
 
 
 class GroupNavigatorWidget(QWidget):
