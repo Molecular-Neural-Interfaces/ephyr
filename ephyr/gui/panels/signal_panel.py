@@ -608,6 +608,20 @@ class SignalWidget(QWidget):
         painter.end()
         self.update()  # Trigger paint event
 
+    def clear_display(self):
+        """Drop the previous frame so a session change cannot keep it on screen."""
+        self._processed_data = {}
+        self._overlay_processed_data = {}
+        self._group_layouts = []
+        self._visible_channel_indexes = []
+        self._visible_events = []
+        self._visible_periods = []
+        self._reset_geometry()
+        self._geometry_signature = None
+        self.pixmap_cache = QPixmap()
+        self._discard_overlay_pixmap()
+        self.update()
+
     def _draw_cell_borders(self, painter: QPainter):
         if not self._cell_border_rects:
             return
@@ -1448,6 +1462,19 @@ class SignalWidget(QWidget):
         super().resizeEvent(event)
         if self._overlay_widget:
             self._overlay_widget.setGeometry(self.rect())
+        draw_w = self.width() - self._left_margin - self._right_margin
+        draw_h = self.height() - self._bottom_margin
+        pixmap_matches = (
+            not self.pixmap_cache.isNull()
+            and self.pixmap_cache.width() == max(0, draw_w)
+            and self.pixmap_cache.height() == max(0, draw_h)
+        )
+        # Layout often assigns the real size after the session redraw, which then
+        # bails out on a zero-size widget and would leave the previous frame up.
+        if draw_w > 0 and draw_h > 0 and not pixmap_matches:
+            redraw = getattr(self.parent(), "_redraw_data", None)
+            if callable(redraw):
+                QTimer.singleShot(0, redraw)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -1953,6 +1980,7 @@ class SignalPanel(QWidget):
         self._cached_group_layouts_override: Optional[List[ChannelGroup]] = None
         self._cached_visible_channels_override: Optional[List[int]] = None
         self._last_top_navigator_key: Optional[Tuple] = None
+        self._redrawing = False
 
         # Colors and styles
         self._bg_color = QColor(240, 240, 240)
@@ -2275,16 +2303,37 @@ class SignalPanel(QWidget):
         self._cached_visible_channels_override = None
         self._redraw_data()
 
+    def redraw_cached(self):
+        """Paint the already processed frame again, after layout has a real size."""
+        self._redraw_data()
+
+    def clear_plot(self):
+        """Remove traces, events and navigators left by the previous session."""
+        self._cached_processed_data = {}
+        self._cached_overlay_processed_data = {}
+        self._cached_overlay_data_version = 0
+        self._cached_group_layouts_override = None
+        self._cached_visible_channels_override = None
+        self._last_top_navigator_key = None
+        self.signal_widget.clear_display()
+        self.top_navigator_widget.update_events([], [], {}, [], [], {}, 0, 0.0, 1.0, 0.0, 0, 0)
+        for navigator in self._group_navigators.values():
+            navigator.hide()
+
     def _redraw_data(self):
-        if not self._cached_processed_data:
+        if self._redrawing:
             return
+        self._redrawing = True
+        try:
+            self._redraw_data_now()
+        finally:
+            self._redrawing = False
 
+    def _redraw_data_now(self):
         gui_setup = self._session_manager.gui_setup
-        if not gui_setup:
-            return
-
         view = self._session_manager.source_view
-        if view is None or view.number_of_segments == 0:
+        if not self._cached_processed_data or not gui_setup or view is None or view.number_of_segments == 0:
+            self.clear_plot()
             return
         sample_rate = view.sample_rate
         segment_idx = min(max(0, gui_setup.current_segment_idx), view.number_of_segments - 1)
@@ -2879,6 +2928,8 @@ class SignalPanel(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._redraw_data()
+        if self.signal_widget.width() <= 0 or self.signal_widget.height() <= self.signal_widget._bottom_margin:
+            QTimer.singleShot(0, self._redraw_data)
 
     def _visible_group_indexes(self) -> List[int]:
         gui_setup = self._session_manager.gui_setup
