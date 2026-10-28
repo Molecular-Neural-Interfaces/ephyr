@@ -189,13 +189,6 @@ class TimeSettingsPanel(QWidget):
     def _sync_time_controls(self, *_args):
         if self._updating:
             return
-        gui_setup = self._session_manager.gui_setup
-        if not gui_setup:
-            return
-
-        self._updating = True
-        if not self._is_expert:
-            self._apply_beginner_time_step()
         controls = (
             self.start_point_spinbox,
             self.duration_spinbox,
@@ -203,6 +196,31 @@ class TimeSettingsPanel(QWidget):
             self.autoscroll_step_interval_spinbox,
             self.number_of_dots_spinbox,
         )
+        gui_setup = self._session_manager.gui_setup
+        if not gui_setup:
+            self._updating = True
+            for control in controls:
+                control.blockSignals(True)
+                control.setEnabled(False)
+            self.start_point_spinbox.setRange(0, settings.MAX_START_POINT)
+            self.start_point_spinbox.setValue(0)
+            self.duration_spinbox.setValue(settings.MIN_DURATION)
+            self.time_step_spinbox.setValue(settings.MIN_TIME_STEP)
+            self.autoscroll_step_interval_spinbox.setValue(self.autoscroll_step_interval_spinbox.minimum())
+            self.number_of_dots_spinbox.setValue(settings.MIN_NUMBER_OF_DOTS_TO_DISPLAY)
+            for control in controls:
+                control.blockSignals(False)
+            self._updating = False
+            self.start_point_label.setText("Start point:")
+            self.duration_label.setText("Duration to show:")
+            self.time_step_label.setText("Timebar step:")
+            return
+
+        for control in controls:
+            control.setEnabled(True)
+        self._updating = True
+        if not self._is_expert:
+            self._apply_beginner_time_step()
         for control in controls:
             control.blockSignals(True)
 

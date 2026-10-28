@@ -1077,6 +1077,9 @@ class QtEphyrSessionManagerWrapper(QObject):
         self._session_manager.close_record()
         self._sync_logging_context()
         self._clear_undo_redo_history()
+        # Panels rebuild from the current session on this signal. After a close there is
+        # no session, so they drop the previous Record instead of keeping it on screen.
+        self.session_loaded.emit()
 
     def _sync_logging_context(self) -> None:
         session = self._session_manager.current_user_session
