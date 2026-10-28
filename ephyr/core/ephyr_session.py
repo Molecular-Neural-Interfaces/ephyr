@@ -1015,6 +1015,28 @@ class EphyrSessionManager:
             count = len(segments)
             gui_setup.current_segment_idx = min(max(0, gui_setup.current_segment_idx), max(0, count - 1))
             gui_setup.overlay_segment_idxs = [idx for idx in gui_setup.overlay_segment_idxs if 0 <= idx < count]
+            self.clamp_time_window()
+
+    def clamp_time_window(self) -> None:
+        """Fit the visible window into the current display segment.
+
+        A window longer than the segment is skipped by the data pipeline, which would
+        leave the previous session's traces on screen.
+        """
+        session = self.current_user_session
+        view = self.source_view
+        if session is None or view is None or view.sample_rate <= 0 or view.number_of_segments == 0:
+            return
+        gui_setup = session.gui_setup
+        idx = min(max(0, int(gui_setup.current_segment_idx)), view.number_of_segments - 1)
+        segment_points = int(view.display_segments[idx].number_of_samples)
+        if segment_points <= 0:
+            return
+        max_duration_ms = max(1, int(segment_points * 1000.0 / view.sample_rate))
+        duration_ms = min(max(1, int(gui_setup.duration_ms)), max_duration_ms)
+        visible_points = int(duration_ms * view.sample_rate / 1000.0)
+        gui_setup.duration_ms = duration_ms
+        gui_setup.start_point = min(max(0, int(gui_setup.start_point)), max(0, segment_points - visible_points))
 
     # ----- sessions -----
 

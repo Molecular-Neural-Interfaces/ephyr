@@ -14,7 +14,7 @@ from typing import Optional, List, Dict, Tuple
 from enum import Enum
 
 import numpy as np
-from PyQt6.QtCore import Qt, QRect, QUrl
+from PyQt6.QtCore import Qt, QRect, QTimer, QUrl
 from PyQt6.QtGui import QAction, QDesktopServices, QGuiApplication
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -456,6 +456,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.session_manager.add_ons_changed.connect(self.on_add_ons_changed)
         self.session_manager.add_ons_run.connect(self.on_add_ons_run)
         self.session_manager.filters_changed.connect(self.on_filters_changed)
+        self.session_manager.session_loaded.connect(self._on_session_loaded)
 
         # Events changed
         self.session_manager.events_changed.connect(self.on_events_changed)
@@ -465,6 +466,23 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.signal_panel.channel_scroll_changed.connect(self.on_visible_channel_indexes_changed)
 
     # ---------- Callbacks session manager ----------
+    def _on_session_loaded(self):
+        """Side panels refresh themselves. The signal plot has to be redrawn from here."""
+        if not self.session_manager.session_is_active or self.session_manager.record_data is None:
+            self._processed_channels_data_cache = {}
+            self._overlay_channels_data_cache = {}
+            self._overlay_cache_segment_idxs = ()
+            self.signal_panel.clear_plot()
+            return
+        self.__recalculate_and_redraw_necessary_signals(recalculate_data=True)
+        # The plot widget often receives its real size only after this handler returns.
+        QTimer.singleShot(0, self._redraw_signal_after_layout)
+
+    def _redraw_signal_after_layout(self):
+        if not self.session_manager.session_is_active or self.session_manager.record_data is None:
+            return
+        self.signal_panel.redraw_cached()
+
     def on_number_of_dots_to_display_changed(self):
         self.__recalculate_and_redraw_necessary_signals(recalculate_data=True, )
 
