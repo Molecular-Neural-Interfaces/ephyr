@@ -4,9 +4,9 @@
 from enum import Enum
 
 import numpy as np
-from PyQt6.QtCore import Qt, QRect, pyqtSignal, QPoint, QLineF, QEvent, QSize, QTimer
-from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QWheelEvent, QMouseEvent, QKeyEvent, QPixmap, QFontMetrics, \
-    QImage, QCursor
+from PyQt6.QtCore import Qt, QRect, pyqtSignal, QPoint, QPointF, QLineF, QEvent, QSize, QTimer
+from PyQt6.QtGui import QPainter, QColor, QFont, QPen, QPainterPath, QWheelEvent, QMouseEvent, QKeyEvent, QPixmap, \
+    QFontMetrics, QImage, QCursor
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollBar, QHBoxLayout, QPushButton, QDialog
 from typing import Optional, List, Dict, Tuple
 import math
@@ -1583,6 +1583,11 @@ def snap_measure_bar_time(time_ms: float) -> Tuple[float, str]:
 class OverlayWidget(QWidget):
     """Transparent overlay that draws time/amplitude scale bars at the cursor."""
 
+    # Glyph-stroke width. Half of it sits outside the letter.
+    _LABEL_HALO = 5.0
+    # Gap between the vertical amplitude bar and its label, in px.
+    _AMPLITUDE_LABEL_GAP = 8
+
     def __init__(self, left_margin, right_margin, bottom_margin, bar_width, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -1608,6 +1613,8 @@ class OverlayWidget(QWidget):
         self._font = QFont()
         self._font.setPointSize(16)
         self._font_metrics = QFontMetrics(self._font)
+        self._measure_font = QFont(self._font)
+        self._measure_font.setWeight(QFont.Weight.DemiBold)
 
     def update_state(self, *, cursor_pos: Optional[QPoint], overlay_mode: OverlayModeEnum,
                      channel_height: int, duration_ms: float, scale_value: float,
@@ -1758,12 +1765,13 @@ class OverlayWidget(QWidget):
 
         painter.fillRect(int(x), int(y), self._bar_width, bar_height, QColor(255, 0, 0))
 
+        painter.setFont(self._measure_font)
         value = self._scale_value / settings.MEASURE_BAR_DIVIDER
         label_text = format_amplitude(value, self._unit_label)
         bounds = self._measure_label_bounds(painter, label_text)
         # Just left of the bar, vertically centered on it. A taller Windows
         # font stays next to the bar instead of hanging off a 16px box.
-        ink_left = float(int(x) - 4 - bounds.width())
+        ink_left = float(int(x) - self._AMPLITUDE_LABEL_GAP - bounds.width())
         ink_top = float(y) + (bar_height - bounds.height()) / 2.0
         ink_left, ink_top = self._clamp_measure_label(ink_left, ink_top, bounds)
         self._draw_measure_label(painter, label_text, bounds, ink_left, ink_top)
@@ -1783,22 +1791,49 @@ class OverlayWidget(QWidget):
                             ink_left: float, ink_top: float) -> None:
         """Draw `text` with its ink starting at (ink_left, ink_top).
 
-        drawText(x, y) uses the baseline and does not clip to a rectangle, so
-        the glyph bearings that a tight QRect would cut off stay visible.
+        The glyph path is stroked in white, then filled with the current pen
+        color (the red of the measure bar). On a light plot the traces are
+        black, so a light halo keeps a gap around each letter; a black contour
+        would merge with the signal. addText uses the same baseline as
+        drawText(x, y) and does not clip the stroke to a tight rect.
         """
-        painter.drawText(
-            int(round(ink_left - bounds.x())),
-            int(round(ink_top - bounds.y())),
+        path = QPainterPath()
+        path.addText(
+            QPointF(ink_left - bounds.x(), ink_top - bounds.y()),
+            painter.font(),
             text,
         )
+        fill = painter.pen().color()
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(
+            QColor(240, 240, 240),
+            self._LABEL_HALO,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+            Qt.PenJoinStyle.RoundJoin,
+        ))
+        painter.drawPath(path)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(fill)
+        painter.drawPath(path)
+        painter.restore()
 
     def _clamp_measure_label(self, ink_left: float, ink_top: float, bounds: QRect) -> Tuple[float, float]:
-        max_left = max(0, self.width() - bounds.width())
-        max_top = max(0, self.height() - bounds.height())
-        return (
-            min(max(0.0, ink_left), float(max_left)),
-            min(max(0.0, ink_top), float(max_top)),
-        )
+        # Keep the halo, which extends half the stroke past the ink, on screen.
+        pad = self._LABEL_HALO / 2.0
+        max_left = self.width() - bounds.width() - pad
+        max_top = self.height() - bounds.height() - pad
+        if max_left < pad:
+            ink_left = max(0.0, (self.width() - bounds.width()) / 2.0)
+        else:
+            ink_left = min(max(pad, ink_left), max_left)
+        if max_top < pad:
+            ink_top = max(0.0, (self.height() - bounds.height()) / 2.0)
+        else:
+            ink_top = min(max(pad, ink_top), max_top)
+        return ink_left, ink_top
 
     def _draw_time_scale_bar(self, painter: QPainter):
         # Use the width of the cell/group under the cursor: each cell maps the full
@@ -1817,6 +1852,7 @@ class OverlayWidget(QWidget):
         y = self._cursor_pos.y() - self._bar_width
         x = self._cursor_pos.x()
         x = max(0, min(x, self.width() - self._right_margin - time_bar_pixels))
+        painter.setFont(self._measure_font)
 
         painter.fillRect(int(x), int(y), time_bar_pixels, self._bar_width, QColor(255, 0, 0))
 
