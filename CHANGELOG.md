@@ -1,4 +1,34 @@
 
+## Version 1.0.19 (2026-10-30)
+
+
+
+  
+### Features
+    
+- add border around measure bar text
+
+- add split and merge for events and periods
+  
+
+  
+### Bug Fixes
+    
+- measure bar text and time label position
+    
+- scroll after import
+    
+- clear data when session is switched
+    
+- change workspace now clears an old data
+    
+  
+
+  
+
+  
+
+
 ## Version 1.0.18 (2026-10-27)
 
 

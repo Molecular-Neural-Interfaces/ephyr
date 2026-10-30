@@ -5,6 +5,7 @@ from copy import deepcopy
 from typing import Dict, List, Optional, Tuple
 
 from ephyr.core.ephyr_session import Event, UserSession, EventVocabularyEntry
+from ephyr.gui.vocabulary_names import companion_vocabulary_color
 from .base import BaseCommand
 
 
@@ -226,3 +227,130 @@ class ImportVocabularyAndEventsCommand(ModifyEventsCommand):
             next_event_id += 1
 
         session.sort_events()
+
+
+class SplitEventVocabularyCommand(ModifyEventsCommand):
+    """Replace one event group with two. Checked events keep the first new name."""
+    description = "split event group"
+    should_emit_events_changed = True
+    should_emit_vocabulary_changed = True
+
+    def __init__(
+        self,
+        event_vocabulary_id: int,
+        selected_event_ids: List[int],
+        selected_name: str,
+        other_name: str,
+    ):
+        super().__init__()
+        self._vocabulary_id = event_vocabulary_id
+        self._selected_event_ids = list(selected_event_ids)
+        self._selected_name = selected_name
+        self._other_name = other_name
+        self._created_ids: Optional[Tuple[int, int]] = None
+        self.selected_count = 0
+        self.other_count = 0
+
+    def get_created_ids(self) -> Optional[Tuple[int, int]]:
+        return self._created_ids
+
+    def _apply_change(self, session: UserSession) -> None:
+        source = session.events_vocabulary.get(self._vocabulary_id)
+        if source is None:
+            raise ValueError("Event group does not exist")
+
+        group_ids = {event.id for event in session.events if event.event_name_id == self._vocabulary_id}
+        selected_ids = set(self._selected_event_ids) & group_ids
+        if not selected_ids or selected_ids == group_ids:
+            raise ValueError("Select some events and leave at least one in the other group")
+
+        selected_name = self._selected_name.strip()
+        other_name = self._other_name.strip()
+        if not selected_name or not other_name:
+            raise ValueError("Both groups need a name")
+        if selected_name == other_name:
+            raise ValueError("The two groups need different names")
+
+        taken = {
+            entry.name
+            for vocabulary_id, entry in session.events_vocabulary.items()
+            if vocabulary_id != self._vocabulary_id
+        }
+        if selected_name in taken or other_name in taken:
+            raise ValueError("A group with this name already exists")
+
+        selected_vocabulary_id = max(session.events_vocabulary) + 1
+        other_vocabulary_id = selected_vocabulary_id + 1
+        session.events_vocabulary.pop(self._vocabulary_id)
+        session.events_vocabulary[selected_vocabulary_id] = EventVocabularyEntry(
+            name=selected_name,
+            color=source.color,
+            is_visible=source.is_visible,
+        )
+        session.events_vocabulary[other_vocabulary_id] = EventVocabularyEntry(
+            name=other_name,
+            color=companion_vocabulary_color(source.color),
+            is_visible=source.is_visible,
+        )
+        for event in session.events:
+            if event.id in selected_ids:
+                event.event_name_id = selected_vocabulary_id
+            elif event.event_name_id == self._vocabulary_id:
+                event.event_name_id = other_vocabulary_id
+
+        self._created_ids = (selected_vocabulary_id, other_vocabulary_id)
+        self.selected_count = len(selected_ids)
+        self.other_count = len(group_ids) - len(selected_ids)
+
+
+class MergeEventVocabularyCommand(ModifyEventsCommand):
+    """Replace two or more event groups with one group."""
+    description = "merge event groups"
+    should_emit_events_changed = True
+    should_emit_vocabulary_changed = True
+
+    def __init__(self, vocabulary_ids: List[int], name: str):
+        super().__init__()
+        self._vocabulary_ids = list(vocabulary_ids)
+        self._name = name
+        self._created_id: Optional[int] = None
+
+    def get_created_id(self) -> Optional[int]:
+        return self._created_id
+
+    def _apply_change(self, session: UserSession) -> None:
+        vocabulary_ids = list(dict.fromkeys(self._vocabulary_ids))
+        if len(vocabulary_ids) < 2:
+            raise ValueError("Select at least two groups to merge")
+        if any(vocabulary_id not in session.events_vocabulary for vocabulary_id in vocabulary_ids):
+            raise ValueError("Event group does not exist")
+
+        name = self._name.strip()
+        if not name:
+            raise ValueError("Enter a name for the merged group")
+
+        removed = set(vocabulary_ids)
+        taken = {
+            entry.name
+            for vocabulary_id, entry in session.events_vocabulary.items()
+            if vocabulary_id not in removed
+        }
+        if name in taken:
+            raise ValueError(f"Name '{name}' is already used")
+
+        donor_id = min(vocabulary_ids)
+        donor = session.events_vocabulary[donor_id]
+        is_visible = any(session.events_vocabulary[vocabulary_id].is_visible for vocabulary_id in vocabulary_ids)
+        next_id = max(session.events_vocabulary) + 1
+
+        for vocabulary_id in vocabulary_ids:
+            session.events_vocabulary.pop(vocabulary_id, None)
+        session.events_vocabulary[next_id] = EventVocabularyEntry(
+            name=name,
+            color=donor.color,
+            is_visible=is_visible,
+        )
+        for event in session.events:
+            if event.event_name_id in removed:
+                event.event_name_id = next_id
+        self._created_id = next_id
