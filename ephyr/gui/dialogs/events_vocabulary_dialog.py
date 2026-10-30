@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
@@ -17,10 +17,13 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 
-from ephyr.core.ephyr_session import EventVocabularyEntry
+from ephyr.core.ephyr_session import Event, EventVocabularyEntry
 from ephyr.core.source_view import shown_events
 from ephyr.gui._utils import pick_saturated_color
+from ephyr.gui.dialogs.merge_vocabulary_dialog import MergeGroupOption, MergeVocabularyDialog
+from ephyr.gui.dialogs.split_annotations_dialog import SplitAnnotationsDialog
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
+from ephyr.gui.vocabulary_names import allocate_unique_vocabulary_name
 
 
 class EventsVocabularyDialog(QDialog):
@@ -29,13 +32,14 @@ class EventsVocabularyDialog(QDialog):
     def __init__(self, session_manager: QtEphyrSessionManagerWrapper, parent=None, *, allow_add: bool = True):
         super().__init__(parent)
         self.setWindowTitle("Events")
-        self.resize(580, 320)
+        self.resize(760, 360)
 
         self._session_manager = session_manager
         self._allow_add = allow_add
         self._selected_event_vocabulary_id: Optional[int] = None
         self._pending_selection_id: Optional[int] = None
         self._is_updating_table = False
+        self._group_counts: Dict[int, int] = {}
 
         self._build_ui()
         self._connect_signals()
@@ -56,19 +60,27 @@ class EventsVocabularyDialog(QDialog):
 
         buttons_layout = QHBoxLayout()
         self.btn_add = QPushButton("New event name")
+        self.btn_merge = QPushButton("Merge")
+        self.btn_merge.setToolTip("Merge event groups into one")
         self.btn_remove = QPushButton("Remove")
         self.btn_select = QPushButton("Add")
+        self.btn_split = QPushButton("Split")
+        self.btn_split.setToolTip("Split the selected group into two")
         buttons_layout.addWidget(self.btn_add)
+        buttons_layout.addWidget(self.btn_merge)
         buttons_layout.addWidget(self.btn_remove)
         buttons_layout.addWidget(self.btn_select)
+        buttons_layout.addWidget(self.btn_split)
         layout.addLayout(buttons_layout)
 
         self._update_buttons_state()
 
     def _connect_signals(self):
         self.btn_add.clicked.connect(self._on_add_clicked)
+        self.btn_merge.clicked.connect(self._on_merge_clicked)
         self.btn_remove.clicked.connect(self._on_remove_clicked)
         self.btn_select.clicked.connect(self._on_select_clicked)
+        self.btn_split.clicked.connect(self._on_split_clicked)
         self.table.itemSelectionChanged.connect(self._update_buttons_state)
         self.table.itemChanged.connect(self._on_item_changed)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
@@ -95,6 +107,7 @@ class EventsVocabularyDialog(QDialog):
         total_counts: Dict[int, int] = {}
         for ev in events:
             total_counts[ev.event_name_id] = total_counts.get(ev.event_name_id, 0) + 1
+        self._group_counts = total_counts
         current_segment_counts: Dict[int, int] = {}
         if gui_setup is not None and view is not None and view.number_of_segments > 0:
             for shown in shown_events(view, gui_setup.current_segment_idx, events):
@@ -227,10 +240,113 @@ class EventsVocabularyDialog(QDialog):
         return int(id_item.text())
 
     def _update_buttons_state(self):
-        has_selection = self._current_selected_event_vocabulary_id() is not None
+        selected_id = self._current_selected_event_vocabulary_id()
+        has_selection = selected_id is not None
         self.btn_remove.setEnabled(has_selection)
         self.btn_select.setEnabled(self._allow_add and has_selection)
+        self.btn_split.setEnabled(has_selection and self._group_counts.get(selected_id, 0) >= 2)
+        self.btn_merge.setEnabled(len(self._session_manager.events_vocabulary) >= 2)
+
+    def _on_split_clicked(self):
+        selected_id = self._current_selected_event_vocabulary_id()
+        if selected_id is None:
+            return
+        entry = self._session_manager.events_vocabulary.get(selected_id)
+        if entry is None:
+            return
+        events = sorted(
+            (event for event in self._session_manager.events if event.event_name_id == selected_id),
+            key=lambda event: (event.t_ms, event.id),
+        )
+        if len(events) < 2:
+            QMessageBox.information(self, "Split", "Select a group with at least two events.")
+            return
+
+        taken = {
+            other.name
+            for vocabulary_id, other in self._session_manager.events_vocabulary.items()
+            if vocabulary_id != selected_id
+        }
+        selected_name = allocate_unique_vocabulary_name(taken, f"{entry.name}1")
+        other_name = allocate_unique_vocabulary_name(taken, f"{entry.name}2")
+        columns, rows = _event_split_table(events)
+        dialog = SplitAnnotationsDialog(
+            title=f"Split events: {entry.name}",
+            intro=(
+                f'Rows are in time order. Checked rows become "{selected_name}". '
+                f'Unchecked rows become "{other_name}".'
+            ),
+            columns=columns,
+            rows=rows,
+            parent=self,
+        )
+        if not dialog.exec():
+            return
+        selected_event_ids = [events[index].id for index in dialog.selected_row_indexes()]
+        try:
+            created = self._session_manager.split_event_vocabulary(
+                selected_id, selected_event_ids, selected_name, other_name
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Split", str(exc))
+            return
+        if created is not None:
+            self._select_vocabulary_id(created[0])
+
+    def _on_merge_clicked(self):
+        vocabulary = self._session_manager.events_vocabulary
+        if len(vocabulary) < 2:
+            QMessageBox.information(self, "Merge", "At least two event groups are needed.")
+            return
+        groups = [
+            MergeGroupOption(
+                group_id=vocabulary_id,
+                name=entry.name,
+                color=entry.color,
+                count=self._group_counts.get(vocabulary_id, 0),
+            )
+            for vocabulary_id, entry in sorted(vocabulary.items())
+        ]
+        dialog = MergeVocabularyDialog(title="Merge events", groups=groups, parent=self)
+        if not dialog.exec():
+            return
+        vocabulary_ids, name = dialog.selection()
+        try:
+            created = self._session_manager.merge_event_vocabulary(vocabulary_ids, name)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Merge", str(exc))
+            return
+        if created is not None:
+            self._select_vocabulary_id(created)
+
+    def _select_vocabulary_id(self, vocabulary_id: int):
+        for row in range(self.table.rowCount()):
+            id_item = self.table.item(row, 1)
+            if id_item is not None and id_item.text() == str(vocabulary_id):
+                self.table.selectRow(row)
+                return
 
     def get_selected_event_vocabulary_id(self) -> Optional[int]:
         return self._selected_event_vocabulary_id
+
+
+def _event_split_table(events: List[Event]) -> tuple[List[str], List[List[str]]]:
+    extra_keys: List[str] = []
+    for event in events:
+        for key in event.extra:
+            if key not in extra_keys:
+                extra_keys.append(key)
+    columns = ["ID", "Time (ms)", "Source", "Channel", "Value", "Invalid", *extra_keys]
+    rows: List[List[str]] = []
+    for event in events:
+        rows.append([
+            str(event.id),
+            f"{event.t_ms:.3f}",
+            event.source_id or "",
+            "" if event.channel is None else str(event.channel),
+            event.value or "",
+            "yes" if event.is_bad else "",
+            *[str(event.extra.get(key, "")) for key in extra_keys],
+        ])
+    return columns, rows
 

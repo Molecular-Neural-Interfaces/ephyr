@@ -41,6 +41,8 @@ from ephyr.gui.commands.events import (
     SetEventVocabularyVisibilityCommand,
     RemoveEventVocabularyCommand,
     ImportVocabularyAndEventsCommand,
+    SplitEventVocabularyCommand,
+    MergeEventVocabularyCommand,
 )
 from ephyr.gui.commands.periods import (
     AddPeriodCommand,
@@ -51,6 +53,8 @@ from ephyr.gui.commands.periods import (
     SetPeriodVocabularyVisibilityCommand,
     RemovePeriodVocabularyCommand,
     ImportVocabularyAndPeriodsCommand,
+    SplitPeriodVocabularyCommand,
+    MergePeriodVocabularyCommand,
 )
 
 
@@ -811,6 +815,38 @@ class QtEphyrSessionManagerWrapper(QObject):
         cmd = RemoveEventVocabularyCommand(event_vocabulary_id)
         self._execute_new_command(cmd)
 
+    @user_session_modification
+    def split_event_vocabulary(
+        self,
+        event_vocabulary_id: int,
+        selected_event_ids: List[int],
+        selected_name: str,
+        other_name: str,
+    ) -> Optional[Tuple[int, int]]:
+        """Replace one event group with two groups (one undo step)."""
+        old_name = self._event_name(event_vocabulary_id)
+        cmd = SplitEventVocabularyCommand(event_vocabulary_id, selected_event_ids, selected_name, other_name)
+        self._execute_new_command(cmd)
+        created = cmd.get_created_ids()
+        if created is not None:
+            ephyr_logger().info(
+                f"Event group '{old_name}' split into '{selected_name}' x{cmd.selected_count} "
+                f"and '{other_name}' x{cmd.other_count}"
+            )
+        return created
+
+    @user_session_modification
+    def merge_event_vocabulary(self, vocabulary_ids: List[int], name: str) -> Optional[int]:
+        """Replace several event groups with one group (one undo step)."""
+        old_names = [self._event_name(vocabulary_id) for vocabulary_id in vocabulary_ids]
+        cmd = MergeEventVocabularyCommand(vocabulary_ids, name)
+        self._execute_new_command(cmd)
+        created = cmd.get_created_id()
+        if created is not None:
+            joined = ", ".join(f"'{old_name}'" for old_name in old_names)
+            ephyr_logger().info(f"Event groups {joined} merged into '{name.strip()}'")
+        return created
+
     # ---- Periods vocabulary helpers ----
     @user_session_modification
     def add_period_vocabulary(self, name: Optional[str] = None) -> int:
@@ -845,6 +881,38 @@ class QtEphyrSessionManagerWrapper(QObject):
         """Remove an period vocabulary entry (with undo support)."""
         cmd = RemovePeriodVocabularyCommand(period_vocabulary_id)
         self._execute_new_command(cmd)
+
+    @user_session_modification
+    def split_period_vocabulary(
+        self,
+        period_vocabulary_id: int,
+        selected_period_ids: List[int],
+        selected_name: str,
+        other_name: str,
+    ) -> Optional[Tuple[int, int]]:
+        """Replace one period group with two groups (one undo step)."""
+        old_name = self._period_name(period_vocabulary_id)
+        cmd = SplitPeriodVocabularyCommand(period_vocabulary_id, selected_period_ids, selected_name, other_name)
+        self._execute_new_command(cmd)
+        created = cmd.get_created_ids()
+        if created is not None:
+            ephyr_logger().info(
+                f"Period group '{old_name}' split into '{selected_name}' x{cmd.selected_count} "
+                f"and '{other_name}' x{cmd.other_count}"
+            )
+        return created
+
+    @user_session_modification
+    def merge_period_vocabulary(self, vocabulary_ids: List[int], name: str) -> Optional[int]:
+        """Replace several period groups with one group (one undo step)."""
+        old_names = [self._period_name(vocabulary_id) for vocabulary_id in vocabulary_ids]
+        cmd = MergePeriodVocabularyCommand(vocabulary_ids, name)
+        self._execute_new_command(cmd)
+        created = cmd.get_created_id()
+        if created is not None:
+            joined = ", ".join(f"'{old_name}'" for old_name in old_names)
+            ephyr_logger().info(f"Period groups {joined} merged into '{name.strip()}'")
+        return created
 
     # ---- Events helpers ----
     def _event_name(self, event_name_id: int) -> str:
