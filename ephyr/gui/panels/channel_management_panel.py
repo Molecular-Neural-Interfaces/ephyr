@@ -1491,16 +1491,12 @@ class ChannelManagementPanel(QWidget):
                 self._labeled_stretch_cell("Clip traces:", cut_traces),
             ])
 
-            if scale_spin is not None:
-                self._add_stretch_row(box_layout, [self._labeled_stretch_cell("Scale factor:", scale_spin)])
+            if scale_spin is not None and y_offset_spin is not None:
+                self._add_stretch_row(box_layout, [
+                    self._labeled_stretch_cell("Scale factor:", scale_spin),
+                    self._labeled_stretch_cell("Y offset:", y_offset_spin),
+                ])
 
-            aux_row_cells = []
-            if y_offset_spin is not None:
-                if self._is_expert:
-                    aux_row_cells.append(self._labeled_stretch_cell("Y offset:", y_offset_spin))
-                else:
-                    y_offset_spin.setParent(box)
-                    y_offset_spin.hide()
             if self._is_expert:
                 aux_checkbox = QCheckBox()
                 aux_checkbox.setChecked(group.is_auxiliary)
@@ -1509,9 +1505,7 @@ class ChannelManagementPanel(QWidget):
                         idx, Qt.CheckState(state) == Qt.CheckState.Checked, checkbox
                     )
                 )
-                aux_row_cells.append(self._labeled_stretch_cell("Auxiliary channels:", aux_checkbox))
-            if aux_row_cells:
-                self._add_stretch_row(box_layout, aux_row_cells)
+                self._add_stretch_row(box_layout, [self._labeled_stretch_cell("Auxiliary channels:", aux_checkbox)])
 
             channel_list = QListWidget()
             channel_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
