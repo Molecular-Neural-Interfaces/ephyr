@@ -2,14 +2,23 @@ import sys
 import os
 sys.path.append(os.path.join(os.getcwd()))
 from ephyr.version import __version__
+from PyInstaller.utils.hooks import collect_data_files
+
 
 block_cipher = None
+
+hdmf_datas = collect_data_files('hdmf')
+pynwb_datas = collect_data_files('pynwb')
 
 extra_dirs = [
     ('devtools/distribute/assets/ephyr.png', 'ephyr_assets/'),
 
     # include package_data for ephyr.gui = assets/*
     ('ephyr/gui/assets/*', 'ephyr/gui/assets'),
+
+    # add the collected data files from dependencies
+    *hdmf_datas,
+    *pynwb_datas,
 ]
 
 a = Analysis(
