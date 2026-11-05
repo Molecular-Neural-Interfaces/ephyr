@@ -34,7 +34,7 @@ class WorkspaceLevelEnum(str, Enum):
 
 _MODE_LABELS = {
     NavigationModeEnum.CONTINUOUS: "Continuous",
-    NavigationModeEnum.SEGMENT: "By segment",
+    NavigationModeEnum.SEGMENT: "Segments",
     # NavigationModeEnum.PERIOD_LABEL: "By period label",
 }
 
@@ -78,7 +78,7 @@ class RecordBrowserPanel(QWidget):
         grid.setHorizontalSpacing(4)
         self.level_combos = {}
         self.level_buttons = {}
-        for row, (level, label) in enumerate(((WorkspaceLevelEnum.CONFIG, "Config:"),
+        for row, (level, label) in enumerate(((WorkspaceLevelEnum.CONFIG, "Configuration:"),
                                               (WorkspaceLevelEnum.RECORD, "Record:"),
                                               (WorkspaceLevelEnum.SOURCE, "Source:"),
                                               )):
@@ -108,7 +108,7 @@ class RecordBrowserPanel(QWidget):
         layout.addWidget(self.source_info_label)
 
         mode_row = QHBoxLayout()
-        mode_row.addWidget(QLabel("Navigation:"))
+        mode_row.addWidget(QLabel("Mode:"))
         self.mode_combo = QComboBox()
         for mode, label in _MODE_LABELS.items():
             self.mode_combo.addItem(label, mode)

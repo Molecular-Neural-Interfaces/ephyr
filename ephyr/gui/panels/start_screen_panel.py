@@ -100,7 +100,7 @@ class StartScreenPanel(QWidget):
         empty_layout.addWidget(self.empty_label)
         buttons_row = QHBoxLayout()
         self.add_record_button = QPushButton("Add record")
-        self.add_config_button = QPushButton("Add config")
+        self.add_config_button = QPushButton("Add configuration")
         for button in (self.add_record_button, self.add_config_button):
             button.setMinimumHeight(40)
             button.setMinimumWidth(160)
@@ -135,13 +135,13 @@ class StartScreenPanel(QWidget):
             )
         elif state is StartScreenStateEnum.NO_RECORD_OPEN:
             self.empty_label.setText(
-                f"Workspace <b>{workspace_name}</b>, config <b>{config_name}</b>.<br>"
+                f"Workspace <b>{workspace_name}</b>, configuration <b>{config_name}</b>.<br>"
                 f"Select a record in Record browser, or add a new one."
             )
         elif state is StartScreenStateEnum.EMPTY_CONFIG:
             self.empty_label.setText(
-                f"Config <b>{config_name}</b> has no records.<br>Add a record with the same signal layout, "
-                f"or add another config."
+                f"configuration <b>{config_name}</b> has no records.<br>Add a record with the same signal layout, "
+                f"or add another configuration."
             )
 
     def set_recent_workspaces(self, recent: List[Path]):

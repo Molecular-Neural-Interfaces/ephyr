@@ -260,7 +260,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.menu_open_workspace.addAction(self.act_open_workspace_folder)
         self.menu_open_recent = file_menu.addMenu("Recent Workspaces")
         self.__update_recent_dirs()
-        self.act_add_config = QAction("Add Config…", self)
+        self.act_add_config = QAction("Add Configuration…", self)
         self.act_add_record = QAction("Add Record…", self)
         self.act_add_source = QAction("Add Source…", self)
         file_menu.addAction(self.act_add_config)

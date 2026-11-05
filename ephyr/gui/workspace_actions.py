@@ -77,7 +77,7 @@ class WorkspaceActions:
         QMessageBox.information(
             self._parent, "Already imported",
             f"This record is already in the workspace as Record "
-            f"'{record.name if record else duplicate.record_id}' of Config "
+            f"'{record.name if record else duplicate.record_id}' of Configuration "
             f"'{config.name if config else duplicate.config_id}'.",
         )
         return False
@@ -101,7 +101,7 @@ class WorkspaceActions:
     # ----- add -----
 
     def add_config(self, workspace: Workspace, path: Optional[Path] = None) -> Optional[RecordLocation]:
-        probe = self._probe(path, "Add Config")
+        probe = self._probe(path, "Add Configuration")
         if probe is None or not self._check_duplicate(workspace, probe):
             return None
         matches = matching_configs(workspace.configs(), probe.plan)

@@ -1487,7 +1487,7 @@ class ChannelManagementPanel(QWidget):
                 )
             )
             self._add_stretch_row(box_layout, [
-                self._labeled_stretch_cell("View:", shown),
+                self._labeled_stretch_cell("Visible:", shown),
                 self._labeled_stretch_cell("Clip traces:", cut_traces),
             ])
 
@@ -1604,7 +1604,7 @@ class ChannelManagementPanel(QWidget):
         scale_spin = self._make_scale_spin(scale_val)
         scale_spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         y_offset_spin = QDoubleSpinBox()
-        y_offset_spin.setRange(-1_000_000.0, 1_000_000.0)
+        y_offset_spin.setRange(settings.MIN_Y_OFFSET, settings.MAX_Y_OFFSET)
         y_offset_spin.setKeyboardTracking(False)
         y_offset_spin.setSingleStep(10.0)
         y_offset_spin.setValue(y_offset_val)

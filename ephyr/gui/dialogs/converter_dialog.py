@@ -132,7 +132,7 @@ class ImportDialog(QDialog):
         self._plan = plan
         self._option_boxes: Dict[str, QCheckBox] = {}
         self.setWindowTitle({
-            ImportModeEnum.ADD_CONFIG: "Add Config",
+            ImportModeEnum.ADD_CONFIG: "Add Configuration",
             ImportModeEnum.ADD_RECORD: "Add Record",
             ImportModeEnum.ADD_SOURCE: "Add Source",
         }[mode])
@@ -181,13 +181,13 @@ class ImportDialog(QDialog):
         self.main_source_combo: Optional[QComboBox] = None
         if self._mode is ImportModeEnum.ADD_CONFIG:
             self.config_name_edit = QLineEdit(config_name)
-            form.addRow("Config name:", self.config_name_edit)
+            form.addRow("Configuration name:", self.config_name_edit)
             if len(self._plan.sources) > 1:
                 self.main_source_combo = QComboBox()
                 for source_plan in self._plan.sources:
                     self.main_source_combo.addItem(source_plan.name or source_plan.source_id, source_plan.source_id)
                 form.addRow("Main source:", self.main_source_combo)
-                hint = QLabel("Records added later to this Config are checked against the main source.")
+                hint = QLabel("Records added later to this Configuration are checked against the main source.")
                 hint.setStyleSheet("color: gray; font-size: 9pt;")
                 hint.setWordWrap(True)
                 form.addRow("", hint)
@@ -204,7 +204,7 @@ class ImportDialog(QDialog):
 
         if warnings:
             text = "\n".join(f"• {mismatch_text(mismatch)}" for mismatch in warnings)
-            warning_label = QLabel(f"Differences from the Config (not blocking):\n{text}")
+            warning_label = QLabel(f"Differences from the Configuration (not blocking):\n{text}")
             warning_label.setStyleSheet("color: #a06000;")
             warning_label.setWordWrap(True)
             layout.addWidget(warning_label)
