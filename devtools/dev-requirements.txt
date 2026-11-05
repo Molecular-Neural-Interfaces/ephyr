@@ -8,6 +8,7 @@ py2app==0.28.4
 pyinstaller>=6.13.0
 black>=22.0.0  # For code formatting
 mypy>=0.950  # For type checking
+git-changelog-maestro==0.1.2
 
 # pyinstaller==; platform_system != "Windows"
 # pyinstaller>=5.7.0; platform_system == 'Windows'
