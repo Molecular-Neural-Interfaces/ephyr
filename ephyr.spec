@@ -1,16 +1,19 @@
 import sys
 import os
 sys.path.append(os.path.join(os.getcwd()))
-from src.version import __version__
+from ephyr.version import __version__
 
 block_cipher = None
 
 extra_dirs = [
     ('devtools/distribute/assets/ephyr.png', 'ephyr_assets/'),
+
+    # include package_data for ephyr.gui = assets/*
+    ('ephyr/gui/assets/*', 'ephyr/gui/assets'),
 ]
 
 a = Analysis(
-    ['src/entrypoint.py'],
+    ['ephyr/gui/entrypoint.py'],
     pathex=[],
     binaries=[],
     datas=extra_dirs,
