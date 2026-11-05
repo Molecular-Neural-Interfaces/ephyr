@@ -57,7 +57,7 @@ from ephyr.gui.panels.information_panel import InformationPanel
 from ephyr.gui.panels.analysis_panel import AnalysisPanel
 from ephyr.gui.panels.logs_panel import LogsPanel
 from ephyr.gui.panels.channel_management_panel import ChannelManagementPanel
-from ephyr.gui.panels.recording_navigation_panel import RecordingNavigationPanel, WorkspaceLevelEnum
+from ephyr.gui.panels.record_browser_panel import RecordBrowserPanel, WorkspaceLevelEnum
 from ephyr.gui.panels.time_settings_panel import TimeSettingsPanel
 from ephyr.gui.panels.signal_panel import SignalPanel
 from ephyr.gui.panels.start_screen_panel import StartScreenPanel, StartScreenStateEnum
@@ -117,7 +117,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.logs_panel = LogsPanel()
         self.info_panel = InformationPanel(self.session_manager)
         self.analysis_panel = AnalysisPanel(self.session_manager)
-        self.recording_navigation_panel = RecordingNavigationPanel(self.session_manager)
+        self.record_browser_panel = RecordBrowserPanel(self.session_manager)
         self.time_settings_panel = TimeSettingsPanel(self.session_manager)
         self.channel_management_panel = ChannelManagementPanel(self.session_manager)
 
@@ -321,18 +321,18 @@ class MainWindow(QMainWindow, QWidgetMixin):
             view_menu.addAction(action)
 
         self._add_labeled_menu_section(view_menu, "Session Panel")
-        self.view_recording_navigation_panel = QAction("Recording Navigation", self, checkable=True, checked=False)
+        self.view_record_browser_panel = QAction("Record Browser", self, checkable=True, checked=False)
         self.view_time_settings_panel = QAction("Timeline Settings", self, checkable=True, checked=False)
         self.view_channel_management_panel = QAction("Channel Management", self, checkable=True, checked=False)
-        self.view_info_panel = QAction("Recording Description", self, checkable=True, checked=False)
+        self.view_info_panel = QAction("Record Description", self, checkable=True, checked=False)
         self.view_logs_panel = QAction("Application Logs", self, checkable=True, checked=False)
         self.view_analysis_panel = QAction("Add-ons", self, checkable=True, checked=False)
         for action in (
-                self.view_recording_navigation_panel,
+                self.view_record_browser_panel,
+                self.view_info_panel,
                 self.view_time_settings_panel,
                 self.view_channel_management_panel,
                 self.view_analysis_panel,
-                self.view_info_panel,
                 self.view_logs_panel,
         ):
             view_menu.addAction(action)
@@ -388,11 +388,11 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.start_screen_panel.recent_workspace_requested.connect(self.on_open_recent_workspace)
         self.start_screen_panel.add_config_requested.connect(lambda: self.on_add_requested(WorkspaceLevelEnum.CONFIG))
         self.start_screen_panel.add_record_requested.connect(lambda: self.on_add_requested(WorkspaceLevelEnum.RECORD))
-        self.recording_navigation_panel.config_selected.connect(self.on_config_selected)
-        self.recording_navigation_panel.record_selected.connect(self.on_record_selected)
-        self.recording_navigation_panel.add_requested.connect(self.on_add_requested)
-        self.recording_navigation_panel.remove_requested.connect(self.on_remove_requested)
-        self.recording_navigation_panel.rename_requested.connect(self.on_rename_requested)
+        self.record_browser_panel.config_selected.connect(self.on_config_selected)
+        self.record_browser_panel.record_selected.connect(self.on_record_selected)
+        self.record_browser_panel.add_requested.connect(self.on_add_requested)
+        self.record_browser_panel.remove_requested.connect(self.on_remove_requested)
+        self.record_browser_panel.rename_requested.connect(self.on_rename_requested)
         self.signal_panel.interaction_modes_changed.connect(self._sync_toolbar_modes)
 
         # Menus
@@ -419,7 +419,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         self.view_channel_info.triggered.connect(self.on_view_channel_info)
         self.view_events.triggered.connect(self.on_view_events)
         self.view_periods.triggered.connect(self.on_view_periods)
-        self.view_recording_navigation_panel.triggered.connect(self.on_view_recording_navigation_panel)
+        self.view_record_browser_panel.triggered.connect(self.on_view_record_browser_panel)
         self.view_time_settings_panel.triggered.connect(self.on_view_time_settings_panel)
         self.view_channel_management_panel.triggered.connect(self.on_view_channel_management_panel)
         self.view_info_panel.triggered.connect(self.on_view_info_panel)
@@ -640,8 +640,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
         desired_widgets = list(gui_setup.right_panel_widgets) if gui_setup else []
         for current_widget in copy(self.right_panel_widgets):
             self.remove_widget_from_right_panel(current_widget, update_session=False)
-        if self._workspace is not None and RightPanelWidgetEnum.RECORDING_NAVIGATION not in desired_widgets:
-            desired_widgets.insert(0, RightPanelWidgetEnum.RECORDING_NAVIGATION)
+        if self._workspace is not None and RightPanelWidgetEnum.RECORD_BROWSER not in desired_widgets:
+            desired_widgets.insert(0, RightPanelWidgetEnum.RECORD_BROWSER)
         for widget_type in desired_widgets:
             self.add_widget_to_right_panel(widget_type, update_session=False)
 
@@ -847,7 +847,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
     def __show_workspace_state(self):
         """Refresh navigation and, without an open session, the empty-workspace page."""
         workspace = self._workspace
-        self.recording_navigation_panel.set_workspace(workspace, self._config_id, self.session_manager.record_id)
+        self.record_browser_panel.set_workspace(workspace, self._config_id, self.session_manager.record_id)
         if workspace is not None:
             config = workspace.config(self._config_id) if self._config_id else None
             if not workspace.configs():
@@ -857,8 +857,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
             else:
                 state = StartScreenStateEnum.NO_RECORD_OPEN
             self.start_screen_panel.set_state(state, workspace.name, config.name if config else "")
-            if RightPanelWidgetEnum.RECORDING_NAVIGATION not in self.right_panel_widgets:
-                self.add_widget_to_right_panel(RightPanelWidgetEnum.RECORDING_NAVIGATION,
+            if RightPanelWidgetEnum.RECORD_BROWSER not in self.right_panel_widgets:
+                self.add_widget_to_right_panel(RightPanelWidgetEnum.RECORD_BROWSER,
                                                update_session=self.session_manager.session_is_active)
         else:
             self.start_screen_panel.set_state(StartScreenStateEnum.NO_WORKSPACE)
@@ -1017,7 +1017,7 @@ class MainWindow(QMainWindow, QWidgetMixin):
         elif self._workspace is not None:
             self.on_add_requested(WorkspaceLevelEnum.CONFIG, path)
         else:
-            self.__set_status("Drop a workspace folder or workspace.ephyr; recordings are added to an open workspace")
+            self.__set_status("Drop a workspace folder or workspace.ephyr; records are added to an open workspace")
 
     # ---------- Sessions ----------
     def on_open_another_session(self, session_name: str):
@@ -1235,11 +1235,11 @@ class MainWindow(QMainWindow, QWidgetMixin):
         if self.session_manager.session_is_active:
             self.session_manager.set_periods_shown(checked)
 
-    def on_view_recording_navigation_panel(self, checked: bool, *args, **kwargs):
+    def on_view_record_browser_panel(self, checked: bool, *args, **kwargs):
         if checked:
-            self.add_widget_to_right_panel(RightPanelWidgetEnum.RECORDING_NAVIGATION)
+            self.add_widget_to_right_panel(RightPanelWidgetEnum.RECORD_BROWSER)
         else:
-            self.remove_widget_from_right_panel(RightPanelWidgetEnum.RECORDING_NAVIGATION)
+            self.remove_widget_from_right_panel(RightPanelWidgetEnum.RECORD_BROWSER)
 
     def on_view_time_settings_panel(self, checked: bool, *args, **kwargs):
         if checked:
@@ -1528,8 +1528,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
         menu.addAction(title_action)
 
     def __get_panel_by_type(self, widget_type: RightPanelWidgetEnum):
-        if widget_type == RightPanelWidgetEnum.RECORDING_NAVIGATION:
-            return self.recording_navigation_panel
+        if widget_type == RightPanelWidgetEnum.RECORD_BROWSER:
+            return self.record_browser_panel
         elif widget_type == RightPanelWidgetEnum.TIME_SETTINGS:
             return self.time_settings_panel
         elif widget_type == RightPanelWidgetEnum.CHANNEL_MANAGEMENT:
@@ -1544,8 +1544,8 @@ class MainWindow(QMainWindow, QWidgetMixin):
             raise ValueError("Unknown widget_type")
 
     def __set_panel_checked_by_type(self, widget_type: RightPanelWidgetEnum, checked: bool):
-        if widget_type == RightPanelWidgetEnum.RECORDING_NAVIGATION:
-            self.view_recording_navigation_panel.setChecked(checked)
+        if widget_type == RightPanelWidgetEnum.RECORD_BROWSER:
+            self.view_record_browser_panel.setChecked(checked)
         elif widget_type == RightPanelWidgetEnum.TIME_SETTINGS:
             self.view_time_settings_panel.setChecked(checked)
         elif widget_type == RightPanelWidgetEnum.CHANNEL_MANAGEMENT:

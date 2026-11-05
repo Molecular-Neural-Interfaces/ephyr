@@ -39,7 +39,7 @@ _MODE_LABELS = {
 }
 
 
-class RecordingNavigationPanel(QWidget):
+class RecordBrowserPanel(QWidget):
     """Config / Record / Source of the workspace and the way the active source is split into segments."""
 
     config_selected = pyqtSignal(str)
@@ -64,7 +64,7 @@ class RecordingNavigationPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(8)
 
-        title = QLabel("Recording navigation")
+        title = QLabel("Record browser")
         title.setStyleSheet("font-weight: bold;")
         layout.addWidget(title)
 

@@ -41,7 +41,7 @@ def default_local_add_ons_dir() -> Path:
 class GlobalStorage(BaseModel):
     recent_workspaces: List[Path] = Field(default_factory=list)
     workspace_positions: Dict[str, WorkspacePosition] = Field(default_factory=dict)
-    # Last known location of the recording each Record was converted from, on this machine only.
+    # Last known location of the record each Record was converted from, on this machine only.
     record_source_paths: Dict[str, Path] = Field(default_factory=dict)
     gui_mode: GuiMode = GuiMode.BEGINNER
     # Absolute folder of local (development) add-ons. Unset uses ./add_on_development in the working directory.

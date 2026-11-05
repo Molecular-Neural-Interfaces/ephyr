@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Dialogs of adding recordings to a workspace as Configs, Records and Sources."""
+"""Dialogs of adding records to a workspace as Configs, Records and Sources."""
 
 from __future__ import annotations
 
@@ -37,8 +37,8 @@ from ephyr.converter.source_reader.abstract_source_reader import AbstractSourceR
 from ephyr.core.validation import Mismatch
 from ephyr.gui._utils import milliseconds_to_readable, sample_rate_to_readable
 
-RECORDING_FILE_FILTER = (
-    "Supported recordings "
+RECORD_FILE_FILTER = (
+    "Supported records "
     "(*.lfp *.abf *.daq *.edf *.xdat *.xdat.json *.ncs *.nev *.nwb *.rhs *.rhd "
     "*.mcd *.raw *.mcsraw *.h5 *.hdf5 *.cmcr *.cmtr *.continuous *.dat *.oebin settings.xml);;"
     "WEEGIT files (*.lfp);;"
@@ -50,15 +50,15 @@ RECORDING_FILE_FILTER = (
 )
 
 
-class RecordingPathDialog(QDialog):
-    """A recording file or folder; folders get their own button because file dialogs cannot pick them."""
+class RecordPathDialog(QDialog):
+    """A record file or folder; folders get their own button because file dialogs cannot pick them."""
 
     def __init__(self, title: str, parent=None, initial: Optional[Path] = None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.resize(620, 140)
         layout = QVBoxLayout(self)
-        hint = QLabel("Select a recording file, or a folder for multi-file formats "
+        hint = QLabel("Select a record file, or a folder for multi-file formats "
                       "(Neuralynx, Intan, Open Ephys).")
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -80,13 +80,13 @@ class RecordingPathDialog(QDialog):
         layout.addWidget(buttons)
 
     def _choose_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select recording file", self.path_edit.text(),
-                                              RECORDING_FILE_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, "Select record file", self.path_edit.text(),
+                                              RECORD_FILE_FILTER)
         if path:
             self.path_edit.setText(path)
 
     def _choose_folder(self):
-        path = QFileDialog.getExistingDirectory(self, "Select recording folder", self.path_edit.text(),
+        path = QFileDialog.getExistingDirectory(self, "Select record folder", self.path_edit.text(),
                                                 QFileDialog.Option.ShowDirsOnly)
         if path:
             self.path_edit.setText(path)
@@ -106,7 +106,7 @@ class RecordingPathDialog(QDialog):
 
     @staticmethod
     def get_path(title: str, parent=None, initial: Optional[Path] = None) -> Optional[Path]:
-        dialog = RecordingPathDialog(title, parent, initial)
+        dialog = RecordPathDialog(title, parent, initial)
         return dialog.path if dialog.exec() else None
 
 
@@ -121,7 +121,7 @@ def _source_duration_ms(source_plan) -> float:
 
 
 class ImportDialog(QDialog):
-    """Names, main source and reader options of a recording that is about to be converted."""
+    """Names, main source and reader options of a record that is about to be converted."""
 
     def __init__(self, mode: ImportModeEnum, reader: AbstractSourceReader, plan: ConversionPlan,
                  parent=None, config_name: str = "", record_name: str = "",
@@ -169,7 +169,7 @@ class ImportDialog(QDialog):
         layout.addWidget(self.sources_table, 1)
 
         if self._plan.events or self._plan.periods:
-            annotations = QLabel(f"Annotations in the recording: {len(self._plan.events)} events, "
+            annotations = QLabel(f"Annotations in the record: {len(self._plan.events)} events, "
                                  f"{len(self._plan.periods)} periods. They become the starting "
                                  f"annotations of every new session.")
             annotations.setWordWrap(True)
@@ -192,7 +192,7 @@ class ImportDialog(QDialog):
                 hint.setWordWrap(True)
                 form.addRow("", hint)
         if self._mode in (ImportModeEnum.ADD_CONFIG, ImportModeEnum.ADD_RECORD):
-            self.record_name_edit = QLineEdit(record_name or self._plan.recording_name or self._plan.ref.name)
+            self.record_name_edit = QLineEdit(record_name or self._plan.record_name or self._plan.ref.name)
             form.addRow("Record name:", self.record_name_edit)
         layout.addLayout(form)
 
@@ -251,7 +251,7 @@ class ImportDialog(QDialog):
 
 def mismatch_text(mismatch: Mismatch) -> str:
     where = f" (channel {mismatch.channel + 1})" if mismatch.channel is not None else ""
-    return f"{mismatch.field}{where}: {mismatch.expected or '—'} in Config, {mismatch.actual or '—'} in recording"
+    return f"{mismatch.field}{where}: {mismatch.expected or '—'} in Config, {mismatch.actual or '—'} in record"
 
 
 class MismatchChoiceEnum(Enum):
@@ -261,28 +261,28 @@ class MismatchChoiceEnum(Enum):
 
 
 class MismatchDialog(QDialog):
-    """Differences between the main source of a Config and the recording being added to it."""
+    """Differences between the main source of a Config and the record being added to it."""
 
     def __init__(self, config_name: str, mismatches: Sequence[Mismatch], parent=None):
         super().__init__(parent)
         self.choice = MismatchChoiceEnum.CANCEL
         blocking = any(mismatch.is_blocking for mismatch in mismatches)
-        self.setWindowTitle("Recording does not match the Config" if blocking else "Differences from the Config")
+        self.setWindowTitle("Record does not match the Config" if blocking else "Differences from the Config")
         self.resize(720, 400)
         layout = QVBoxLayout(self)
         if blocking:
-            text = (f"The recording cannot be added to Config <b>{config_name}</b>: its main source differs "
+            text = (f"The record cannot be added to Config <b>{config_name}</b>: its main source differs "
                     f"in the fields marked as blocking. Channel groups and settings of the Config refer to "
                     f"channels by position, so a different sample rate, channel set or channel order "
                     f"needs its own Config.")
         else:
-            text = f"The recording differs from Config <b>{config_name}</b> only in descriptive fields."
+            text = f"The record differs from Config <b>{config_name}</b> only in descriptive fields."
         info = QLabel(text)
         info.setWordWrap(True)
         layout.addWidget(info)
 
         table = QTableWidget(len(mismatches), 5)
-        table.setHorizontalHeaderLabels(["Field", "Channel", "In Config", "In recording", "Level"])
+        table.setHorizontalHeaderLabels(["Field", "Channel", "In Config", "In record", "Level"])
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -305,7 +305,7 @@ class MismatchDialog(QDialog):
         buttons.addStretch(1)
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
-        new_config = QPushButton("Create new Config from this recording")
+        new_config = QPushButton("Create new Config from this record")
         new_config.clicked.connect(lambda: self._finish(MismatchChoiceEnum.NEW_CONFIG))
         buttons.addWidget(cancel)
         buttons.addWidget(new_config)
@@ -334,14 +334,14 @@ class MatchingConfigChoiceEnum(Enum):
 
 
 def ask_matching_config(parent, config_names: Sequence[str]) -> Tuple[MatchingConfigChoiceEnum, int]:
-    """The recording fits existing Configs: add it as a Record to one of them or create a new Config."""
+    """The record fits existing Configs: add it as a Record to one of them or create a new Config."""
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Question)
     box.setWindowTitle("Matching Config found")
     names = ", ".join(f"'{name}'" for name in config_names)
-    box.setText(f"The recording has the same signal layout as Config {names}.")
+    box.setText(f"The record has the same signal layout as Config {names}.")
     box.setInformativeText("Records of one Config share channel groups and settings. "
-                           "Add the recording as a new Record there, or create a separate Config?")
+                           "Add the record as a new Record there, or create a separate Config?")
     add_button = box.addButton(f"Add as Record to '{config_names[0]}'", QMessageBox.ButtonRole.AcceptRole)
     new_button = box.addButton("Create new Config", QMessageBox.ButtonRole.ActionRole)
     box.addButton(QMessageBox.StandardButton.Cancel)
@@ -360,7 +360,7 @@ def confirm_remove(parent, title: str, what: str, details: Sequence[str]) -> boo
     box.setIcon(QMessageBox.Icon.Warning)
     box.setWindowTitle(title)
     box.setText(f"Remove {what}?")
-    lines = list(details) + ["The original recording files are not touched.", "This cannot be undone."]
+    lines = list(details) + ["The original record files are not touched.", "This cannot be undone."]
     box.setInformativeText("\n".join(lines))
     remove_button = box.addButton("Remove", QMessageBox.ButtonRole.DestructiveRole)
     box.addButton(QMessageBox.StandardButton.Cancel)

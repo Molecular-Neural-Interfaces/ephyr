@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Comparison of a new recording against the source signatures of Configs."""
+"""Comparison of a new record against the source signatures of Configs."""
 
 from __future__ import annotations
 
@@ -122,7 +122,7 @@ def has_blocking(mismatches: Sequence[Mismatch]) -> bool:
 
 @dataclass
 class ConfigMatch:
-    """Best candidate main source of a new recording for one Config."""
+    """Best candidate main source of a new record for one Config."""
     config: ConfigManifest
     source_id: Optional[str]
     mismatches: List[Mismatch]
@@ -148,7 +148,7 @@ def match_config(config: ConfigManifest, plan) -> ConfigMatch:
 
 
 def matching_configs(configs: Sequence[ConfigManifest], plan) -> List[ConfigMatch]:
-    """Configs whose main source the recording satisfies without blocking mismatches."""
+    """Configs whose main source the record satisfies without blocking mismatches."""
     return [match for match in (match_config(config, plan) for config in configs) if match.is_compatible]
 
 

@@ -160,6 +160,6 @@ class EdfSourceReader(AbstractSourceReader):
             events=events,
             periods=periods,
             start_datetime=start_dt.isoformat(),
-            recording_name=path.stem,
+            record_name=path.stem,
             reader_options=dict(self._options),
         )

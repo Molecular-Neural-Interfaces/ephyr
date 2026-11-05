@@ -330,6 +330,6 @@ class NcsSourceReader(AbstractSourceReader):
             sources=[source],
             events=_parse_nev_events(_nev_path(folder), int(timestamps[0])),
             start_datetime=_parse_creation_datetime(first.header, first.path).isoformat(),
-            recording_name=folder.name,
+            record_name=folder.name,
             reader_options=dict(self._options),
         )

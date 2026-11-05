@@ -423,6 +423,6 @@ class DaqSourceReader(AbstractSourceReader):
             ref=self.ref,
             sources=[source],
             start_datetime=metadata.creation_datetime.isoformat(),
-            recording_name=path.stem,
+            record_name=path.stem,
             reader_options=dict(self._options),
         )

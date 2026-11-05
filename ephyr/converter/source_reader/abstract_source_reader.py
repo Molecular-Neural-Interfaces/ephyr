@@ -142,7 +142,7 @@ class ConversionPlan:
     events: List[EventPlan] = field(default_factory=list)
     periods: List[PeriodPlan] = field(default_factory=list)
     start_datetime: str = ""
-    recording_name: str = ""
+    record_name: str = ""
     reader_options: Dict[str, Any] = field(default_factory=dict)
 
     def source(self, source_id: str) -> Optional[SourcePlan]:

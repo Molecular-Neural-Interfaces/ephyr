@@ -187,7 +187,7 @@ class AnalysisPanel(QWidget):
         )
         row_layout.addWidget(transform_cb)
 
-        run_btn = QPushButton("Run")
+        run_btn = QPushButton("Launch")
         run_supported = bool(add_on and getattr(add_on, "RUNNABLE", False))
         run_btn.setEnabled(run_supported)
         run_btn.clicked.connect(lambda checked=False, m=module_name: self._run_add_on(m))

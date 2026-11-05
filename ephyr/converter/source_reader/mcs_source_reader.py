@@ -831,7 +831,7 @@ class MCSSourceReader(AbstractSourceReader):
             ref=self.ref,
             sources=sources,
             start_datetime=created.isoformat(),
-            recording_name=path.stem,
+            record_name=path.stem,
             reader_options=dict(self._options),
         )
 

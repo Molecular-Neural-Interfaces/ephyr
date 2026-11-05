@@ -128,6 +128,6 @@ class WeegitSourceReader(AbstractSourceReader):
             ref=self.ref,
             sources=[source],
             start_datetime=start,
-            recording_name=str(header.get("name") or lfp_path.stem),
+            record_name=str(header.get("name") or lfp_path.stem),
             reader_options=dict(self._options),
         )

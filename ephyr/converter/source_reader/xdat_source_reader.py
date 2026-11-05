@@ -340,6 +340,6 @@ class XdatSourceReader(AbstractSourceReader):
             ref=self.ref,
             sources=[source],
             start_datetime=metadata.start_datetime.isoformat(),
-            recording_name=self.ref.name,
+            record_name=self.ref.name,
             reader_options=dict(self._options),
         )

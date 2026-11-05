@@ -31,7 +31,7 @@ def now_iso() -> str:
 
 class SegmentKindEnum(str, Enum):
     SWEEP = "sweep"
-    RECORDING = "recording"
+    RECORD = "record"
     FILE = "file"
     SEGMENT = "segment"
     CONTINUOUS = "continuous"
@@ -40,7 +40,7 @@ class SegmentKindEnum(str, Enum):
     def label(self) -> str:
         return {
             SegmentKindEnum.SWEEP: "Sweep",
-            SegmentKindEnum.RECORDING: "Recording",
+            SegmentKindEnum.RECORD: "Record",
             SegmentKindEnum.FILE: "File",
             SegmentKindEnum.SEGMENT: "Segment",
             SegmentKindEnum.CONTINUOUS: "Segment",

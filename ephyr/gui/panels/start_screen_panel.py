@@ -74,7 +74,7 @@ class StartScreenPanel(QWidget):
         actions.setOpenExternalLinks(False)
         actions.linkActivated.connect(self._on_link)
         box_layout.addWidget(actions)
-        # hint = QLabel("A workspace keeps converted recordings, sessions and add-on data. "
+        # hint = QLabel("A workspace keeps converted records, sessions and add-on data. "
         #               "You can also drop a workspace folder or workspace.ephyr here.")
         # hint.setStyleSheet("color: gray;")
         # hint.setWordWrap(True)
@@ -107,7 +107,7 @@ class StartScreenPanel(QWidget):
             buttons_row.addWidget(button)
         buttons_row.addStretch(1)
         empty_layout.addLayout(buttons_row)
-        drop_hint = QLabel("Or drop a recording file or folder here.")
+        drop_hint = QLabel("Or drop a record file or folder here.")
         drop_hint.setStyleSheet("color: gray;")
         empty_layout.addWidget(drop_hint)
         self.add_config_button.clicked.connect(self.add_config_requested)
@@ -130,17 +130,17 @@ class StartScreenPanel(QWidget):
                                                     StartScreenStateEnum.NO_RECORD_OPEN))
         if state is StartScreenStateEnum.EMPTY_WORKSPACE:
             self.empty_label.setText(
-                f"<b>{workspace_name}</b> is empty.<br>Add a config: the first recording defines "
+                f"<b>{workspace_name}</b> is empty.<br>Add a config: the first record defines "
                 f"the signal layout (sample rate, channels, units) that later records are checked against."
             )
         elif state is StartScreenStateEnum.NO_RECORD_OPEN:
             self.empty_label.setText(
                 f"Workspace <b>{workspace_name}</b>, config <b>{config_name}</b>.<br>"
-                f"Select a record in Recording navigation, or add a new one."
+                f"Select a record in Record browser, or add a new one."
             )
         elif state is StartScreenStateEnum.EMPTY_CONFIG:
             self.empty_label.setText(
-                f"Config <b>{config_name}</b> has no records.<br>Add a recording with the same signal layout, "
+                f"Config <b>{config_name}</b> has no records.<br>Add a record with the same signal layout, "
                 f"or add another config."
             )
 

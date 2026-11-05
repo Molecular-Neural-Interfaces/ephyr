@@ -43,7 +43,7 @@ from ephyr.core.workspace import Workspace
 
 
 class RightPanelWidgetEnum(Enum):
-    RECORDING_NAVIGATION = "recording_navigation"
+    RECORD_BROWSER = "recording_navigation"
     TIME_SETTINGS = "time_settings"
     CHANNEL_MANAGEMENT = "channel_management"
     INFORMATION = "information"
@@ -55,9 +55,9 @@ class RightPanelWidgetEnum(Enum):
     @staticmethod
     def widgets_order():
         return [
-            RightPanelWidgetEnum.RECORDING_NAVIGATION,
-            RightPanelWidgetEnum.TIME_SETTINGS,
+            RightPanelWidgetEnum.RECORD_BROWSER,
             RightPanelWidgetEnum.INFORMATION,
+            RightPanelWidgetEnum.TIME_SETTINGS,
             RightPanelWidgetEnum.CHANNEL_MANAGEMENT,
             RightPanelWidgetEnum.ANALYSIS,
             RightPanelWidgetEnum.LOGS,
@@ -66,7 +66,7 @@ class RightPanelWidgetEnum(Enum):
     @staticmethod
     def default_widgets():
         return [
-            RightPanelWidgetEnum.RECORDING_NAVIGATION,
+            RightPanelWidgetEnum.RECORD_BROWSER,
             RightPanelWidgetEnum.TIME_SETTINGS,
             RightPanelWidgetEnum.INFORMATION,
             RightPanelWidgetEnum.CHANNEL_MANAGEMENT,

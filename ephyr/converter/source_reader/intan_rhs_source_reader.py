@@ -88,7 +88,7 @@ class _IntanSourceReader(AbstractSourceReader):
             ref=self.ref,
             sources=[source],
             start_datetime=start_dt.isoformat(),
-            recording_name=self.ref.name,
+            record_name=self.ref.name,
             reader_options={GROUP_FILES_OPTION: self._group_files},
         )
 

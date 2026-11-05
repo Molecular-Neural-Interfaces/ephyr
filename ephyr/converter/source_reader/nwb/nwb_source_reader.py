@@ -490,7 +490,7 @@ class NwbSourceReader(AbstractSourceReader):
             sources=sources,
             periods=periods,
             start_datetime=start_dt.isoformat(),
-            recording_name=path.stem,
+            record_name=path.stem,
             reader_options=dict(self._options),
         )
 

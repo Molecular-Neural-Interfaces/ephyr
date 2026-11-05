@@ -1200,7 +1200,7 @@ class QtEphyrSessionManagerWrapper(QObject):
 
     @property
     def original_source_path(self) -> Optional[Path]:
-        """Last known location of the Record's original recording on this machine (not stored in the workspace)."""
+        """Last known location of the Record's original record on this machine (not stored in the workspace)."""
         return self._original_source_path
 
     @property

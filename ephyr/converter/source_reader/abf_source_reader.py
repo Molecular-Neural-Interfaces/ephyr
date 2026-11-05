@@ -211,7 +211,7 @@ class AbfSourceReader(AbstractSourceReader):
             ref=self.ref,
             sources=[source],
             start_datetime=_abf_datetime(abf, path).isoformat(),
-            recording_name=path.stem,
+            record_name=path.stem,
             reader_options=dict(self._options),
         )
 

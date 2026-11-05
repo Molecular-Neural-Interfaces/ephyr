@@ -25,7 +25,7 @@ from ephyr.gui.dialogs.converter_dialog import (
     MatchingConfigChoiceEnum,
     MismatchChoiceEnum,
     MismatchDialog,
-    RecordingPathDialog,
+    RecordPathDialog,
     ask_matching_config,
     ask_new_name,
     confirm_remove,
@@ -35,7 +35,7 @@ from ephyr.logger import ephyr_logger
 
 
 class _Probe:
-    """A resolved recording with its metadata plan and content fingerprint."""
+    """A resolved record with its metadata plan and content fingerprint."""
 
     def __init__(self, path: Path):
         self.reader: AbstractSourceReader = SourceReaderFactory.get_reader(path)
@@ -58,14 +58,14 @@ class WorkspaceActions:
     # ----- helpers -----
 
     def _probe(self, path: Optional[Path], title: str) -> Optional[_Probe]:
-        path = path or RecordingPathDialog.get_path(title, self._parent)
+        path = path or RecordPathDialog.get_path(title, self._parent)
         if path is None:
             return None
         try:
             return _Probe(path)
         except Exception as exc:
             ephyr_logger().error(f"Cannot read {path}", exc_info=exc)
-            QMessageBox.warning(self._parent, "Unsupported recording", f"Cannot read {path}:\n\n{exc}")
+            QMessageBox.warning(self._parent, "Unsupported record", f"Cannot read {path}:\n\n{exc}")
             return None
 
     def _check_duplicate(self, workspace: Workspace, probe: _Probe) -> bool:
@@ -76,7 +76,7 @@ class WorkspaceActions:
         record = workspace.record(duplicate.config_id, duplicate.record_id)
         QMessageBox.information(
             self._parent, "Already imported",
-            f"This recording is already in the workspace as Record "
+            f"This record is already in the workspace as Record "
             f"'{record.name if record else duplicate.record_id}' of Config "
             f"'{config.name if config else duplicate.config_id}'.",
         )
@@ -90,7 +90,7 @@ class WorkspaceActions:
             return None
         except Exception as exc:
             ephyr_logger().error("Conversion failed", exc_info=exc)
-            QMessageBox.critical(self._parent, "Conversion failed", f"Could not convert the recording:\n\n{exc}")
+            QMessageBox.critical(self._parent, "Conversion failed", f"Could not convert the record:\n\n{exc}")
             return None
 
     def _remember_source_path(self, workspace: Workspace, location: RecordLocation, plan: ConversionPlan):
@@ -114,14 +114,14 @@ class WorkspaceActions:
         return self._add_config_with_probe(workspace, probe)
 
     def _add_config_with_probe(self, workspace: Workspace, probe: _Probe) -> Optional[RecordLocation]:
-        default_name = probe.plan.recording_name or probe.plan.ref.name
+        default_name = probe.plan.record_name or probe.plan.ref.name
         dialog = ImportDialog(ImportModeEnum.ADD_CONFIG, probe.reader, probe.plan, self._parent,
                               config_name=default_name, record_name=default_name)
         if not dialog.exec():
             return None
         plan = probe.scanned_plan(dialog.conversion_options())
         location = self._convert(
-            "Converting recording into the workspace…",
+            "Converting record into the workspace…",
             workspace.add_config(plan, dialog.config_name() or default_name, dialog.record_name(),
                                  dialog.main_source_id(), probe.fingerprint),
         )

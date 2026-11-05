@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Life Improvement by Future Technologies (LIFT)
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Content fingerprint of a recording that does not depend on where it lies on disk."""
+"""Content fingerprint of a record that does not depend on where it lies on disk."""
 
 from __future__ import annotations
 

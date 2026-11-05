@@ -292,7 +292,7 @@ class OpenEphysSourceReader(AbstractSourceReader):
                     sample_rate=group.sample_rate,
                     channels=group.channel_plans,
                     segments=segments,
-                    segment_kind=SegmentKindEnum.RECORDING if len(segments) > 1 else SegmentKindEnum.CONTINUOUS,
+                    segment_kind=SegmentKindEnum.RECORD if len(segments) > 1 else SegmentKindEnum.CONTINUOUS,
                     source_format=self.format_name,
                     writer_factory=lambda group=group: OpenEphysDataWriter(
                         group.layouts, group.points, len(group.channel_plans)
@@ -312,6 +312,6 @@ class OpenEphysSourceReader(AbstractSourceReader):
             events=events,
             periods=periods,
             start_datetime=start_datetime,
-            recording_name=root.name,
+            record_name=root.name,
             reader_options=dict(self._options),
         )

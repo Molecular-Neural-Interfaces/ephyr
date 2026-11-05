@@ -45,7 +45,7 @@ class WorkspaceError(Exception):
 
 class DuplicateRecordError(WorkspaceError):
     def __init__(self, config_id: str, record_id: str, config_name: str, record_name: str):
-        super().__init__(f"This recording is already in the workspace: Config '{config_name}', Record '{record_name}'")
+        super().__init__(f"This record is already in the workspace: Config '{config_name}', Record '{record_name}'")
         self.config_id = config_id
         self.record_id = record_id
 
@@ -371,7 +371,7 @@ class Workspace:
         self.ensure_not_duplicate(fingerprint)
         match = match_config(config, plan)
         if not match.is_compatible:
-            raise WorkspaceError("The recording does not match the main source of this Config")
+            raise WorkspaceError("The record does not match the main source of this Config")
         mapping = self._map_sources(config, plan, match.source_id)
         record_id = yield from self._convert_record(config, plan, record_name, mapping, fingerprint)
         return RecordLocation(config_id, record_id)
@@ -384,7 +384,7 @@ class Workspace:
         source_ids: Sequence[str],
         fingerprint: Optional[Fingerprint] = None,
     ) -> Generator[float, None, List[str]]:
-        """Import sources of another recording into an existing Record as additional sources."""
+        """Import sources of another record into an existing Record as additional sources."""
         config = self._require_config(config_id)
         record = self._require_record(config_id, record_id)
         fingerprint = fingerprint or self.fingerprint(plan)
@@ -516,7 +516,7 @@ class Workspace:
     ) -> Generator[float, None, str]:
         records_folder = layout.records_dir(self.root, config.config_id)
         records_folder.mkdir(parents=True, exist_ok=True)
-        record_name = record_name.strip() or plan.recording_name or plan.ref.name
+        record_name = record_name.strip() or plan.record_name or plan.ref.name
         record_id = unique_id(record_name, self._existing_ids(records_folder, config.records), "record")
         partial = records_folder / f"{record_id}{settings.PARTIAL_RECORD_SUFFIX}"
         final = records_folder / record_id
