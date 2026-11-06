@@ -11,6 +11,11 @@ from typing import Callable, Dict, Optional
 from ephyr.logger import ephyr_logger
 
 from ephyr.core.add_ons.base import BaseAddOn
+from ephyr.core.add_ons.runtime import (
+    ensure_standalone_site_on_path,
+    is_frozen_runtime,
+    standalone_site_dir,
+)
 
 # Folder captured on the first load of this process. A later change in global
 # storage is picked up only after restart, because imported modules stay in sys.modules.
@@ -98,6 +103,8 @@ def _load_quietly(label: str, load: Callable[[], Optional[int]]) -> None:
 
 
 def load_installed_add_ons():
+    # A standalone build keeps installed add-ons beside the executable.
+    ensure_standalone_site_on_path()
     importlib.invalidate_caches()
     # A local package of the same name replaces the installed copy.
     prefer_local_add_ons_path()
@@ -141,6 +148,33 @@ def active_local_add_ons_dir() -> Path:
     return _active_local_add_ons_dir
 
 
+def _installed_site_index() -> int:
+    """Index of the environment add-ons are installed into.
+
+    A normal launch uses site-packages. A standalone build uses the directory
+    next to the executable, which is not named site-packages.
+    """
+    standalone = None
+    if is_frozen_runtime():
+        try:
+            standalone = str(standalone_site_dir().resolve())
+        except OSError:
+            standalone = None
+    for index, entry in enumerate(sys.path):
+        if not entry:
+            continue
+        if Path(entry).name == "site-packages":
+            return index
+        if standalone is None:
+            continue
+        try:
+            if str(Path(entry).resolve()) == standalone:
+                return index
+        except OSError:
+            continue
+    return len(sys.path)
+
+
 def prefer_local_add_ons_path() -> None:
     """Search the local add-on folder before site-packages.
 
@@ -154,11 +188,7 @@ def prefer_local_add_ons_path() -> None:
     folder = str(dev_folder.resolve())
     if folder in sys.path:
         sys.path.remove(folder)
-    site_indexes = [
-        index for index, entry in enumerate(sys.path)
-        if Path(entry).name == "site-packages"
-    ]
-    sys.path.insert(site_indexes[0] if site_indexes else len(sys.path), folder)
+    sys.path.insert(_installed_site_index(), folder)
     # A namespace already imported keeps its own path. Put the local tree first.
     parent = sys.modules.get("ephyr_add_ons")
     local_namespace = dev_folder / "ephyr_add_ons"

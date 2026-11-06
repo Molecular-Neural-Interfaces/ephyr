@@ -44,6 +44,14 @@ def excepthook(exc_type, exc_value, exc_tb):
 
 
 def main():
+    # A frozen build's executable is not Python. `sys.executable -m pip` used to
+    # land here and open another Ephyr window that never exited.
+    if getattr(sys, "frozen", False) and len(sys.argv) > 1 and sys.argv[1] in {"-m", "-c"}:
+        message = "Ephyr is a standalone application and cannot be used as a Python interpreter.\n"
+        if sys.stderr is not None:
+            sys.stderr.write(message)
+        raise SystemExit(2)
+
     sys.excepthook = excepthook
 
     app = QtWidgets.QApplication(sys.argv)

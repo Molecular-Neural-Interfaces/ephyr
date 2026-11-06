@@ -4,10 +4,8 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import urllib
 import html
@@ -44,6 +42,13 @@ from PyQt6.QtWidgets import (
 )
 
 from ephyr import settings
+from ephyr.core.add_ons.runtime import (
+    build_pip_command,
+    is_frozen_runtime,
+    pip_subprocess_env,
+    subprocess_kwargs,
+    uninstall_standalone_distribution,
+)
 from ephyr.core.global_storage import GlobalStorageManager
 from ephyr.gui.dialogs.loading_dialog import LoadingDialog
 from ephyr.gui.qt_ephyr_session_manager_wrapper import QtEphyrSessionManagerWrapper
@@ -482,24 +487,36 @@ class AddOnsDialog(QDialog):
         loading.raise_()
         loading.activateWindow()
         QApplication.processEvents()
-        pip_cmd = self._resolve_pip_command()
-        pip_env = self._pip_env()
-        
-        process = subprocess.run(
-            [*pip_cmd, *args],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=pip_env,
-        )
-        if process.stdout:
-            ephyr_logger().info(process.stdout)
-        if process.stderr: 
-            ephyr_logger().warning(process.stderr)
-        loading.close()
-        if process.returncode != 0:
-            details = (process.stderr or process.stdout or "Unknown error").strip()
-            raise RuntimeError(details)
+        try:
+            if is_frozen_runtime() and args and args[0] == "uninstall":
+                distribution_name = next(
+                    (arg for arg in args[1:] if arg != "-y" and not arg.startswith("-")),
+                    "",
+                )
+                if not distribution_name:
+                    raise RuntimeError("Package name is missing.")
+                uninstall_standalone_distribution(distribution_name)
+                return
+
+            command = build_pip_command(args)
+            ephyr_logger().info("Running pip: %s", " ".join(command))
+            process = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                env=pip_subprocess_env(),
+                **subprocess_kwargs(),
+            )
+            if process.stdout:
+                ephyr_logger().info(process.stdout)
+            if process.stderr:
+                ephyr_logger().warning(process.stderr)
+            if process.returncode != 0:
+                details = (process.stderr or process.stdout or "Unknown error").strip()
+                raise RuntimeError(details)
+        finally:
+            loading.close()
 
     def _on_install_toggle_clicked(self):
         item = self._selected_index_item()
@@ -549,53 +566,3 @@ class AddOnsDialog(QDialog):
             self._reload_table()
         except Exception as exc:
             QMessageBox.warning(self, "Add-ons", f"Update failed: {exc}")
-
-    def _ensure_pip(self):
-        """Ensure pip is available for current interpreter."""
-        pip_env = self._pip_env()
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "--version"],
-                check=True,
-                capture_output=True,
-                text=True,
-                env=pip_env,
-            )
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            subprocess.run(
-                [sys.executable, "-m", "ensurepip", "--upgrade"],
-                check=True,
-                env=pip_env,
-            )
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--upgrade", "pip"],
-                check=True,
-                env=pip_env,
-            )
-
-    def _pip_env(self) -> Dict[str, str]:
-        # GUI/IDE launchers may set PYTHONHOME/PYTHONPATH that break `-m pip`.
-        pip_env = dict(os.environ)
-        pip_env.pop("PYTHONHOME", None)
-        pip_env.pop("PYTHONPATH", None)
-        return pip_env
-
-    def _resolve_pip_command(self) -> List[str]:
-        self._ensure_pip()
-        pip_env = self._pip_env()
-        cmd = [sys.executable, "-m", "pip"]
-        probe = subprocess.run(
-            [*cmd, "--version"],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=pip_env,
-        )
-        if probe.returncode == 0 and not probe.stderr:
-            return cmd
-
-        pip_exe = Path(sys.executable).with_name("pip.exe")
-        if pip_exe.exists():
-            return [str(pip_exe)]
-
-        raise RuntimeError((probe.stderr or probe.stdout or "pip is unavailable").strip())
