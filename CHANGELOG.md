@@ -1,4 +1,26 @@
 
+## Version 1.0.22 (2026-11-06)
+
+
+
+  
+
+  
+### Bug Fixes
+    
+- add-ons runtime with standalone app
+    
+- pyqttools
+    
+- add-on template in package
+    
+  
+
+  
+
+  
+
+
 ## Version 1.0.19 (2026-10-30)
 
 
@@ -6,9 +28,10 @@
   
 ### Features
     
-- add border around measure bar text
-
 - add split and merge for events and periods
+    
+- add border around measure bar text
+    
   
 
   
