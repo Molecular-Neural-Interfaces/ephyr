@@ -52,7 +52,13 @@ changelog-maestro --template devtools/changelog.md.j2
 ```
 
 
-### 4. Creating a GitHub Release
+### 4. Creating a desktop standalone app
+
+```bash
+pyinstaller ./ephyr.spec --noconfirm
+```
+
+### 5. Creating a GitHub Release
 
 After successfully publishing to PyPI and updating the changelog, you need to create a new release on GitHub.
 
@@ -92,6 +98,7 @@ After running `mkdocs serve`, the documentation will be available at `http://127
 - [ ] Package uploaded to PyPI (`twine upload dist/main/*`)
 - [ ] New version verified on [pypi.org/project/ephyr](https://pypi.org/project/ephyr/)
 - [ ] `CHANGELOG.md` updated (`changelog-maestro --template devtools/changelog.md.j2`)
+- [ ] Build .exe
 - [ ] New GitHub Release created with a tag matching the version
 - [ ] Documentation built locally successfully (`mkdocs build --strict`)
 - [ ] Documentation automatically updated on Read the Docs after release publication

@@ -15,6 +15,7 @@ extra_dirs = [
 
     # include package_data for ephyr.gui = assets/*
     ('ephyr/gui/assets/*', 'ephyr/gui/assets'),
+    ('ephyr/core/add_ons/template', 'ephyr/core/add_ons/template'),
 
     # add the collected data files from dependencies
     *hdmf_datas,
