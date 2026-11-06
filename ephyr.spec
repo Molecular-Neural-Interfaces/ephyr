@@ -2,13 +2,17 @@ import sys
 import os
 sys.path.append(os.path.join(os.getcwd()))
 from ephyr.version import __version__
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_all, collect_data_files
 
 
 block_cipher = None
 
 hdmf_datas = collect_data_files('hdmf')
 pynwb_datas = collect_data_files('pynwb')
+
+# Standalone installs add-ons in-process. pip has to travel with the application,
+# including its package data, so a machine without Python can still download wheels.
+pip_datas, pip_binaries, pip_hidden = collect_all('pip')
 
 extra_dirs = [
     ('devtools/distribute/assets/ephyr.png', 'ephyr_assets/'),
@@ -25,9 +29,9 @@ extra_dirs = [
 a = Analysis(
     ['ephyr/gui/entrypoint.py'],
     pathex=[],
-    binaries=[],
-    datas=extra_dirs,
-    hiddenimports=[],
+    binaries=pip_binaries,
+    datas=extra_dirs + pip_datas,
+    hiddenimports=pip_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
 from ephyr import settings
 from ephyr.core.add_ons.runtime import (
     build_pip_command,
+    install_standalone_package,
     is_frozen_runtime,
     pip_subprocess_env,
     subprocess_kwargs,
@@ -496,6 +497,16 @@ class AddOnsDialog(QDialog):
                 if not distribution_name:
                     raise RuntimeError("Package name is missing.")
                 uninstall_standalone_distribution(distribution_name)
+                return
+
+            if is_frozen_runtime() and args and args[0] == "install":
+                package_dir = next((arg for arg in args[1:] if not arg.startswith("-")), "")
+                if not package_dir:
+                    raise RuntimeError("Add-on path is missing.")
+                install_standalone_package(
+                    Path(package_dir),
+                    upgrade="-U" in args or "--upgrade" in args,
+                )
                 return
 
             command = build_pip_command(args)

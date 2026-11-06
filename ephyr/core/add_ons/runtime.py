@@ -9,12 +9,13 @@ Add-ons still have to land in the environment that is actually running:
 
 - a virtualenv install goes into that virtualenv
 - a global install goes into that interpreter
-- a standalone build installs into a directory next to the executable
+- a standalone build has no separate Python. pip runs inside the application
+  and writes packages next to the executable, so the user does not install Python
 """
 
 from __future__ import annotations
 
-import functools
+import io
 import os
 import re
 import shutil
@@ -23,7 +24,7 @@ import subprocess
 import sys
 import urllib.parse
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Optional, Sequence
 
 
 _DIST_NAME_RE = re.compile(r"[-_.]+")
@@ -34,7 +35,6 @@ _LIBRARY_PATH_KEYS = (
     "DYLD_FALLBACK_LIBRARY_PATH",
 )
 _PIP_RETARGET_KEYS = ("PIP_TARGET", "PIP_PREFIX", "PIP_USER", "PYTHONUSERBASE")
-_DARWIN_PYTHON_STUBS = {Path("/usr/bin/python3"), Path("/usr/bin/python")}
 
 
 def is_frozen_runtime() -> bool:
@@ -93,9 +93,9 @@ def subprocess_kwargs() -> dict[str, int]:
 
 
 def build_pip_command(args: Sequence[str]) -> list[str]:
-    """``pip`` command that installs into the environment Ephyr is running in."""
-    if is_frozen_runtime() and args and args[0] == "uninstall":
-        raise RuntimeError("Standalone uninstall does not invoke pip.")
+    """``pip`` command for the interpreter that launched a non-standalone Ephyr."""
+    if is_frozen_runtime():
+        raise RuntimeError("A standalone build installs add-ons inside the application.")
 
     python = list(python_argv())
     _reject_this_application(python)
@@ -151,50 +151,205 @@ def normalize_distribution_name(name: str) -> str:
     return _DIST_NAME_RE.sub("-", name).strip("-").lower()
 
 
-@functools.lru_cache(maxsize=1)
-def python_argv() -> tuple[str, ...]:
-    """Interpreter for pip.
-
-    Outside a bundle this is the interpreter that started Ephyr, so a virtualenv
-    stays a virtualenv and a global install stays global. A bundle is not an
-    interpreter; pip then runs on a Python of the same version and installs with
-    ``--target`` next to the executable.
-    """
+def install_standalone_package(package_dir: Path, *, upgrade: bool) -> None:
+    """Install a local project into the standalone add-on directory."""
     if not is_frozen_runtime():
-        return (sys.executable,)
+        raise RuntimeError("In-process install is only used by a standalone build.")
+    install_project_into(standalone_site_dir(), Path(package_dir), upgrade=upgrade)
 
-    major, minor = sys.version_info[:2]
-    env = pip_subprocess_env()
-    this_app = Path(sys.executable).resolve()
-    exact = [f"python{major}.{minor}"]
-    generic = [f"python{major}", "python3", "python"]
-    if sys.platform == "win32":
-        exact = [f"{name}.exe" for name in exact]
-        generic = [f"{name}.exe" for name in generic]
 
-    # Exact minor first, so an older ``python3`` earlier on PATH does not hide it.
-    for names in (exact, generic):
-        for argv in _interpreter_candidates(names, this_app):
-            if _interpreter_version(argv, env) == (major, minor):
-                return argv
+def install_project_into(target: Path, package_dir: Path, *, upgrade: bool) -> None:
+    """Install a local project and its binary dependencies into ``target``.
 
-    if sys.platform == "win32":
-        py = shutil.which("py")
-        if py:
-            try:
-                resolved_py = Path(py).resolve()
-            except OSError:
-                resolved_py = None
-            if resolved_py is not None and resolved_py != this_app:
-                argv = (str(resolved_py), f"-{major}.{minor}")
-                if _interpreter_version(argv, env) == (major, minor):
-                    return argv
+    The add-on is copied in this process. Dependencies are wheels downloaded by
+    pip, also in this process. Nothing is launched with ``sys.executable``.
+    """
+    package_dir = Path(package_dir)
+    project = _read_project(package_dir)
+    name = str(project.get("name") or "").strip()
+    if not name:
+        raise RuntimeError(f"Add-on pyproject.toml has no project name: {package_dir}")
+    version = str(project.get("version") or "0.0.0").strip() or "0.0.0"
+    target.mkdir(parents=True, exist_ok=True)
+    try:
+        from ephyr.logger import ephyr_logger
 
-    version = f"{major}.{minor}"
-    raise RuntimeError(
-        f"Standalone Ephyr needs Python {version} with pip so add-ons can be installed into "
-        f"{standalone_site_dir()}. No matching interpreter was found."
-    )
+        ephyr_logger().info(
+            "Installing %s %s into %s (upgrade=%s)",
+            name,
+            version,
+            target,
+            upgrade,
+        )
+    except Exception:
+        pass
+
+    requirements = _project_requirements(project)
+    if requirements:
+        _pip_install_target(target, requirements, upgrade=True, no_deps=False)
+
+    try:
+        _uninstall_distribution_from(target, name)
+    except RuntimeError:
+        pass
+    installed = _copy_import_tree(package_dir, target)
+    _write_distribution(target, name, version, project, installed)
+
+
+def _read_project(package_dir: Path) -> dict:
+    pyproject = package_dir / "pyproject.toml"
+    if not pyproject.is_file():
+        raise RuntimeError(f"Add-on has no pyproject.toml: {package_dir}")
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+    with pyproject.open("rb") as handle:
+        parsed = tomllib.load(handle)
+    project = parsed.get("project")
+    if not isinstance(project, dict):
+        raise RuntimeError(f"Add-on pyproject.toml has no [project] table: {package_dir}")
+    project["_entry_points"] = parsed.get("project", {}).get("entry-points", {}) or {}
+    return project
+
+
+def _project_requirements(project: dict) -> list[str]:
+    """Dependencies pip should download. Ephyr itself is already the running app."""
+    from packaging.requirements import Requirement
+
+    requirements: list[str] = []
+    for raw in project.get("dependencies") or []:
+        req = Requirement(str(raw))
+        if req.marker is not None and not req.marker.evaluate():
+            continue
+        if normalize_distribution_name(req.name) == "ephyr":
+            continue
+        extras = f"[{','.join(sorted(req.extras))}]" if req.extras else ""
+        requirements.append(f"{req.name}{extras}{req.specifier}")
+    return requirements
+
+
+_SKIP_IMPORT_DIRS = {
+    ".git", ".hg", ".svn", "build", "dist", "__pycache__",
+    "tests", "test", ".venv", "venv", "node_modules",
+}
+
+
+def _import_root(package_dir: Path) -> Path:
+    src = package_dir / "src"
+    if (src / "ephyr_add_ons").exists():
+        return src
+    return package_dir
+
+
+def _copy_import_tree(package_dir: Path, target: Path) -> list[Path]:
+    root = _import_root(package_dir)
+    copied: list[Path] = []
+    for child in sorted(root.iterdir(), key=lambda path: path.name):
+        if child.name in _SKIP_IMPORT_DIRS or child.name.startswith("."):
+            continue
+        if child.name.endswith((".egg-info", ".dist-info")):
+            continue
+        if child.is_file() and child.suffix != ".py":
+            continue
+        if child.is_dir() and not _contains_python(child):
+            continue
+        destination = target / child.name
+        if child.is_dir():
+            copied.extend(_copy_tree(child, destination))
+        else:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(child, destination)
+            copied.append(destination)
+    if not copied:
+        raise RuntimeError(f"Add-on has no Python modules to install: {package_dir}")
+    return copied
+
+
+def _contains_python(directory: Path) -> bool:
+    return any(path.suffix == ".py" for path in directory.rglob("*.py"))
+
+
+def _copy_tree(source: Path, destination: Path) -> list[Path]:
+    copied: list[Path] = []
+    for path in sorted(source.rglob("*"), key=lambda item: item.as_posix()):
+        if "__pycache__" in path.parts or path.suffix == ".pyc":
+            continue
+        relative = path.relative_to(source)
+        output = destination / relative
+        if path.is_dir():
+            output.mkdir(parents=True, exist_ok=True)
+            continue
+        if not path.is_file():
+            continue
+        output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, output)
+        copied.append(output)
+    return copied
+
+
+def _write_distribution(
+        target: Path,
+        name: str,
+        version: str,
+        project: dict,
+        installed: Sequence[Path],
+) -> None:
+    dist_name = re.sub(r"[-_.]+", "_", name).strip("_").lower()
+    dist_info = target / f"{dist_name}-{version}.dist-info"
+    if dist_info.exists():
+        shutil.rmtree(dist_info)
+    dist_info.mkdir(parents=True)
+    metadata = [
+        "Metadata-Version: 2.1",
+        f"Name: {name}",
+        f"Version: {version}",
+    ]
+    summary = str(project.get("description") or "").strip()
+    if summary:
+        metadata.append(f"Summary: {summary}")
+    for requirement in project.get("dependencies") or []:
+        metadata.append(f"Requires-Dist: {requirement}")
+    (dist_info / "METADATA").write_text("\n".join(metadata) + "\n", encoding="utf-8")
+    entry_points = project.get("_entry_points") or {}
+    if isinstance(entry_points, dict) and entry_points:
+        lines: list[str] = []
+        for group, mapping in entry_points.items():
+            if not isinstance(mapping, dict):
+                continue
+            lines.append(f"[{group}]")
+            for entry_name, value in mapping.items():
+                lines.append(f"{entry_name} = {value}")
+            lines.append("")
+        (dist_info / "entry_points.txt").write_text("\n".join(lines), encoding="utf-8")
+    recorded = [path for path in installed if path.is_file()]
+    recorded.extend(path for path in dist_info.iterdir() if path.is_file())
+    record_path = dist_info / "RECORD"
+    lines = [_record_line(target, path) for path in recorded]
+    lines.append(f"{_relative_posix(target, record_path)},,")
+    record_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _record_line(root: Path, path: Path) -> str:
+    import base64
+    import hashlib
+
+    payload = path.read_bytes()
+    digest = base64.urlsafe_b64encode(hashlib.sha256(payload).digest()).decode("ascii").rstrip("=")
+    return f"{_relative_posix(root, path)},sha256={digest},{len(payload)}"
+
+
+def _relative_posix(root: Path, path: Path) -> str:
+    return path.resolve().relative_to(root.resolve()).as_posix()
+
+
+def python_argv() -> tuple[str, ...]:
+    """Interpreter for pip when Ephyr itself was started by Python."""
+    if is_frozen_runtime():
+        raise RuntimeError(
+            "A standalone build installs add-ons inside the application and does not launch Python."
+        )
+    return (sys.executable,)
 
 
 def _pip_prefix(python: Sequence[str], env: dict[str, str]) -> list[str]:
@@ -217,21 +372,18 @@ def _pip_prefix(python: Sequence[str], env: dict[str, str]) -> list[str]:
         details = (bootstrap.stderr or bootstrap.stdout or "pip is unavailable").strip()
         raise RuntimeError(details)
 
-    # The application interpreter had no pip. Bring that environment's pip up
-    # to date once, and leave an external interpreter used by a standalone
-    # build alone.
-    if not is_frozen_runtime():
-        upgrade = subprocess.run(
-            [*python, "-m", "pip", "install", "--upgrade", "pip"],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-            **subprocess_kwargs(),
-        )
-        if upgrade.returncode != 0:
-            details = (upgrade.stderr or upgrade.stdout or "failed to upgrade pip").strip()
-            raise RuntimeError(details)
+    # This interpreter had no pip. Install it into that same environment.
+    upgrade = subprocess.run(
+        [*python, "-m", "pip", "install", "--upgrade", "pip"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        **subprocess_kwargs(),
+    )
+    if upgrade.returncode != 0:
+        details = (upgrade.stderr or upgrade.stdout or "failed to upgrade pip").strip()
+        raise RuntimeError(details)
     return [*python, "-m", "pip"]
 
 
@@ -268,31 +420,6 @@ def _command_runs(command: Sequence[str], env: dict[str, str]) -> bool:
     return process.returncode == 0
 
 
-def _interpreter_version(argv: Sequence[str], env: dict[str, str]) -> Optional[tuple[int, int]]:
-    _reject_this_application(argv)
-    try:
-        process = subprocess.run(
-            [*argv, "-c", "import sys; print(sys.version_info[0], sys.version_info[1])"],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-            timeout=20,
-            **subprocess_kwargs(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if process.returncode != 0:
-        return None
-    parts = process.stdout.split()
-    if len(parts) < 2:
-        return None
-    try:
-        return int(parts[0]), int(parts[1])
-    except ValueError:
-        return None
-
-
 def _reject_this_application(argv: Sequence[str]) -> None:
     if not argv or not is_frozen_runtime():
         return
@@ -307,102 +434,59 @@ def _reject_this_application(argv: Sequence[str]) -> None:
         )
 
 
-def _search_directories() -> list[Path]:
-    seen: set[Path] = set()
-    directories: list[Path] = []
-    raw_entries = [Path(entry) for entry in os.environ.get("PATH", "").split(os.pathsep) if entry]
-    raw_entries.extend(_extra_interpreter_dirs())
-    for directory in raw_entries:
-        if not directory.is_dir():
-            continue
-        try:
-            resolved = directory.resolve()
-        except OSError:
-            continue
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        directories.append(directory)
-    return directories
+def _pip_install_target(
+        target: Path,
+        arguments: Sequence[str],
+        *,
+        upgrade: bool,
+        no_deps: bool,
+) -> None:
+    from pip._internal.cli.main import main as pip_main
 
-
-def _interpreter_candidates(names: Sequence[str], this_app: Path) -> Iterable[tuple[str, ...]]:
-    seen: set[Path] = set()
-    for directory in _search_directories():
-        for name in names:
-            candidate = directory / name
-            if sys.platform == "darwin" and candidate in _DARWIN_PYTHON_STUBS:
-                continue
-            if not candidate.is_file() or not os.access(candidate, os.X_OK):
-                continue
-            try:
-                resolved = candidate.resolve()
-            except OSError:
-                continue
-            if resolved == this_app or resolved in seen:
-                continue
-            seen.add(resolved)
-            yield (str(resolved),)
-
-
-def _extra_interpreter_dirs() -> Iterable[Path]:
-    """Places a GUI launch (short PATH) can still find a matching Python."""
-    major, minor = sys.version_info[:2]
-    home = Path.home()
-    directories: list[Path] = [
-        home / ".local" / "bin",
-        *_versioned_interpreter_bins(home / ".pyenv" / "versions", f"{major}.{minor}"),
-        *_versioned_interpreter_bins(home / ".asdf" / "installs" / "python", f"{major}.{minor}"),
-        *_uv_interpreter_bins(home / ".local" / "share" / "uv" / "python", major, minor),
+    args = [
+        "install",
+        "--disable-pip-version-check",
+        "--no-input",
+        "--no-warn-script-location",
+        "--target",
+        str(target),
     ]
-    if sys.platform == "darwin":
-        directories.extend((
-            Path(f"/opt/homebrew/opt/python@{major}.{minor}/bin"),
-            Path("/opt/homebrew/bin"),
-            Path(f"/usr/local/opt/python@{major}.{minor}/bin"),
-            Path("/usr/local/bin"),
-            Path(f"/Library/Frameworks/Python.framework/Versions/{major}.{minor}/bin"),
-            home / f"Library/Frameworks/Python.framework/Versions/{major}.{minor}/bin",
-            *_uv_interpreter_bins(home / "Library" / "Application Support" / "uv" / "python", major, minor),
-        ))
-    elif sys.platform == "win32":
-        local = os.environ.get("LOCALAPPDATA")
-        if local:
-            directories.append(Path(local) / "Programs" / "Python" / f"Python{major}{minor}")
-        directories.append(home / "AppData" / "Local" / "Programs" / "Python" / f"Python{major}{minor}")
-        directories.append(Path(f"C:/Python{major}{minor}"))
+    if upgrade:
+        args.append("--upgrade")
+    if no_deps:
+        args.append("--no-deps")
     else:
-        directories.extend((Path("/usr/local/bin"), Path("/usr/bin")))
-    return directories
+        # A source distribution would spawn the frozen executable to build it.
+        args.extend(["--only-binary", ":all:"])
+    args.extend(arguments)
+
+    _ensure_stdio()
+    output = io.StringIO()
+    from contextlib import redirect_stderr, redirect_stdout
+
+    with redirect_stdout(output), redirect_stderr(output):
+        try:
+            code = pip_main(list(args))
+        except SystemExit as exc:
+            code = exc.code
+    text = output.getvalue().strip()
+    if text:
+        try:
+            from ephyr.logger import ephyr_logger
+
+            ephyr_logger().info(text)
+        except Exception:
+            pass
+    if code not in (0, None):
+        raise RuntimeError(text or f"pip exited with status {code}")
 
 
-def _versioned_interpreter_bins(root: Path, version_prefix: str) -> list[Path]:
-    if not root.is_dir():
-        return []
-    bins: list[Path] = []
-    try:
-        children = list(root.iterdir())
-    except OSError:
-        return []
-    for child in children:
-        if child.name == version_prefix or child.name.startswith(version_prefix + "."):
-            bins.append(child / "bin")
-    return bins
-
-
-def _uv_interpreter_bins(root: Path, major: int, minor: int) -> list[Path]:
-    if not root.is_dir():
-        return []
-    token = f"{major}.{minor}"
-    bins: list[Path] = []
-    try:
-        children = list(root.iterdir())
-    except OSError:
-        return []
-    for child in children:
-        if token in child.name:
-            bins.append(child / "bin")
-    return bins
+def _ensure_stdio() -> None:
+    # A windowed standalone build has no console. pip writes to stdout.
+    if sys.stdout is None:
+        sys.stdout = io.StringIO()
+    if sys.stderr is None:
+        sys.stderr = io.StringIO()
 
 
 def _frozen_library_roots() -> list[str]:
