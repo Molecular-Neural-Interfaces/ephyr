@@ -29,6 +29,17 @@ add_on_development/
 - **Transform** adds that sine to the selected channels.
 - **View** draws the same sine on those channels.
 
+A Transformation add-on implements:
+
+```python
+def transform(self, channel_idx: int, channel_data: np.ndarray, sample_rate: float) -> np.ndarray:
+    ...
+```
+
+Ephyr calls `transform` once per channel that `applicable(channel_idx)` accepts, after int16→physical
+conversion and before channel-group filters. `channel_idx` is the source channel index. Return the
+transformed samples at the same length as `channel_data`.
+
 Edit that class for your own tool. Metadata and the `ephyr.add_ons` entry point are
 declared in `pyproject.toml`.
 

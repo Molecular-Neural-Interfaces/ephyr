@@ -354,13 +354,15 @@ class ExampleAddOn(EphyrAddOnMixin, BaseAddOn):
             return False
         return int(channel_idx) in self._settings().channels
 
-    def transform(self, channel_data: np.ndarray, sample_rate: float):
+    def transform(self, channel_idx: int, channel_data: np.ndarray, sample_rate: float):
         if not self.TRANSFORMATION:
             return channel_data
         data = np.asarray(channel_data, dtype=np.float64)
         if data.size == 0:
             return data
         settings = self._settings()
+        if int(channel_idx) not in settings.channels:
+            return data
         wave = self.sine_values(
             int(data.size),
             float(sample_rate),

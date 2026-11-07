@@ -22,7 +22,7 @@ class TransformationAddOn:
     TRANSFORMATION = False
     REQUIRED_SAMPLE_RATE = 0.0
 
-    def transform(self, channel_data: np.ndarray, sample_rate: float):
+    def transform(self, channel_idx: int, channel_data: np.ndarray, sample_rate: float):
         if not self.TRANSFORMATION:
             return channel_data
 

@@ -838,7 +838,7 @@ class RecordData:
 
         # Transform before filtration
         for add_on in transformation_add_ons:
-            channel_data = add_on.transform(channel_data, sample_rate)
+            channel_data = add_on.transform(channel_idx, channel_data, sample_rate)
 
         # Apply filters in sequence for the current channel group.
         if filters:

@@ -26,7 +26,7 @@ flowchart LR
 
 1. Raw int16 samples are read from `sources/<source_id>/channel_N.samples`.
 2. Values are converted to voltage for display.
-3. Enabled **Transformation** add-ons reshape those samples per channel (when applicable).
+3. Enabled **Transformation** add-ons receive `(channel_idx, channel_data, sample_rate)` and reshape those samples per channel (when applicable).
 4. Channel-group filters run next.
 5. The result is downsampled into the display buffer drawn as traces.
 6. **Viewable** add-ons paint additional graphics on top (or underneath, depending on z-index).
