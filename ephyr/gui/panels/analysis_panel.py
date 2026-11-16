@@ -171,14 +171,14 @@ class AnalysisPanel(QWidget):
         label = QLabel(self._entry_label(module_name, add_on))
         row_layout.addWidget(label, 1)
 
-        view_cb = QCheckBox("View")
+        view_cb = QCheckBox("Add to display")
         view_supported = bool(add_on and getattr(add_on, "VIEWABLE", False))
         view_cb.setChecked(bool(setup.view_enabled))
         view_cb.setEnabled(view_supported)
         view_cb.toggled.connect(lambda checked, m=module_name: self._session_manager.set_add_on_view_enabled(m, checked))
         row_layout.addWidget(view_cb)
 
-        transform_cb = QCheckBox("Transform")
+        transform_cb = QCheckBox("Built-in process")
         transform_supported = bool(add_on and getattr(add_on, "TRANSFORMATION", False))
         transform_cb.setChecked(bool(setup.transform_enabled))
         transform_cb.setEnabled(transform_supported)
