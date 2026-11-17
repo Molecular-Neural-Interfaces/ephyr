@@ -15,6 +15,10 @@ Fully open-source and built in Python, the platform provides a flexible API for 
 
 **Documentation:** [https://ephyr.readthedocs.io/](https://ephyr.readthedocs.io/)
 
+> **IMPORTANT:** Source-format converters are not yet covered by unit tests for edge cases. 
+> We plan to add this coverage. 
+> Until then, please validate converted data and use the application at your own risk.
+
 ## Citation
 
 ### Software
