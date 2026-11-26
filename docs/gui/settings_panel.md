@@ -1,4 +1,4 @@
-# Settings Panel
+# Session Panel
 
 The right-hand session panel holds tools that configure the view, describe the experiment, run add-ons,
 and inspect logs. Show or hide individual sections from **View → Session Panel**, or use **Hide/Show session panel** in

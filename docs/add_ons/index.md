@@ -1,15 +1,15 @@
 # Add-ons Workflow
 
-Add-ons extend Ephyr without changing the core application. Each add-on is a Python class that can
-enable any combination of three capabilities:
+Add-ons extend Ephyr without modifying its core code, providing an extensible system for integrating specialized analytical tools. 
+Each add-on can independently implement or combine three capabilities:
 
 | Type | What it does | Where it fits |
-|------|----------------|---------------|
-| **Transformation** | Changes the numeric samples used for display | Inside the display data pipeline, after int16→voltage conversion and **before** channel-group filters |
-| **Viewable** | Draws overlays on the signal panel | In the paint stack, layered with traces, periods, and events according to a z-index |
-| **Runnable** | Runs an interactive or batch tool when you click **Run** | Outside the continuous redraw loop; reads the session and data, may write under `add_ons/data/<module>/`, and may open dialogs |
+|------|--------------|---------------|
+| **Execution** | Launches pre-configured processing routines to analyze session data, save results, or display them in a separate window | Initiated manually from the Add-on sub-panel of the Session panel, with optional configuration dialogs |
+| **Transformation** | Modifies data after raw data conversion or reading and before preparation and visualization | Inside the data workflow, allowing previously generated results or custom processing routines to be applied during visualization |
+| **Rendering** | Displays graphical overlays based on add-on outputs | In the Data panel, with configurable z-index positioning relative to traces, events, and periods |
 
-One package can combine capabilities (for example Runnable + Viewable).
+Add-ons can be developed and distributed independently of Ephyr, then installed from the add-on repository and made available across sessions. Their capabilities can operate independently or interact with each other's results: Execution can generate analytical outputs, Transformation can use these outputs to modify data during visualization, and Rendering can represent the results as graphical objects.
 
 ## Logical data flow
 

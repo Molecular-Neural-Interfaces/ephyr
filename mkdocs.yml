@@ -21,8 +21,8 @@ nav:
   - Graphic User Interface:
       - Main Window: gui/index.md
       - Menu: gui/menu.md
-      - Signal Panel: gui/signal_panel.md
-      - Settings Panel: gui/settings_panel.md
+      - Data Panel: gui/signal_panel.md
+      - Session Panel: gui/settings_panel.md
   - Add-ons:
       - Workflow: add_ons/index.md
       - Usage: add_ons/usage.md
