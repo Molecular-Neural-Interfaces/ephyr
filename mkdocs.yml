@@ -19,10 +19,11 @@ nav:
   - Installation: installation.md
   - Files Format: files_format.md
   - Graphic User Interface:
-      - Main Window: gui/index.md
-      - Menu: gui/menu.md
+      - Main window: gui/index.md
       - Data Panel: gui/signal_panel.md
       - Session Panel: gui/settings_panel.md
+      - Menu Panel: gui/menu.md
+      - Toolbar Panel: gui/toolbar.md
   - Add-ons:
       - Workflow: add_ons/index.md
       - Usage: add_ons/usage.md
