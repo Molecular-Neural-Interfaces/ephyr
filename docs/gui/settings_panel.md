@@ -64,8 +64,6 @@ laid out on screen.
 | **Groups layout**             | **Expert only** | Opens an N×N grid (N is the number of groups). Click a group on the board, then click the cell to move it to, and set row and column ratios. Disabled in Beginner mode. |
 | **Set units**                 | **Expert only** | Opens header units management so you can change voltage units for selected channels. Disabled in Beginner mode. |
 
-![Groups layout dialog](../source/_static/gui/groups_layout.png)
-
 ### Groups layout
 
 **Groups layout** opens an N×N grid, where N is the number of channel groups. Click a group on the board to select it, then click the cell to move it to. Each group occupies one cell; clicking an occupied cell swaps the two groups. After a move, the selection is cleared, so the next move starts by selecting a group again. Click the selected group a second time to cancel the selection without moving it.
@@ -75,6 +73,8 @@ The spin box to the left of a row is its **height ratio**, and the spin box abov
 On the signal panel, groups that share a row are drawn side by side, and **width ratio** splits that row between them. Unoccupied cells are filled along the row and do not leave a gap. A group that is the only one in its row stretches across the full width. For example, two groups in the top row and one group in the row below: the lower group spans the whole row. **Height ratio** is that row's share of the vertical space; the row uses the largest height ratio among its groups.
 
 **Reset** stacks every group in the first column with ratios of 1. Nothing is applied until you press **Save**.
+
+![Groups layout dialog](../source/_static/gui/groups_layout.png)
 
 ### Per-group tabs
 

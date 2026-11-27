@@ -1,4 +1,4 @@
-# Menu
+# Menu Panel
 
 The menu bar provides access to the main application actions. Items that require an open session become enabled once 
 a Record is opened.
